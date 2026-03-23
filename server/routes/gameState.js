@@ -27,9 +27,19 @@ router.post('/save', async (req, res) => {
     };
 
     try {
+        console.log('Received save request for gameId:', gameId);
+        // Log a short preview of the payload (avoid spamming full conversation in prod)
+        console.log('Save payload preview:', {
+            gameId,
+            summary: summary ? summary.slice(0, 200) : '',
+            totalTokenCount,
+            userAndAssistantMessageCount,
+        });
+
         // Find and update the game state by gameId, or create a new one if it doesn't exist
         let gameState = await GameState.findOneAndUpdate({ gameId }, update, { new: true, upsert: true });
-        
+
+        console.log('Saved game state _id:', gameState?._id);
         res.json(gameState);
     } catch (err) {
         console.error(err);

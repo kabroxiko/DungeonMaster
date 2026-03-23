@@ -10,7 +10,8 @@
     <div class="chat-room">
         <div class="chat-messages">
             <div v-for="(message, index) in messages" :key="index" class="chat-message">
-                <strong>{{ message.user }}:</strong> {{ message.text }}
+                <strong>{{ message.user }}:</strong>
+                <div class="message-content" v-html="renderMarkdown(message.text)"></div>
             </div>
         </div>
         <form @submit.prevent="submitMessage">
@@ -26,6 +27,8 @@
 </template>
 
 <script>import axios from 'axios';
+import MarkdownIt from 'markdown-it';
+const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
     import NotePanel from './NotePanel.vue';
     import summaryPrompt from '@/prompts/summaryPrompt.txt';
 
@@ -70,6 +73,15 @@
         },
 
         methods: {
+            renderMarkdown(text) {
+                if (!text) return '';
+                try {
+                    return md.render(text);
+                } catch (e) {
+                    console.error('Markdown render error:', e);
+                    return text;
+                }
+            },
 
             incrementTokenCount(message) {
                 const tokenCountForMessage = Math.ceil(message.length / 4);
@@ -192,6 +204,30 @@
                     this.newMessage = "";
                 }
             },
+            
+            // Generate an initial AI message using the current conversation (used when entering a new game)
+            async generateInitialMessage() {
+                try {
+                    const messagesToSend = this.conversation.slice(-this.ContextLength * 2);
+                    const response = await axios.post('http://localhost:5001/api/game-session/generate', {
+                        messages: messagesToSend
+                    });
+                    const aiMessageContent = typeof response.data === 'string' ? response.data : (response.data?.text || JSON.stringify(response.data));
+
+                    const aiMessage = {
+                        role: 'assistant',
+                        content: aiMessageContent,
+                    };
+                    this.conversation.push(aiMessage);
+                    this.summaryConversation.push(aiMessage);
+                    this.messages.push({ user: "GameMaster.AI", text: aiMessageContent });
+
+                    // Save the updated state
+                    this.saveGameState();
+                } catch (err) {
+                    console.error('Error generating initial AI message:', err);
+                }
+            },
             tryAgain() {
                 this.errorMessage = null;
                 this.submitMessage(); // Retry sending the message
@@ -253,6 +289,13 @@
                             text: content,
                         }));
 
+                    // If there are no visible messages (only a system prompt exists), generate an initial AI message
+                    const hasOnlySystem = this.conversation.length === 1 && this.conversation[0]?.role === 'system';
+                    if (this.messages.length === 0 && hasOnlySystem) {
+                        // fire-and-forget initial generation
+                        this.generateInitialMessage();
+                    }
+
                 } catch (error) {
                     console.error('Error loading game state:', error);
                 }
@@ -292,5 +335,10 @@
     .error-message {
         color: red;
         margin: 1rem 0;
+    }
+    .message-content {
+        text-align: justify;
+        white-space: pre-wrap; /* preserve newlines */
+        word-break: break-word;
     }
 </style>

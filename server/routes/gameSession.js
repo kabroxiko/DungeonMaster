@@ -1,8 +1,10 @@
 //GMAI/server/routes/gameSession.js
 
 const express = require('express');
-const axios = require('axios');
 const router = express.Router();
+const { generateResponse } = require('../openai-api');
+
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
 
 // Route to generate AI Dungeon Master and campaign generating responses
 router.post('/generate', async (req, res) => {
@@ -12,31 +14,17 @@ router.post('/generate', async (req, res) => {
     console.log('AI DM Processing the following messages');
     console.log(messages);
 
-    // Make a POST request to the OpenAI API for the AI DM
+    // Use central generateResponse (handles model selection and fallbacks)
     try {
-        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-4',
-            messages: messages,
-            max_tokens: 300,
-            temperature: 0.8
-        }, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        // Extract the AI's message from the response   
-        const aiMessage = response.data.choices[0].message.content.trim();
+        const aiMessage = await generateResponse({ messages }, { max_tokens: 300, temperature: 0.8 });
+        if (!aiMessage) {
+            return res.status(500).json({ error: 'AI response was empty or failed (see server logs).' });
+        }
         console.log('AI DM processed:', aiMessage);
-
-
-        // Send the AI's message back as the response 
         res.json(aiMessage);
     } catch (error) {
-        console.error('Error generating text:', error.response ? error.response.data : error);
-        let errorMessage = error.response ? error.response.data : error.message;
-        res.status(500).json({ error: `Error generating text: ${errorMessage}` });
+        console.error('Error generating text:', error);
+        res.status(500).json({ error: `Error generating text: ${String(error)}` });
     }
 });
 
@@ -48,29 +36,15 @@ router.post('/generate-campaign', async (req, res) => {
     console.log('Prepper is Processing the following messages');
     console.log(messages);
 
-    // Make a POST request to the OpenAI API for the AI DM
     try {
-        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-3.5-turbo',
-            messages: messages,
-            max_tokens: 400,
-            temperature: 0.8
-        }, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        // Extract the AI's message from the response  
-        const aiMessage = response.data.choices[0].message.content.trim();
-
-        // Send the AI's message back as the response 
+        const aiMessage = await generateResponse({ messages }, { max_tokens: 400, temperature: 0.8 });
+        if (!aiMessage) {
+            return res.status(500).json({ error: 'AI response was empty or failed (see server logs).' });
+        }
         res.json(aiMessage);
     } catch (error) {
-        console.error('Error generating text:', error.response ? error.response.data : error);
-        let errorMessage = error.response ? error.response.data : error.message;
-        res.status(500).json({ error: `Error generating text: ${errorMessage}` });
+        console.error('Error generating text:', error);
+        res.status(500).json({ error: `Error generating text: ${String(error)}` });
     }
 });
 
@@ -82,28 +56,14 @@ router.post('/generate-summary', async (req, res) => {
         //console.log("AI notetaker is processing the following:");
         //console.log(messages);
 
-        // Make a POST request to the Notetaker AI API
-        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: 'gpt-3.5-turbo',
-            messages: messages,
-            max_tokens: 150,
-            temperature: 0.8
-        }, {
-            headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        // Extract the AI's message from the response  
-        const aiSummary = response.data.choices[0].message.content.trim();
-
-        // Send the AI's summary back as the response
+        const aiSummary = await generateResponse({ messages }, { max_tokens: 150, temperature: 0.8 });
+        if (!aiSummary) {
+            return res.status(500).json({ error: 'AI summary was empty or failed (see server logs).' });
+        }
         res.json(aiSummary);
     } catch (error) {
-        console.error('Error generating text:', error.response ? error.response.data : error);
-        let errorMessage = error.response ? error.response.data : error.message;
-        res.status(500).json({ error: `Error generating text: ${errorMessage}` });
+        console.error('Error generating text:', error);
+        res.status(500).json({ error: `Error generating text: ${String(error)}` });
     }
 
 });

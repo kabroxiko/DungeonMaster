@@ -114,6 +114,26 @@
             this.$store.commit('setSystemMessageContentDM', systemMessageContentDM);
 
             const gameId = this.$store.state.gameId;
+            // Save initial game state to backend so the new game is persisted immediately
+            const initialState = {
+                gameId: gameId,
+                userId: this.$store.state.userId || null,
+                gameSetup: this.$store.state.gameSetup,
+                conversation: [{ role: 'system', content: systemMessageContentDM }],
+                summaryConversation: [],
+                summary: '',
+                totalTokenCount: 0,
+                userAndAssistantMessageCount: 0,
+                systemMessageContentDM: systemMessageContentDM
+            };
+
+            try {
+                await axios.post('/api/game-state/save', initialState);
+                console.log('Initial game saved', initialState);
+            } catch (err) {
+                console.error('Error saving initial game state:', err);
+            }
+
             this.$router.push({ name: 'ChatRoom', params: { id: gameId } });
         }
     }
