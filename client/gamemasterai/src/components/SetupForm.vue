@@ -21,6 +21,13 @@
             </select>
         </div>
         <div>
+            <label for="language-select">Language:</label>
+            <select id="language-select" v-model="formData.language">
+                <option value="English">English</option>
+                <option value="Spanish">Spanish</option>
+            </select>
+        </div>
+        <div>
             <label for="character-name">Character Name:</label>
             <input id="character-name" v-model="formData.characterName" type="text">
         </div>
@@ -73,7 +80,9 @@
                     characterClass: '',
                     characterRace: '',
                     characterLevel: '',
-                    characterBackground: ''
+                    characterBackground: '',
+                    language: 'English',
+                    customDMContent: ''
                 }
             };
         },
@@ -84,8 +93,14 @@
         const prompt = "Write a brief, 2 sentence adventure prompt for a new D&D adventure. Use the following to inform this:" + this.adventureSettingPrompts[this.formData.adventureSetting].default + 'Player Character name: ' + this.formData.characterName + ', Player Charactre Class: ' + this.formData.characterClass + ', Player Character Race: ' + this.formData.characterRace + ', Player Character Starting Level:' + this.formData.characterLevel + '. Player Character Background: ' + this.formData.characterBackground;
 
         try {
+            const messagesToSend = [];
+            if (this.formData.language === 'Spanish') {
+                messagesToSend.push({ role: 'system', content: 'Por favor responde en español. Responde todas las interacciones en español.' });
+            }
+            messagesToSend.push({ role: "user", content: prompt });
+
             const response = await axios.post('http://localhost:5001/api/game-session/generate-campaign', {
-                messages: [{ role: "user", content: prompt }],
+                messages: messagesToSend,
             });
 
             return response.data;
@@ -108,6 +123,11 @@
                 // Generate the campaign concept as before
                 const campaignConcept = await this.generateCampaignConcept();
                 systemMessageContentDM = this.gameSystemPrompts[this.formData.gameSystem].default + campaignConcept + 'Assume the player knows nothing. Allow for an organic introduction of information.';
+            }
+
+            // If language is Spanish, instruct the AI to respond in Spanish
+            if (this.formData.language === 'Spanish') {
+                systemMessageContentDM = systemMessageContentDM + '\n\nPor favor responde en español. Responde todas las interacciones en español.';
             }
 
             // Set the system message content DM

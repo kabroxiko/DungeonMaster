@@ -2,7 +2,7 @@
 
 <template>
     <h1 class="chat-room-title">GameMaster.AI - Chat</h1>
-    <h4 class="chat-room-subtitle">You can now chat with an AI Game Master. Have fun!</h4>
+    <h4 class="chat-room-subtitle">{{ language === 'Spanish' ? 'Ahora puedes chatear con un Maestro de Juego de IA. ¡Diviértete!' : 'You can now chat with an AI Game Master. Have fun!' }}</h4>
     <div v-if="errorMessage" class="error-message">
         <p>Error: {{ errorMessage }}</p>
         <button @click="tryAgain">Try again</button>
@@ -15,12 +15,12 @@
             </div>
         </div>
         <form @submit.prevent="submitMessage">
-            <input type="text" v-model="newMessage" placeholder="Type your message here..." />
-            <button type="submit">Send</button>
+            <input type="text" v-model="newMessage" :placeholder="language === 'Spanish' ? 'Escribe tu mensaje aquí...' : 'Type your message here...'" />
+            <button type="submit">{{ language === 'Spanish' ? 'Enviar' : 'Send' }}</button>
         </form>
         <h1 class="notetaker-title">Notetaker.AI</h1>
-        <h4 class="notetaker-subtitle">A summary of your adventure will update here automatically!</h4>
-        <h4 class="notetaker-subtitle-editing">You may edit this summary to adjust what GameMaster.AI takes into consideration over time. These edits will take effect the next time the summary updates.</h4>
+        <h4 class="notetaker-subtitle">{{ language === 'Spanish' ? 'Un resumen de tu aventura se actualizará aquí automáticamente.' : 'A summary of your adventure will update here automatically!' }}</h4>
+        <h4 class="notetaker-subtitle-editing">{{ language === 'Spanish' ? 'Puedes editar este resumen para ajustar lo que GameMaster.AI toma en cuenta con el tiempo. Estos cambios surtirán efecto la próxima vez que se actualice el resumen.' : 'You may edit this summary to adjust what GameMaster.AI takes into consideration over time. These edits will take effect the next time the summary updates.' }}</h4>
 
         <NotePanel :summary="summary" @update-summary="updateSummaryInChatRoom" />
     </div>
@@ -41,6 +41,7 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                 summaryPrompt,
                 // Initial state for the component
                 newMessage: "", // Holds the current message being typed
+                language: 'English',
                 messages: [], // Array to hold all the chat messages
                 conversation: [], // Array to hold all conversation data
                 summaryConversation: [], // Array to hold all summary conversation data
@@ -56,6 +57,9 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
         },
         created() {
             console.log('this.$route.params.id:', this.$route.params.id); // This should log the gameId or undefined
+
+            // Initialize language from store (set during setup)
+            this.language = (this.$store.state.gameSetup && this.$store.state.gameSetup.language) || 'English';
 
             // check if a gameId is provided in the route
             if (this.$route.params.id) {
@@ -93,17 +97,25 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                 try {
                     this.errorMessage = null; // Clear the error message
 
-                    // Prepare an array of last ContextLength number of messages  
-                    const lastSummaryMessages = this.summaryConversation.slice(-(this.ContextLength * 2));
+                    // Prepare an array of last ContextLength number of messages
+                    let lastSummaryMessages = this.summaryConversation.slice(-(this.ContextLength * 2));
 
-                    // Increment token count based on the messages read by the AI 
+                    // Filter out system messages to avoid including long system prompts in the summary input
+                    lastSummaryMessages = lastSummaryMessages.filter(m => m.role !== 'system');
+
+                    // Increment token count based on the messages read by the AI
                     lastSummaryMessages.forEach(message => {
                         this.incrementTokenCount(message.content);
                     });
 
+                    // Build the summary instruction; use a Spanish version when language is Spanish
+                    const summaryInstruction = this.language === 'Spanish'
+                        ? '*Todo lo anterior fue una transcripción de una partida de rol. Resume los eventos descritos en esta transcripción. Sé conciso (menos de 75 palabras) y objetivo. Toma nota de personajes, lugares y objetos importantes. Usa tercera persona.*'
+                        : this.summaryPrompt;
+
                     const summaryRequest = {
                         role: 'system',
-                        content: this.summaryPrompt,
+                        content: summaryInstruction,
                     };
 
                     const messagesToSend = [...lastSummaryMessages, summaryRequest];
@@ -161,8 +173,14 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                             this.incrementTokenCount(message.content);
                         });
 
+                        // Prepend language system message when Spanish is selected
+                        const messagesToSend = lastMessages.slice();
+                        if (this.language === 'Spanish') {
+                            messagesToSend.unshift({ role: 'system', content: 'Por favor responde en español. Responde todas las interacciones en español.' });
+                        }
+
                         const response = await axios.post('http://localhost:5001/api/game-session/generate', {
-                            messages: lastMessages
+                            messages: messagesToSend
                         });
                         const aiMessageContent = response.data;
 
@@ -209,6 +227,9 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
             async generateInitialMessage() {
                 try {
                     const messagesToSend = this.conversation.slice(-this.ContextLength * 2);
+                    if (this.language === 'Spanish') {
+                        messagesToSend.unshift({ role: 'system', content: 'Por favor responde en español. Responde todas las interacciones en español.' });
+                    }
                     const response = await axios.post('http://localhost:5001/api/game-session/generate', {
                         messages: messagesToSend
                     });
@@ -272,6 +293,8 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                     // Restore the game state
                     this.$store.commit('setGameId', gameState.gameId);
                     this.$store.commit('setGameSetup', gameState.gameSetup);
+                    // set local language from loaded game setup
+                    this.language = (gameState.gameSetup && gameState.gameSetup.language) || this.language;
                     this.$store.commit('setUserId', gameState.userId);
                     this.conversation = gameState.conversation;
                     this.summaryConversation = gameState.summaryConversation;
