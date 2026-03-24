@@ -1,0 +1,8 @@
+ACCEPTABLE EXAMPLES (use as guidance; do not output these verbatim):
+{"playerCharacter":{"name":"Kael Thornbreaker","race":"Human","class":"Rogue","subclass":"Thief","level":1,"background":"Criminal","brief_backstory":"Kael grew up in the alleys, learning to move unseen. He now seeks opportunities for coin and reputation.","stats":{"STR":10,"DEX":16,"CON":12,"INT":13,"WIS":11,"CHA":9},"max_hp":8,"ac":14,"starting_equipment":["Rapier","Leather Armor","Thieves' Tools"]}}
+{"playerCharacter":{"name":"Liriel Dawnwhisper","race":"Half-Elf","class":"Bard","subclass":"College of Lore","level":1,"background":"Entertainer","brief_backstory":"Liriel traveled with a troupe, learning songs and stories. She now collects tales and performs in taverns.","stats":{"STR":8,"DEX":14,"CON":12,"INT":13,"WIS":10,"CHA":15},"max_hp":7,"ac":12,"starting_equipment":["Lute","Dagger","Entertainer's Pack"]}}
+
+UNACCEPTABLE EXAMPLES (avoid producing these):
+{"playerCharacter":{"name":"Javier Delgado",...}}
+{"playerCharacter":{"name":"María García",...}}
+

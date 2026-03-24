@@ -15,7 +15,12 @@ const GameStateSchema = new mongoose.Schema({
     summary: String,
     totalTokenCount: Number,
     userAndAssistantMessageCount: Number,
-    systemMessageContentDM: String
+    systemMessageContentDM: String,
+    // mode: exploration | combat | investigation | decision | initial
+    mode: {
+        type: String,
+        default: 'exploration',
+    },
 });
 
 module.exports = mongoose.model('GameState', GameStateSchema);

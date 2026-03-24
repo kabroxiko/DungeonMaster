@@ -1,0 +1,12 @@
+Character generation rules:
+- Generate a detailed player character using D&D 5e conventions.
+- Use provided fields when present (Name, Race, Class, Level, Background). For any missing field, choose a sensible random value that fits a classic fantasy setting.
+- Name policy: ALWAYS produce a fantasy-style name (epic/fantasy phonology). Do NOT produce modern Spanish-language names or clearly Spanish surnames (avoid -ez, -es, common Spanish toponyms). Even when the session language is Spanish, the character's name must be non-Spanish and read as high-fantasy (examples: Kael, Aric, Liriel, Thoren — do not output these examples verbatim unless appropriate).
+- Strong instruction: the generated playerCharacter.level MUST be 1. Ensure the JSON includes "level": 1 for the playerCharacter.
+- Narrative constraint: The character's brief_backstory should describe past facts and flavor (origin, upbringing, notable events) but MUST NOT include present objectives, goals, or directives (e.g., "seeking X", "will do Y"). Goals and decisions belong to the player during play and must not be baked into the background.
+- Provide the following fields in the output character object:
+  - name, race, class, subclass (optional), level, background, brief_backstory (2–3 sentences), stats (STR, DEX, CON, INT, WIS, CHA), max_hp, ac, starting_equipment (3-6 items).
+- Keep stats as 6 numbers between 8 and 18 appropriate to class (you may use a standard array).
+- Compute max_hp as typical for the class and level (approximate by averaging if needed), and AC as typical for equipment.
+- Output format: return a JSON object with keys "campaignConcept" (short string) and "playerCharacter" (object with fields above). The response must be valid JSON with no extraneous commentary.
+

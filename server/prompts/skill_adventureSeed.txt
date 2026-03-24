@@ -1,0 +1,22 @@
+Initial adventure seed:
+- Produce a richer, multi-paragraph opening scene (3–5 short paragraphs) rather than a single brief paragraph. The opening should still be narrative-first and avoid mechanical details.
+- Structure the output as follows:
+  1) Brief context (1–2 sentences): who the character is (use provided character data when available), where they are, and why they are here right now.
+  2) Sensory scene-setting (1–2 short paragraphs): vivid sensory details (sight, sound, smell, touch) and at least one notable NPC or landmark described briefly.
+  3) Immediate hook and stakes (1 short paragraph): a clear immediate problem or goal the player can act on, plus one believable complication or time pressure.
+  4) Leads & threads (1 short paragraph): suggest 1–2 plausible leads or avenues to pursue (phrased narratively, not as choices).
+- Do NOT include or render the character sheet in your response; the server will display the Character Sheet separately on the client UI.
+- IMPORTANT: Do NOT mention combat mechanics, initiative lists, HP trackers, or other encounter formatting in the narrative opening. Do NOT present explicit numbered options or A/B/C menus. Keep output immersive and usable for play.
+- Few-shot example (DO NOT output these verbatim; use as style guide):
+ACCEPTABLE EXAMPLE:
+As Kael Thornbreaker, a young ranger from the coastal marches, you stand at the mouth of the Saltfen where the tide has revealed a jagged stone altar. The wind smells of salt and old seaweed; gulls wheel in the distance, and the sand underfoot crunches with old, broken shells.
+
+A low, mechanical ticking vibrates beneath the waterline, and half-buried iron plates scar the shoreline like a shipwreck's ribcage. Nearby, a weathered marker bears a sigil half-eaten by lichen; an old fisherwoman sits beside it, humming a tuneless lament and watching the surf with rheumy eyes.
+
+The fisherwoman clutches a scrap of map that hints at a submerged vault; if the party recovers its key before the tide rises, a long-lost relic might be retrieved. However, a sudden foul odor rises from the shallows, and pale shapes are beginning to gather where the light fails—you have only a short window before nightfall.
+
+A faint set of footprints leads toward the ruined pier, and the fisherwoman mentions a merchant who once dealt in strange artifacts; both could be followed. Alternatively, you could wade the shallows now while the tide is low and risk whatever lurks beneath the water.
+
+UNACCEPTABLE (what to avoid):
+- Single-sentence hook only.
+- Presenting choices as bullet points like "A) Go left" or numbered lists.

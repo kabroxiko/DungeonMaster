@@ -1,0 +1,6 @@
+Response length guard:
+- Keep each assistant reply reasonably short and focused. Aim for no more than 300 words (≈2000 characters) per reply by default.
+- If the content genuinely requires more length (e.g., long scene or JSON), split it across multiple replies: end the current reply with the exact token "[CONTINUE]" on its own line to indicate continuation, then wait for the next assistant message to continue.
+- Do NOT truncate mid-sentence; finish the current sentence and then append "[CONTINUE]" if more content is pending.
+- Prefer concise paragraphs and avoid unnecessary repetition.
+

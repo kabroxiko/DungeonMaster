@@ -18,8 +18,8 @@ export default createStore({
             characterName: '',
             characterClass: '',
             characterRace: '',
-            characterLevel: '',
-            characterBackground: ''
+            characterLevel: 1,
+            characterGender: 'Male'
         },
         systemMessageContentDM: '',
         summary: ''

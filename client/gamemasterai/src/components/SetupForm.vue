@@ -3,28 +3,23 @@
 
 <template>
     <form @submit.prevent="submitForm">
-        <h1 class="form-title">The Start of Your Adventure</h1> <!-- Title text added here -->
-        <h4 class="form-description">Select the building blocks of your character and story. Allow up to 30 seconds after clicking "start game". If you wish to make your own custom prompt entirely, type it in the bottom box and start game!</h4>
-        <div>
-            <label for="game-system">Game System:</label>
-            <select id="game-system" v-model="formData.gameSystem">
-                <option disabled value="">Please select one</option>
-                <option>Dungeons and Dragons 5th Edition</option>
-            </select>
-        </div>
-        <div>
-            <label for="adventure-Setting">Adventure Setting:</label>
-            <select id="adventure-Setting" v-model="formData.adventureSetting">
-                <option disabled value="">Please select one</option>
-                <option>Classic Fantasy</option>
-                <option>Steampunk</option>
-            </select>
-        </div>
+        <h1 class="form-title">The Start of Your Adventure</h1>
+        <h4 class="form-description">Select the building blocks of your character and story. Allow up to 30 seconds after clicking "Start Game".</h4>
+        <!-- Game system selection removed; D&D 5e is the default -->
+        <!-- Adventure setting removed; Classic Fantasy is used by default -->
         <div>
             <label for="language-select">Language:</label>
             <select id="language-select" v-model="formData.language">
                 <option value="English">English</option>
                 <option value="Spanish">Spanish</option>
+            </select>
+        </div>
+        <div>
+            <label for="character-gender">Character Gender:</label>
+            <select id="character-gender" v-model="formData.gender">
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Non-binary">Non-binary</option>
             </select>
         </div>
         <div>
@@ -43,17 +38,8 @@
             <label for="Character Level">Character Level:</label>
             <input id="character-level" v-model="formData.characterLevel" type="text">
         </div>
-        <div>
-            <label for="Character Background">Character Background:</label>
-            <input id="character-background" v-model="formData.characterBackground" type="text">
-        </div>
-        <div>
-            <label for="or">OR:</label>
-        </div>
-        <div>
-            <label for="custom-dm-content">Custom Prompt:</label>
-            <textarea id="custom-dm-content" v-model="formData.customDMContent" placeholder="Type your own custom prompt here." rows="4"></textarea>
-        </div>        <button type="submit">Start Game</button>
+        
+        <button type="submit" :disabled="isStarting">{{ isStarting ? (formData.language === 'Spanish' ? 'Iniciando...' : 'Starting...') : (formData.language === 'Spanish' ? 'Iniciar Juego' : 'Start Game') }}</button>
     </form>
     
 </template>
@@ -65,42 +51,34 @@
     export default {
         data() {
             return {
-                gameSystemPrompts: {
-                    "Dungeons and Dragons 5th Edition": require('@/prompts/DungeonsAndDragons.txt'),
-                },
-
-                adventureSettingPrompts: {
-                    "Classic Fantasy": require('@/prompts/ClassicFantasy.txt'),
-                    "Steampunk": require ('@/prompts/Steampunk.txt'),
-                },
-
+                isStarting: false,
                 formData: {
-                    gameSystem: '',
+                    gameSystem: 'Dungeons and Dragons 5th Edition',
                     characterName: '',
                     characterClass: '',
                     characterRace: '',
-                    characterLevel: '',
-                    characterBackground: '',
+                    characterLevel: 1,
                     language: 'English',
-                    customDMContent: ''
+                    gender: 'Male'
                 }
             };
         },
         methods: {
 
         async generateCampaignConcept() {
-        // Generate the campaign concept using the OpenAI API.
-        const prompt = "Write a brief, 2 sentence adventure prompt for a new D&D adventure. Use the following to inform this:" + this.adventureSettingPrompts[this.formData.adventureSetting].default + 'Player Character name: ' + this.formData.characterName + ', Player Charactre Class: ' + this.formData.characterClass + ', Player Character Race: ' + this.formData.characterRace + ', Player Character Starting Level:' + this.formData.characterLevel + '. Player Character Background: ' + this.formData.characterBackground;
-
+        // Request campaign concept and generated player character from server.
         try {
-            const messagesToSend = [];
-            if (this.formData.language === 'Spanish') {
-                messagesToSend.push({ role: 'system', content: 'Por favor responde en español. Responde todas las interacciones en español.' });
-            }
-            messagesToSend.push({ role: "user", content: prompt });
-
             const response = await axios.post('http://localhost:5001/api/game-session/generate-campaign', {
-                messages: messagesToSend,
+                gameSetup: {
+                    name: this.formData.characterName,
+                    class: this.formData.characterClass,
+                    race: this.formData.characterRace,
+                    level: this.formData.characterLevel,
+                    background: this.formData.characterBackground,
+                    language: this.formData.language
+                },
+                sessionSummary: '',
+                language: this.formData.language
             });
 
             return response.data;
@@ -110,19 +88,30 @@
     },
 
     async submitForm() {
+            this.isStarting = true;
             this.$store.commit('createNewGame');
             this.$store.commit('setGameSetup', this.formData);
 
             let systemMessageContentDM;
 
-            // Check if the custom DM content is provided
-            if (this.formData.customDMContent && this.formData.customDMContent.trim() !== "") {
-                // Use the custom DM content
-                systemMessageContentDM = this.formData.customDMContent.trim();
+            // Generate the campaign concept and a detailed player character (server fills random values)
+            const gen = await this.generateCampaignConcept();
+            let campaignConcept = '';
+            let playerCharacter = null;
+            if (gen && typeof gen === 'object' && gen.campaignConcept) {
+                campaignConcept = gen.campaignConcept;
+                playerCharacter = gen.playerCharacter || null;
             } else {
-                // Generate the campaign concept as before
-                const campaignConcept = await this.generateCampaignConcept();
-                systemMessageContentDM = this.gameSystemPrompts[this.formData.gameSystem].default + campaignConcept + 'Assume the player knows nothing. Allow for an organic introduction of information.';
+                // fallback: treat gen as plain string campaign text
+                campaignConcept = typeof gen === 'string' ? gen : '';
+            }
+
+            // Build the system DM content including the generated player character (if present)
+            systemMessageContentDM = campaignConcept + ' Assume the player knows nothing. Allow for an organic introduction of information.';
+            if (playerCharacter) {
+                systemMessageContentDM += '\n\nPlayer Character:\n' + JSON.stringify(playerCharacter, null, 2);
+                // save generated character into game setup for persistence
+                this.$store.commit('setGameSetup', { ...this.formData, generatedCharacter: playerCharacter });
             }
 
             // If language is Spanish, instruct the AI to respond in Spanish
@@ -150,11 +139,12 @@
             try {
                 await axios.post('/api/game-state/save', initialState);
                 console.log('Initial game saved', initialState);
+                this.$router.push({ name: 'ChatRoom', params: { id: gameId } });
             } catch (err) {
                 console.error('Error saving initial game state:', err);
+            } finally {
+                this.isStarting = false;
             }
-
-            this.$router.push({ name: 'ChatRoom', params: { id: gameId } });
         }
     }
     };</script>

@@ -14,16 +14,45 @@ router.post('/save', async (req, res) => {
         userAndAssistantMessageCount,
         systemMessageContentDM
     } = req.body;
+    // Ensure generatedCharacter is persisted. If missing, try to extract from systemMessageContentDM.
+    let finalGameSetup = gameSetup || {};
+    try {
+        if ((!finalGameSetup.generatedCharacter) && systemMessageContentDM && typeof systemMessageContentDM === 'string') {
+            const jsonMatch = systemMessageContentDM.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+                let parsed = null;
+                try {
+                    parsed = JSON.parse(jsonMatch[0]);
+                } catch (e1) {
+                    try {
+                        parsed = JSON.parse(jsonMatch[0].replace(/'/g, '"'));
+                    } catch (e2) {
+                        parsed = null;
+                    }
+                }
+                if (parsed && typeof parsed === 'object') {
+                    const maybePC = parsed.playerCharacter || parsed;
+                    if (maybePC && (maybePC.name || maybePC.stats || maybePC.max_hp)) {
+                        finalGameSetup = { ...finalGameSetup, generatedCharacter: maybePC };
+                        console.log('Extracted generatedCharacter for save from systemMessageContentDM');
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Error extracting generatedCharacter during save:', e);
+    }
 
     const update = {
         gameId,
-        gameSetup,
+        gameSetup: finalGameSetup,
         conversation,
         summaryConversation,
         summary,
         totalTokenCount,
         userAndAssistantMessageCount,
-        systemMessageContentDM
+        systemMessageContentDM,
+        mode: req.body.mode || undefined,
     };
 
     try {

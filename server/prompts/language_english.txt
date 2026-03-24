@@ -1,0 +1,2 @@
+LANGUAGE RULE: For JSON outputs, produce all human-readable fields (background, brief_backstory, starting_equipment) in English. Keep the JSON valid. Do not translate the fantasy-style name.
+

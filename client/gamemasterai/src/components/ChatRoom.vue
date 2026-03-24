@@ -8,6 +8,29 @@
         <button @click="tryAgain">Try again</button>
     </div>
     <div class="chat-room">
+        
+        <div v-if="playerCharacter" class="character-sheet">
+            <h3 class="cs-title">{{ language === 'Spanish' ? 'Ficha del Personaje' : 'Character Sheet' }}</h3>
+            <div class="cs-grid">
+                <div><strong>{{ playerCharacter.name }}</strong> — {{ playerCharacter.race }}</div>
+                <div>{{ playerCharacter.class }} {{ playerCharacter.subclass ? ('(' + playerCharacter.subclass + ')') : '' }} — {{ language === 'Spanish' ? 'Nivel' : 'Level' }} {{ playerCharacter.level }}</div>
+                <div>{{ language === 'Spanish' ? 'PV Máx' : 'Max HP' }}: {{ playerCharacter.max_hp }} • AC: {{ playerCharacter.ac }}</div>
+                <div class="cs-backstory">{{ playerCharacter.brief_backstory }}</div>
+                <div class="cs-stats">
+                    <strong>STR</strong>: {{ playerCharacter.stats.STR }} &nbsp;
+                    <strong>DEX</strong>: {{ playerCharacter.stats.DEX }} &nbsp;
+                    <strong>CON</strong>: {{ playerCharacter.stats.CON }} &nbsp;
+                    <strong>INT</strong>: {{ playerCharacter.stats.INT }} &nbsp;
+                    <strong>WIS</strong>: {{ playerCharacter.stats.WIS }} &nbsp;
+                    <strong>CHA</strong>: {{ playerCharacter.stats.CHA }}
+                </div>
+                <div class="cs-equipment"><strong>{{ language === 'Spanish' ? 'Equipo' : 'Equipment' }}:</strong>
+                    <ul>
+                        <li v-for="(it, i) in playerCharacter.starting_equipment" :key="i">{{ it }}</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
         <div class="chat-messages">
             <div v-for="(message, index) in messages" :key="index" class="chat-message">
                 <strong>{{ message.user }}:</strong>
@@ -15,8 +38,10 @@
             </div>
         </div>
         <form @submit.prevent="submitMessage">
-            <input type="text" v-model="newMessage" :placeholder="language === 'Spanish' ? 'Escribe tu mensaje aquí...' : 'Type your message here...'" />
-            <button type="submit">{{ language === 'Spanish' ? 'Enviar' : 'Send' }}</button>
+            <input type="text" v-model="newMessage" :placeholder="language === 'Spanish' ? 'Escribe tu mensaje aquí...' : 'Type your message here...'" :disabled="isSending" />
+            <button type="submit" :disabled="isSending" aria-busy="isSending">
+              {{ isSending ? (language === 'Spanish' ? 'Enviando...' : 'Sending...') : (language === 'Spanish' ? 'Enviar' : 'Send') }}
+            </button>
         </form>
         <h1 class="notetaker-title">Notetaker.AI</h1>
         <h4 class="notetaker-subtitle">{{ language === 'Spanish' ? 'Un resumen de tu aventura se actualizará aquí automáticamente.' : 'A summary of your adventure will update here automatically!' }}</h4>
@@ -29,8 +54,27 @@
 <script>import axios from 'axios';
 import MarkdownIt from 'markdown-it';
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
+// Force markdown renderer to emit paragraphs with zero margin to avoid CSS spacing issues
+// Use renderer overrides instead of relying on global CSS (more robust)
+// Render plain <p> tags; spacing handled via CSS for consistency
+md.renderer.rules.paragraph_open = function() {
+    return '<p>';
+};
+md.renderer.rules.paragraph_close = function() {
+    return '</p>';
+};
+// Also ensure list items are rendered compactly
+// Render plain <li>; spacing handled via CSS
+md.renderer.rules.list_item_open = function() {
+    return '<li>';
+};
+md.renderer.rules.heading_open = function(tokens, idx) {
+    return `<${tokens[idx].tag}>`;
+};
+md.renderer.rules.heading_close = function(tokens, idx) {
+    return `</${tokens[idx].tag}>`;
+};
     import NotePanel from './NotePanel.vue';
-    import summaryPrompt from '@/prompts/summaryPrompt.txt';
 
     export default {
         components: {
@@ -38,7 +82,7 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
         },
         data() {
             return {
-                summaryPrompt,
+                // summaryPrompt removed from client; server composes summary instruction
                 // Initial state for the component
                 newMessage: "", // Holds the current message being typed
                 language: 'English',
@@ -50,12 +94,15 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                 ContextLength: 3, // The number of most recent messages to consider for generating a response
                 userAndAssistantMessageCount: 0, // initialize the counter here
                 totalTokenCount: 0,
-                errorMessage: null // add error message data property
+                errorMessage: null, // add error message data property
+                localPlayerCharacter: null,
+                isSending: false,
 
 
             };
         },
-        created() {
+        // removed duplicate data() 
+        async created() {
             console.log('this.$route.params.id:', this.$route.params.id); // This should log the gameId or undefined
 
             // Initialize language from store (set during setup)
@@ -63,16 +110,24 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
 
             // check if a gameId is provided in the route
             if (this.$route.params.id) {
-                // Load the existing game
-                this.loadGameState(this.$route.params.id);
+                // Load the existing game and wait for it so character sheet is available immediately
+                await this.loadGameState(this.$route.params.id);
                 this.systemMessageContentDM = this.$store.state.systemMessageContentDM;
                 const systemMessageDM = {
                     role: 'system',
                     content: this.systemMessageContentDM,
                 };
 
-                // Push the system message to the conversation
-                this.conversation.push(systemMessageDM);
+                // Push the system message to the conversation if not already present
+                if (!this.conversation.find(m => m.role === 'system' && m.content === this.systemMessageContentDM)) {
+                    this.conversation.unshift(systemMessageDM);
+                }
+            }
+        },
+
+        computed: {
+            playerCharacter() {
+                return this.localPlayerCharacter || (this.$store.state.gameSetup && this.$store.state.gameSetup.generatedCharacter) || null;
             }
         },
 
@@ -108,20 +163,10 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                         this.incrementTokenCount(message.content);
                     });
 
-                    // Build the summary instruction; use a Spanish version when language is Spanish
-                    const summaryInstruction = this.language === 'Spanish'
-                        ? '*Todo lo anterior fue una transcripción de una partida de rol. Resume los eventos descritos en esta transcripción. Sé conciso (menos de 75 palabras) y objetivo. Toma nota de personajes, lugares y objetos importantes. Usa tercera persona.*'
-                        : this.summaryPrompt;
-
-                    const summaryRequest = {
-                        role: 'system',
-                        content: summaryInstruction,
-                    };
-
-                    const messagesToSend = [...lastSummaryMessages, summaryRequest];
-
+                    // Send only the recent user/assistant messages; server will add summarization instruction
                     const response = await axios.post('http://localhost:5001/api/game-session/generate-summary', {
-                        messages: messagesToSend,
+                        messages: lastSummaryMessages,
+                        language: this.language,
                     });
 
                     this.summary += "\n" + response.data;
@@ -147,6 +192,7 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                 //const gameSetup = this.$store.state.gameSetup;
 
                 if (this.newMessage.trim() !== "") {
+                    this.isSending = true;
                     this.messages.push({ user: "Player", text: this.newMessage.trim() });
     /*
                     const userMessageWithHidden = {
@@ -173,14 +219,11 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                             this.incrementTokenCount(message.content);
                         });
 
-                        // Prepend language system message when Spanish is selected
+                        // Send only user/assistant messages; server will enforce language and system prompts
                         const messagesToSend = lastMessages.slice();
-                        if (this.language === 'Spanish') {
-                            messagesToSend.unshift({ role: 'system', content: 'Por favor responde en español. Responde todas las interacciones en español.' });
-                        }
-
                         const response = await axios.post('http://localhost:5001/api/game-session/generate', {
-                            messages: messagesToSend
+                            messages: messagesToSend,
+                            language: this.language,
                         });
                         const aiMessageContent = response.data;
 
@@ -217,6 +260,8 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                     } catch (error) {
                         console.error('Error generating AI message:', error);
                         this.errorMessage = "Failed to send message. Please try again."; // Set the error message
+                    } finally {
+                        this.isSending = false;
                     }
 
                     this.newMessage = "";
@@ -227,11 +272,16 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
             async generateInitialMessage() {
                 try {
                     const messagesToSend = this.conversation.slice(-this.ContextLength * 2);
-                    if (this.language === 'Spanish') {
-                        messagesToSend.unshift({ role: 'system', content: 'Por favor responde en español. Responde todas las interacciones en español.' });
-                    }
+                    const sessionSummary = (this.$store.state.gameSetup && this.$store.state.gameSetup.generatedCharacter)
+                        ? JSON.stringify({ playerCharacter: this.$store.state.gameSetup.generatedCharacter })
+                        : '';
+
                     const response = await axios.post('http://localhost:5001/api/game-session/generate', {
-                        messages: messagesToSend
+                        messages: messagesToSend,
+                        mode: 'initial',
+                        includeFullSkill: true,
+                        language: this.language,
+                        sessionSummary
                     });
                     const aiMessageContent = typeof response.data === 'string' ? response.data : (response.data?.text || JSON.stringify(response.data));
 
@@ -302,6 +352,43 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
                     this.totalTokenCount = gameState.totalTokenCount;
                     this.userAndAssistantMessageCount = gameState.userAndAssistantMessageCount;
                     this.systemMessageContentDM = gameState.systemMessageContentDM;
+                    
+
+                    // If generatedCharacter missing in gameSetup, try to parse it from systemMessageContentDM
+                    if ((!this.$store.state.gameSetup || !this.$store.state.gameSetup.generatedCharacter) && this.systemMessageContentDM) {
+                        const m = this.systemMessageContentDM;
+                        // Try to find any JSON object in the system message
+                        const jsonMatch = m.match(/(\{[\s\S]*\})/);
+                        if (jsonMatch) {
+                            let parsed = null;
+                            try {
+                                parsed = JSON.parse(jsonMatch[0]);
+                            } catch (err) {
+                                // permissive fallback: replace single quotes with double quotes
+                                try {
+                                    parsed = JSON.parse(jsonMatch[0].replace(/'/g, '"'));
+                                } catch (err2) {
+                                    console.warn('Failed to parse JSON from systemMessageContentDM', err2);
+                                }
+                            }
+                            if (parsed && typeof parsed === 'object') {
+                                // Heuristic: does this object look like a character? check for stats or name
+                                const maybePC = parsed.playerCharacter || parsed;
+                                if (maybePC && (maybePC.name || maybePC.stats || maybePC.max_hp)) {
+                                    const newSetup = { ...(this.$store.state.gameSetup || {}), generatedCharacter: maybePC };
+                                    this.$store.commit('setGameSetup', newSetup);
+                                    console.log('Recovered generatedCharacter from systemMessageContentDM:', maybePC);
+                                    // also set local player character for immediate rendering
+                                    this.localPlayerCharacter = maybePC;
+                                }
+                            }
+                        }
+                    }
+                    // If store already contains generatedCharacter, ensure localPlayerCharacter is set
+                    if (this.$store.state.gameSetup && this.$store.state.gameSetup.generatedCharacter && !this.localPlayerCharacter) {
+                        this.localPlayerCharacter = this.$store.state.gameSetup.generatedCharacter;
+                        console.log('Set localPlayerCharacter from store:', this.localPlayerCharacter);
+                    }
 
                     // Map the conversation array to match the structure needed by this.messages
                     // And only include the messages that are not of role 'system'
@@ -328,40 +415,82 @@ const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
     };</script>
 
 <style scoped>
-    .chat-room {
-        width: 100%;
-        max-width: 600px;
-        margin: 0 auto;
-        display: flex;
-        flex-direction: column;
-    }
+  .chat-room {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+  }
 
-    .chat-messages {
-        height: 400px;
-        overflow-y: auto;
-        border: 1px solid #ccc;
-        padding: 1rem;
-        margin-bottom: 1rem;
-    }
+  .chat-messages {
+    height: 400px;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
 
-    .chat-message {
-        margin-bottom: 0.5rem;
-    }
+  .chat-message {
+    margin-bottom: 0.75rem;
+  }
 
-    input {
-        width: 100%;
-        padding: 0.5rem;
-        margin-bottom: 1rem;
-        box-sizing: border-box;
-    }
+  input {
+    width: 100%;
+    padding: 0.5rem;
+    margin-bottom: 1rem;
+    box-sizing: border-box;
+  }
 
-    .error-message {
-        color: red;
-        margin: 1rem 0;
-    }
-    .message-content {
-        text-align: justify;
-        white-space: pre-wrap; /* preserve newlines */
-        word-break: break-word;
-    }
+  .error-message {
+    color: red;
+    margin: 1rem 0;
+  }
+
+  /* Minimal, clean message styling */
+  .message-content {
+    text-align: justify;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.6;
+    margin-bottom: 0.9rem;
+  }
+
+  .message-content p {
+    margin: 0 0 0.6rem 0;
+  }
+
+  /* Compact list items: reduce extra gaps inside lists */
+  .message-content li {
+    padding: 0.15rem 0;
+  }
+  .message-content li p {
+    margin: 0;
+  }
+
+  .character-sheet {
+    border: 1px solid #ddd;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    background: #fafafa;
+  }
+
+  .character-sheet .cs-title {
+    margin: 0 0 0.5rem 0;
+  }
+
+  .character-sheet .cs-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .character-sheet .cs-stats {
+    font-family: monospace;
+  }
+
+  .character-sheet ul {
+    margin: 0;
+    padding-left: 1.25rem;
+  }
 </style>

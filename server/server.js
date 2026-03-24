@@ -22,7 +22,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (!origin) {
-    // non-browser request (curl, server-side) - allow
+    // non-browser request (curl, internal) - allow
     res.header('Access-Control-Allow-Origin', '*');
   } else if (allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);

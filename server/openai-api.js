@@ -49,9 +49,10 @@ async function generateResponse(input = {}, options = {}) {
 
     // 2) Try LM Studio native chat endpoint /api/v1/chat
     try {
+      // LM Studio native endpoint often expects an `input` string rather than OpenAI-style `messages`.
       const payload = {
         model: LM_STUDIO_MODEL,
-        messages,
+        input: messagesToPrompt(messages),
         max_tokens: options.max_tokens || 500,
         temperature: options.temperature ?? 1.0,
       };
@@ -62,7 +63,7 @@ async function generateResponse(input = {}, options = {}) {
         data.output ||
         data.result ||
         data.generated_text ||
-        (Array.isArray(data.results) && data.results[0]?.text) ||
+        (Array.isArray(data.results) && (data.results[0]?.text || data.results[0]?.output)) ||
         (data.choices && data.choices[0]?.text) ||
         (data?.response && data.response?.generated_text) ||
         null;
