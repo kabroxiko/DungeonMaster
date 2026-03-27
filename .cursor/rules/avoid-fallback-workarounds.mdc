@@ -1,0 +1,46 @@
+---
+description: Prevent silent fallback/workaround patterns; require justified, documented fallbacks
+alwaysApply: true
+---
+
+# Avoid fallback workarounds and silent extraction
+
+Purpose
+- Do not rely on brittle client/server fallbacks or implicit "workarounds" (for example: parsing JSON out of system messages, auto-extracting data from prompts, or silently switching models) as normal control flow.
+
+Policy
+- Never use automatic fallbacks that hide failures from developers or users. A fallback is allowed only when there is a documented reason, a test demonstrating safety, and an accompanying log & persisted diagnostic field.
+- Do not extract structured data from system-role messages as an implicit persistence mechanism. Server and client must exchange structured data explicitly via well-defined fields (e.g., `gameSetup.generatedCharacter`) in API payloads.
+- Do not silently switch models, APIs, or endpoints without:
+  1) an explicit justification in code (comment + link to issue/PR), and
+  2) observable telemetry persisted to the GameState (e.g., `llmCallError`, `llmCallStartedAt`, `llmCallCompletedAt`).
+
+How to apply
+- Apply to backend code that interacts with LLMs or persists game state (examples: `server/openai-api.js`, `server/routes/*.js`, `server/routes/gameState.js`).
+- When adding a fallback, require:
+  - A short rationale in code comments and the PR description.
+  - Persisted diagnostic fields (error message, timestamps) to GameState.
+  - No user-visible masking of the failure; surface errors to the client with actionable messages.
+
+Bad example
+```js
+// ❌ BAD: silently parse player data from a system message when save fails
+const jsonMatch = systemMessageContent.match(/\{[\s\S]*\}/);
+if (jsonMatch) {
+  gameSetup.generatedCharacter = JSON.parse(jsonMatch[0]); // brittle
+}
+```
+
+Good example
+```js
+// ✅ GOOD: require explicit field and persist on successful generation
+if (parsed && parsed.playerCharacter) {
+  await GameState.findOneAndUpdate({ gameId }, { $set: { 'gameSetup.generatedCharacter': parsed.playerCharacter } });
+} else {
+  // surface error to client and persist rawModelOutput for debugging
+}
+```
+
+Enforcement
+- This rule is always active. When modifying LLM interaction code, add log lines and persist diagnostics rather than adding silent fallbacks.
+

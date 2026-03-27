@@ -1,0 +1,39 @@
+{{{languageInstruction}}}
+GM-ONLY INITIAL ADVENTURE CONTEXT (do NOT reveal to players):
+
+Campaign concept:
+{{campaignConcept}}
+
+Relevant factions (brief):
+{{#factions}}
+- {{name}} — {{goal}}. Resources: {{resources}}. Disposition: {{currentDisposition}}
+{{/factions}}
+
+Major conflicts:
+{{#majorConflicts}}
+- {{.}}
+{{/majorConflicts}}
+
+Major NPCs:
+{{#majorNPCs}}
+- {{name}} ({{role}}): {{briefDescription}}
+{{/majorNPCs}}
+
+Key locations:
+{{#keyLocations}}
+- {{name}} ({{type}}): {{significance}}
+{{/keyLocations}}
+
+Instructions for the model (GM-only):
+- Use the information above to craft an opening scene that will organically lead into an adventure related to the campaign background.
+- The scene MUST begin with the player character engaged in a mundane, unrelated reason (e.g., a personal errand, rest, travel, work, social interaction) — do NOT open with a predefined mission, summons, or explicit quest.
+- Through natural narration, introduce elements from the campaign background (a faction sighting, an NPC remark, a strange clue at a key location, or a rising consequence of a major conflict) that gradually draw the character into the adventure.
+- Reference at least one faction and either a major NPC or a key location, but present these as part of the scene's environment or incidental encounters — do not start by tasking the character with a mission.
+- Keep the tone immersive and player-facing: reveal information as the character discovers it, preserving player agency.
+- Do NOT reveal this block to players or output it verbatim; instead use it to guide the narrative and keep output player-facing and immersive.
+
+Full campaign data (GM-only, do NOT reveal to players):
+{{{campaignSpecJson}}}
+
+Raw model outputs (truncated, GM-only):
+{{{rawModelOutput}}}

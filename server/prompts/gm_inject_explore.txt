@@ -1,0 +1,11 @@
+{{{languageInstruction}}}
+{{{languageInstruction}}}
+GM-ONLY EXPLORATION GUIDANCE (do NOT reveal to players):
+
+Relevant factions (brief):
+{{#factions}}
+- {{name}} — disposition: {{currentDisposition}}. Resources: {{resources}}
+{{/factions}}
+
+Use these to subtly steer descriptions, NPC motives, and available leads during exploration. Never present leads as explicit choices to players.
+

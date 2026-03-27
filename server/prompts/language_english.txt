@@ -1,2 +1,2 @@
-LANGUAGE RULE: For JSON outputs, produce all human-readable fields (background, brief_backstory, starting_equipment) in English. Keep the JSON valid. Do not translate the fantasy-style name.
+MANDATORY: RESPOND ONLY IN ENGLISH for ALL human-readable content — including labels, fields, narratives, and descriptions — whether the output is JSON or free text. Keep JSON valid when requested. Do NOT change fantasy-style names.
 

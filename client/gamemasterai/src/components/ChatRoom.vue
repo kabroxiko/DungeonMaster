@@ -164,7 +164,7 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                     });
 
                     // Send only the recent user/assistant messages; server will add summarization instruction
-                    const response = await axios.post('http://localhost:5001/api/game-session/generate-summary', {
+                    const response = await axios.post('/api/game-session/generate-summary', {
                         messages: lastSummaryMessages,
                         language: this.language,
                     });
@@ -221,7 +221,7 @@ md.renderer.rules.heading_close = function(tokens, idx) {
 
                         // Send only user/assistant messages; server will enforce language and system prompts
                         const messagesToSend = lastMessages.slice();
-                        const response = await axios.post('http://localhost:5001/api/game-session/generate', {
+                        const response = await axios.post('/api/game-session/generate', {
                             messages: messagesToSend,
                             language: this.language,
                         });
@@ -276,7 +276,8 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                         ? JSON.stringify({ playerCharacter: this.$store.state.gameSetup.generatedCharacter })
                         : '';
 
-                    const response = await axios.post('http://localhost:5001/api/game-session/generate', {
+                        const response = await axios.post('/api/game-session/generate', {
+                        gameId: this.$store.state.gameId,
                         messages: messagesToSend,
                         mode: 'initial',
                         includeFullSkill: true,
@@ -354,36 +355,8 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                     this.systemMessageContentDM = gameState.systemMessageContentDM;
                     
 
-                    // If generatedCharacter missing in gameSetup, try to parse it from systemMessageContentDM
-                    if ((!this.$store.state.gameSetup || !this.$store.state.gameSetup.generatedCharacter) && this.systemMessageContentDM) {
-                        const m = this.systemMessageContentDM;
-                        // Try to find any JSON object in the system message
-                        const jsonMatch = m.match(/(\{[\s\S]*\})/);
-                        if (jsonMatch) {
-                            let parsed = null;
-                            try {
-                                parsed = JSON.parse(jsonMatch[0]);
-                            } catch (err) {
-                                // permissive fallback: replace single quotes with double quotes
-                                try {
-                                    parsed = JSON.parse(jsonMatch[0].replace(/'/g, '"'));
-                                } catch (err2) {
-                                    console.warn('Failed to parse JSON from systemMessageContentDM', err2);
-                                }
-                            }
-                            if (parsed && typeof parsed === 'object') {
-                                // Heuristic: does this object look like a character? check for stats or name
-                                const maybePC = parsed.playerCharacter || parsed;
-                                if (maybePC && (maybePC.name || maybePC.stats || maybePC.max_hp)) {
-                                    const newSetup = { ...(this.$store.state.gameSetup || {}), generatedCharacter: maybePC };
-                                    this.$store.commit('setGameSetup', newSetup);
-                                    console.log('Recovered generatedCharacter from systemMessageContentDM:', maybePC);
-                                    // also set local player character for immediate rendering
-                                    this.localPlayerCharacter = maybePC;
-                                }
-                            }
-                        }
-                    }
+                    // Note: Do NOT auto-extract generatedCharacter from systemMessageContentDM.
+                    // The server no longer relies on this fallback; gameSetup.generatedCharacter must be provided explicitly.
                     // If store already contains generatedCharacter, ensure localPlayerCharacter is set
                     if (this.$store.state.gameSetup && this.$store.state.gameSetup.generatedCharacter && !this.localPlayerCharacter) {
                         this.localPlayerCharacter = this.$store.state.gameSetup.generatedCharacter;

@@ -6,7 +6,8 @@ import axios from 'axios';
 
 const app = createApp(App);
 
-axios.defaults.baseURL = 'http://localhost:5001'; // Set the baseURL
+// Use environment-provided API base URL when available, otherwise use relative paths.
+axios.defaults.baseURL = process.env.GM_API_BASE ? process.env.GM_API_BASE.replace(/\/$/, '') : '';
 
 // Add request interceptor
 axios.interceptors.request.use(

@@ -3,7 +3,7 @@ require('dotenv').config();
 const axios = require('axios');
 
 async function testAI() {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const openaiApiKey = process.env.GM_OPENAI_API_KEY;
 
     const response = await axios.post(
         'https://api.openai.com/v1/chat/completions',

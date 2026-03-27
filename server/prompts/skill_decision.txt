@@ -1,3 +1,4 @@
+- {{{languageInstruction}}}
 Decision framing:
 - Do NOT present labeled choices or option lists to the player (no A/B/C or multiple-choice style prompts).
 - Instead, weave decision-relevant information into the narration: describe likely consequences, risks, and trade-offs inline, and then ask the player what they do.

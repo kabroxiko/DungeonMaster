@@ -1,0 +1,13 @@
+{{{languageInstruction}}}
+Campaign stage: factions
+
+Based on this campaignConcept: {{campaignConcept}}
+
+Return ONLY a JSON array named "factions" where each item is an object with:
+- name (string)
+- goal (1-2 sentences)
+- resources (1 sentence)
+- currentDisposition (1 sentence about attitude toward PCs)
+
+Return the array as raw JSON (no surrounding text or commentary).
+

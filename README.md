@@ -1,3 +1,17 @@
+# GameMasterAI — Prompt Flow Overview
+
+This repository powers GameMasterAI (a GM assistant). The diagram below shows how server-side prompts are loaded, rendered, injected, and used across campaign generation, background stages, character creation, and adventure (initial scene) generation.
+
+Diagram (rendered image)
+
+![Prompt Flow for GameMasterAI](./assets/prompt_flow.png)
+
+
+Notes
+- The canonical prompt templates live in `server/prompts/`. Edit them with Mustache variables such as `{{campaignConcept}}`, `{{#factions}}...{{/factions}}`, or `{{languageInstruction}}`.
+- Campaign generation is intentionally small and reliable; background stages expand the campaign and are persisted.
+- Initial adventure generation injects GM-only rendered context from the persisted `campaignSpec` so adventures relate to the campaign background while starting naturally.
+
 # GameMaster.AI
 
 GameMaster.AI is a web-based application designed to deliver a single-player tabletop role-playing game (TTRPG) experience, guided by an AI Dungeon Master. Utilizing cutting-edge AI language models such as GPT-3.5-turbo and GPT-4, this platform offers a seamless integration of an AI Dungeon Master with an AI notetaker to craft an immersive narrative for games like Dungeons & Dragons.
@@ -32,7 +46,7 @@ For proper functioning of the application, you must set up the following environ
   1. Sign up or log in to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas).
   2. Create a new cluster and follow the setup guide.
   3. Retrieve your connection string by navigating to the 'Connect' section of your cluster.
-  4. In your `.env` file, add `MONGODB_URI=your_connection_string`.
+  4. In your `.env` file, add `GM_MONGODB_URI=your_connection_string`.
 
 #### OpenAI API
 
@@ -40,7 +54,7 @@ For proper functioning of the application, you must set up the following environ
 - **Setup**:
   1. Sign up for an account at [OpenAI](https://openai.com/).
   2. Generate an API key in the API section.
-  3. In your `.env` file, add `OPENAI_API_KEY=your_api_key`.
+  3. In your `.env` file, add `GM_OPENAI_API_KEY=your_api_key`.
 
 #### SESSION_SECRET and JWT_SECRET
 

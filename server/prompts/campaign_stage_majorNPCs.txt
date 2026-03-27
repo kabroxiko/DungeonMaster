@@ -1,0 +1,12 @@
+{{{languageInstruction}}}
+Campaign stage: majorNPCs
+
+Based on this campaignConcept: {{campaignConcept}}
+
+Return ONLY a JSON array named "majorNPCs" where each item is an object with:
+- name (string)
+- role (string)
+- briefDescription (2 sentences)
+
+Return the array as raw JSON (no surrounding text or commentary).
+

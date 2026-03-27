@@ -1,0 +1,15 @@
+{{{languageInstruction}}}
+GM-ONLY COMBAT/DECISION GUIDANCE (do NOT reveal to players):
+
+Relevant NPCs:
+{{#majorNPCs}}
+- {{name}} ({{role}}): {{briefDescription}}
+{{/majorNPCs}}
+
+Major conflicts:
+{{#majorConflicts}}
+- {{.}}
+{{/majorConflicts}}
+
+Include these details to ensure tactical and narrative consistency when encounters, negotiations, or major choices occur. Do not expose these notes to players.
+

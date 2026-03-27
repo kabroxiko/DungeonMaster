@@ -1,0 +1,4 @@
+OUTPUT FORMAT RULE: For requests that must return machine-readable data, return ONLY the requested JSON object and NO additional text, markdown, explanation, or commentary. If you cannot produce the JSON exactly, return ONLY an empty JSON object {}. Do not restate instructions or include example JSON. The JSON must match the keys requested by the user instruction.
+
+IMPORTANT OVERRIDE: When returning machine-readable JSON, IGNORE any length-splitting conventions such as the token "[CONTINUE]". Do NOT append "[CONTINUE]" or split the JSON across multiple messages. If the JSON cannot fit within the model's max_tokens, return ONLY an empty JSON object {} rather than emitting continuation tokens or partial JSON.
+

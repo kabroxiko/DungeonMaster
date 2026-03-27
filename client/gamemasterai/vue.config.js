@@ -9,7 +9,7 @@ module.exports = defineConfig({
         allowedHosts: 'all',
         proxy: {
             '^/api': {
-                target: 'http://localhost:5000',
+                target: 'http://localhost:5001',
                 changeOrigin: true,
                 logLevel: 'debug',
                 pathRewrite: { '^/api': '/api' },

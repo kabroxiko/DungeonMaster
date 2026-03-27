@@ -1,0 +1,5 @@
+NO PREFATORY TEXT:
+- Do NOT produce any prefatory, explanatory, or meta-text such as "Here's how it might look" or "Example:".
+- When asked for narrative, output only the narrative content requested. When asked for JSON, output only the JSON object.
+- Do not preface responses with commentary, instructions, or examples.
+

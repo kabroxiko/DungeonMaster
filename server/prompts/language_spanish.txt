@@ -1,2 +1,2 @@
-REGLA DE IDIOMA: Para las salidas JSON, produce todos los campos legibles por humanos (background, brief_backstory, starting_equipment) en español. Mantén el JSON válido. No traduzcas el nombre de fantasía; los nombres deben permanecer en estilo fantástico (no nombres modernos españoles).
+OBLIGATORIO: RESPONDE SÓLO EN ESPAÑOL para TODO el contenido legible por humanos —incluyendo etiquetas, campos, narrativas, y descripciones— independientemente de si la salida es JSON o texto libre. Mantén el JSON válido cuando corresponda. NO traduzcas ni localices el nombre de fantasía; los nombres deben permanecer en estilo fantástico (evita nombres modernos españoles).
 
