@@ -1,6 +1,9 @@
 {{{languageInstruction}}}
 DM-ONLY INITIAL ADVENTURE CONTEXT (do NOT reveal to players):
 
+Campaign title (for your orientation only; do not read aloud as a label to players unless it fits naturally):
+{{campaignTitle}}
+
 Campaign concept:
 {{campaignConcept}}
 
@@ -34,7 +37,3 @@ Instructions for the model (DM-only):
 
 Full campaign data (DM-only, do NOT reveal to players):
 {{{campaignSpecJson}}}
-
-Raw model outputs (truncated, DM-only):
-{{{rawModelOutput}}}
-

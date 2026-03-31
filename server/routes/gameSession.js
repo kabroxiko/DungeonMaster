@@ -2,9 +2,18 @@
 
 const express = require('express');
 const router = express.Router();
-const { generateResponse } = require('../openai-api');
-const { composeSystemMessages, loadPrompt } = require('../promptManager');
+const { generateResponse, getLastGenerateFailureMessage } = require('../openai-api');
+const {
+  composeSystemMessages,
+  loadPrompt,
+  detectMode,
+  lastUserText,
+  userMessageLooksCombat,
+  blocksCombatEntryForAmbiguousWeapon,
+} = require('../promptManager');
+const { traceMessages } = require('../promptDebug');
 const Mustache = require('mustache');
+const { persistGameStateFromBody, mergePersistWithAssistantReply } = require('../gameStatePersist');
 
 const DEFAULT_MODEL = process.env.DM_OPENAI_MODEL || 'gpt-3.5-turbo';
 
@@ -65,6 +74,18 @@ function consolidateSystemMessages(msgs = []) {
   }
 }
 
+/** Appended every /generate from disk (geography + no-menu closers). */
+function appendSceneGroundingPolicy(consolidated) {
+  if (!consolidated || typeof consolidated !== 'string') return consolidated;
+  try {
+    const g = loadPrompt('dm_scene_grounding.txt');
+    if (g && String(g).trim()) return `${consolidated.trim()}\n\n${String(g).trim()}`;
+  } catch (e) {
+    console.warn('appendSceneGroundingPolicy:', e);
+  }
+  return consolidated;
+}
+
 /**
  * Extract the first top-level JSON object substring from a string by tracking balanced braces.
  * Returns the substring or null if not found.
@@ -112,10 +133,292 @@ function extractFirstJsonObject(text) {
   return null;
 }
 
+/** Normalize curly/smart quotes so JSON.parse succeeds on model output. */
+function normalizeJsonLikeQuotes(s) {
+  if (!s || typeof s !== 'string') return s;
+  return s
+    .replace(/\u201c/g, '"')
+    .replace(/\u201d/g, '"')
+    .replace(/\u2018/g, "'")
+    .replace(/\u2019/g, "'");
+}
+
+function takeCampaignFieldItems(field, n) {
+  if (!field) return [];
+  if (Array.isArray(field)) return field.slice(0, n);
+  if (typeof field === 'object') {
+    try {
+      return Object.values(field).slice(0, n);
+    } catch (e) {
+      return [];
+    }
+  }
+  return [field].slice(0, n);
+}
+
+const STAGE_ALTERNATE_KEYS = {
+  factions: ['faction', 'factions_list', 'relevant_factions'],
+  majorNPCs: ['major_npcs', 'npcs', 'NPCs', 'majorNpcs'],
+  keyLocations: ['locations', 'key_locations', 'places', 'sites', 'keyPlaces', 'lugares_clave'],
+};
+
+/** Mongo / some serializers turn arrays into { "0": item, "1": item }. */
+function arrayLikeObjectToArray(obj) {
+  if (obj == null || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return null;
+  if (!keys.every((k) => /^\d+$/.test(k))) return null;
+  return keys
+    .sort((a, b) => Number(a) - Number(b))
+    .map((k) => obj[k])
+    .filter((x) => x != null);
+}
+
+function asObjectArray(val) {
+  if (val == null) return null;
+  if (Array.isArray(val)) return val;
+  return arrayLikeObjectToArray(val);
+}
+
+/**
+ * Coerce a campaign stage LLM payload to a plain array for persistence and dm_inject_*.txt.
+ * Models often return { keyLocations: [...] } or use alternate property names; Mongo Mixed can also
+ * store odd shapes — this keeps Mustache sections populated.
+ */
+function coerceCampaignStageToArray(stage, parsed) {
+  if (parsed == null) return [];
+  let p = parsed;
+  if (typeof p === 'string') {
+    try {
+      p = JSON.parse(p);
+    } catch (e) {
+      return [];
+    }
+  }
+  if (Array.isArray(p)) return p.filter((x) => x != null);
+  if (typeof p !== 'object') return [];
+
+  const topNumeric = arrayLikeObjectToArray(p);
+  if (
+    topNumeric &&
+    topNumeric.length > 0 &&
+    typeof topNumeric[0] === 'object' &&
+    !Array.isArray(topNumeric[0])
+  ) {
+    return topNumeric;
+  }
+
+  let fromStage = asObjectArray(p[stage]);
+  if (fromStage) return fromStage.filter((x) => x != null);
+
+  const alts = STAGE_ALTERNATE_KEYS[stage] || [];
+  for (const k of alts) {
+    const a = asObjectArray(p[k]);
+    if (a) return a.filter((x) => x != null);
+  }
+
+  const objectArrays = Object.values(p).filter(
+    (v) =>
+      Array.isArray(v) &&
+      v.length > 0 &&
+      v[0] != null &&
+      typeof v[0] === 'object' &&
+      !Array.isArray(v[0])
+  );
+  if (objectArrays.length === 1) return objectArrays[0];
+
+  // Single object mistaken for one-element list (wrap) — stage-specific to avoid false positives
+  if (objectArrays.length === 0) {
+    if (
+      stage === 'keyLocations' &&
+      typeof p.name === 'string' &&
+      (p.type != null || p.significance != null)
+    ) {
+      return [p];
+    }
+    if (
+      stage === 'factions' &&
+      typeof p.name === 'string' &&
+      (p.goal != null || p.resources != null || p.currentDisposition != null)
+    ) {
+      return [p];
+    }
+    if (
+      stage === 'majorNPCs' &&
+      typeof p.name === 'string' &&
+      (p.role != null || p.briefDescription != null)
+    ) {
+      return [p];
+    }
+  }
+
+  return [];
+}
+
+/** Ensure campaign core JSON has player-facing `title`; model may omit — synthesize from campaignConcept and log. */
+function ensureCampaignCoreTitle(core) {
+  if (!core || typeof core !== 'object') return core;
+  const raw = core.title;
+  if (typeof raw === 'string' && raw.trim()) {
+    core.title = raw.trim().slice(0, 200);
+    return core;
+  }
+  const cc = String(core.campaignConcept || '').replace(/\s+/g, ' ').trim();
+  let fallback = 'Untitled campaign';
+  if (cc) {
+    const m = cc.match(/^[^.!?]+[.!?]?/);
+    const chunk = (m ? m[0] : cc).trim();
+    fallback = chunk.slice(0, 100) || cc.slice(0, 80);
+  }
+  console.warn('Campaign core JSON missing non-empty title; using fallback.', { fallback: fallback.slice(0, 100) });
+  core.title = fallback;
+  return core;
+}
+
+function stripMarkdownJsonFence(s) {
+  if (!s || typeof s !== 'string') return s;
+  let t = s.trim();
+  if (/^```/.test(t)) {
+    t = t.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  }
+  return t;
+}
+
+/** Some local models prefix JSON with <|message|> or similar; strip so extractFirstJsonObject finds the envelope. */
+function stripLlmChannelNoise(s) {
+  if (!s || typeof s !== 'string') return s;
+  let t = s.trim();
+  const msgIdx = t.search(/<\|message\|\>\s*/i);
+  if (msgIdx !== -1) {
+    t = t.slice(msgIdx).replace(/^<\|message\|\>\s*/i, '').trim();
+  }
+  t = t.replace(/^<\|channel\|\>[^\n]*\n?/gi, '').trim();
+  return t;
+}
+
+/** Player-visible text is envelope.narration; imminentCombat never sent to client. */
+function parseDmPlayerEnvelope(raw) {
+  if (raw == null) return null;
+  let s = stripLlmChannelNoise(stripMarkdownJsonFence(String(raw)));
+  s = normalizeJsonLikeQuotes(s);
+  const extracted = extractFirstJsonObject(s);
+  const jsonStr = extracted || (s.startsWith('{') ? s : null);
+  if (!jsonStr) return null;
+  try {
+    const obj = JSON.parse(jsonStr);
+    if (!obj || typeof obj !== 'object') return null;
+    if (typeof obj.narration !== 'string') return null;
+    let encounterState = null;
+    if (obj.encounterState != null && typeof obj.encounterState === 'object' && !Array.isArray(obj.encounterState)) {
+      encounterState = obj.encounterState;
+    }
+    return {
+      narration: obj.narration,
+      imminentCombat: Boolean(obj.imminentCombat),
+      combatCue: typeof obj.combatCue === 'string' ? obj.combatCue : '',
+      encounterState,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Some models (especially local) return markdown prose for the opening scene instead of DM envelope JSON.
+ * Only stackMode === 'initial': wrap as narration and persist a diagnostic timestamp (see GameState.dmInitialEnvelopeCoercedAt).
+ */
+function coerceInitialProseToEnvelope(raw, stackMode, gameId) {
+  if (stackMode !== 'initial') return null;
+  const s = stripLlmChannelNoise(stripMarkdownJsonFence(String(raw || ''))).trim();
+  if (s.length < 24) return null;
+  if (/^\s*[\[{]/.test(s)) return null;
+  console.warn(
+    '[DM] Initial opening: non-JSON prose coerced into envelope.narration.',
+    JSON.stringify({ gameId: gameId || null, length: s.length, preview: s.slice(0, 140) })
+  );
+  try {
+    if (gameId) {
+      const GameState = require('../models/GameState');
+      GameState.findOneAndUpdate(
+        { gameId },
+        {
+          $set: {
+            dmInitialEnvelopeCoercedAt: new Date().toISOString(),
+            dmInitialEnvelopeCoercedChars: Math.min(s.length, 500000),
+          },
+        },
+        { upsert: true }
+      ).catch((e) => console.warn('Failed to persist dmInitialEnvelopeCoercedAt:', e));
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  return {
+    narration: s,
+    imminentCombat: false,
+    combatCue: '',
+    encounterState: null,
+  };
+}
+
+/** When the latest user line is clearly an attack, force server-side combat routing even if the model omits imminentCombat. */
+function applyUserCombatToEnvelope(envelope, inboundMessages, generatedCharacter) {
+  if (!envelope || !Array.isArray(inboundMessages)) return;
+  const lu = lastUserText(inboundMessages);
+  if (!lu || !userMessageLooksCombat(lu)) return;
+  if (blocksCombatEntryForAmbiguousWeapon(lu, generatedCharacter)) return;
+  envelope.imminentCombat = true;
+  if (!String(envelope.combatCue || '').trim()) envelope.combatCue = 'player attack intent';
+}
+
+/** Model sometimes sets imminentCombat too eagerly; keep exploration until the player names a weapon when the sheet has several. */
+function enforceAmbiguousWeaponNoCombat(envelope, inboundMessages, generatedCharacter) {
+  if (!envelope || !Array.isArray(inboundMessages)) return;
+  const lu = lastUserText(inboundMessages);
+  if (!lu || !blocksCombatEntryForAmbiguousWeapon(lu, generatedCharacter)) return;
+  envelope.imminentCombat = false;
+  envelope.combatCue = '';
+}
+
+/** DM-only block so every play turn sees authoritative gear and optional prior encounterState. */
+function renderPlayerCharacterContextBlock(persistedGameState, language) {
+  try {
+    const gc = persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter;
+    if (!gc || typeof gc !== 'object') return null;
+    const tpl = loadPrompt('dm_player_character_context.txt');
+    if (!tpl) return null;
+    const langFile = language && String(language).toLowerCase() === 'spanish' ? 'language_spanish.txt' : 'language_english.txt';
+    let languageInstruction = '';
+    try {
+      languageInstruction = loadPrompt(langFile) || '';
+    } catch (e) {
+      /* ignore */
+    }
+    const prior = (persistedGameState && persistedGameState.encounterState) || {};
+    return Mustache.render(tpl, {
+      languageInstruction,
+      language: language || 'English',
+      playerCharacterJson: JSON.stringify(gc).slice(0, 120000),
+      priorEncounterStateJson: JSON.stringify(prior).slice(0, 32000),
+    });
+  } catch (e) {
+    console.warn('renderPlayerCharacterContextBlock failed:', e);
+    return null;
+  }
+}
+
 // Route to generate AI Dungeon Master and campaign generating responses
 router.post('/generate', async (req, res) => {
     // Extract parameters from the request body
-    const { messages = [], mode = 'exploration', sessionSummary = '', includeFullSkill = false, language = 'English', gameId = null } = req.body;
+    const {
+      messages = [],
+      mode = 'exploration',
+      sessionSummary = '',
+      includeFullSkill = false,
+      language = 'English',
+      gameId = null,
+      persist = null,
+    } = req.body;
 
     console.log('AI DM Processing the following messages (mode:', mode, ')');
     console.log(messages);
@@ -131,10 +434,10 @@ router.post('/generate', async (req, res) => {
       console.warn('Failed to persist generate-entry instrumentation:', e);
     }
 
-    // If mode not provided, try to auto-detect from the conversation
-    let resolvedMode = mode;
+    // Normalize client alias so skillMap and campaign inject branches match.
+    let resolvedMode = mode === 'explore' ? 'exploration' : mode;
+    // If mode not provided, infer from the conversation.
     if (!resolvedMode || resolvedMode === 'exploration') {
-        const { detectMode } = require('../promptManager');
         try {
             const inferred = detectMode(messages);
             if (inferred) resolvedMode = inferred;
@@ -179,31 +482,43 @@ router.post('/generate', async (req, res) => {
       }
     }
 
-    // Load persisted GameState early when available so we can reuse stored consolidated system core
-    let persistedSystemCore = null;
+    // Load persisted GameState for campaignSpec, character, mode, etc. DM rules always composed from prompt files each request.
     let persistedGameState = null;
     if (gameId) {
       try {
         const GameState = require('../models/GameState');
-        const gs = await GameState.findOne({ gameId }).select('+campaignSpec +systemCore +rawModelOutput +gameSetup +summary');
+        const gs = await GameState.findOne({ gameId }).select('+campaignSpec +rawModelOutput +gameSetup +summary');
         if (gs) {
           persistedGameState = gs;
-          if (gs.systemCore) persistedSystemCore = gs.systemCore;
         }
       } catch (e) {
         console.warn('Failed to load GameState for generate:', e);
       }
     }
 
-    // Build system messages. If a persisted consolidated system core exists, do not recompose core messages;
-    // only include the dynamic skill/adventure seed and DM injections below. Otherwise compose the full core.
-    let systemMsgs = [];
-    if (!persistedSystemCore) {
-      systemMsgs = composeSystemMessages({ mode: resolvedMode, sessionSummary: sessionSummaryToUse, includeFullSkill, language }).filter(m => m.role === 'system');
-    }
+    // Two-phase combat entry: from exploration, a declared attack uses an empty-narration handoff turn, then
+    // the server re-runs with skill_combat. When GameState.mode is already 'combat', skip the handoff.
+    const activeCombat = Boolean(persistedGameState && persistedGameState.mode === 'combat');
+    const generatedCharacterEarly = persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter;
+    const lastUtterance = lastUserText(messages);
+    const userCombatEntry =
+      resolvedMode !== 'initial' &&
+      !activeCombat &&
+      userMessageLooksCombat(lastUtterance) &&
+      !blocksCombatEntryForAmbiguousWeapon(lastUtterance, generatedCharacterEarly);
+    const stackMode = userCombatEntry ? 'exploration' : resolvedMode;
+
+    // Compose full core from prompt files (sessionSummary, mode, skills). Combat turns need full skill_combat when stackMode is combat.
+    const includeFullSkillThisTurn = includeFullSkill || stackMode === 'combat';
+    let systemMsgs = composeSystemMessages({
+      mode: stackMode,
+      sessionSummary: sessionSummaryToUse,
+      includeFullSkill: includeFullSkillThisTurn,
+      language,
+    }).filter((m) => m.role === 'system');
 
     // Ensure the full adventure-skill prompt is included for initial scenes so the model receives the seed template
-    if (resolvedMode === 'initial') {
+    if (stackMode === 'initial') {
       try {
         let advSeed = loadPrompt('skill_adventureSeed.txt');
         if (advSeed) {
@@ -217,7 +532,6 @@ router.post('/generate', async (req, res) => {
             // fallback: use advSeed unrendered
             console.warn('Failed to render languageInstruction into advSeed:', re);
           }
-          // push as a dynamic system message (these will be combined with persisted core if present)
           systemMsgs.push({ role: 'system', content: advSeed });
         }
       } catch (e) {
@@ -226,46 +540,36 @@ router.post('/generate', async (req, res) => {
     }
 
     // If a campaignSpec is available from persisted GameState, render DM-only injections from it
+    let campaignInjectionKind = null;
     if (persistedGameState && persistedGameState.campaignSpec) {
       const spec = persistedGameState.campaignSpec;
-      // Helper to robustly take the first N items from a field that may be an array, object, or string.
-      const takeItems = (field, n) => {
-        if (!field) return [];
-        if (Array.isArray(field)) return field.slice(0, n);
-        if (typeof field === 'object') {
-          try {
-            return Object.values(field).slice(0, n);
-          } catch (e) {
-            return [];
-          }
-        }
-        // primitive (string/number) -> wrap
-        return [field].slice(0, n);
-      };
       try {
         let injectTemplate = null;
         let renderData = {};
-        if (resolvedMode === 'initial' && spec) {
+        if (stackMode === 'initial' && spec) {
           injectTemplate = loadPrompt('dm_inject_initial.txt');
+          campaignInjectionKind = 'opening scene';
           renderData = {
+            campaignTitle: typeof spec.title === 'string' ? spec.title.trim() : '',
             campaignConcept: spec.campaignConcept || '',
-            factions: takeItems(spec.factions, 3),
-            majorConflicts: takeItems(spec.majorConflicts, 4),
-            majorNPCs: takeItems(spec.majorNPCs, 4),
-            keyLocations: takeItems(spec.keyLocations, 4),
-            campaignSpecJson: JSON.stringify(spec || {}, null, 2),
-            rawModelOutput: String(persistedGameState.rawModelOutput || '').slice(0, 20000),
-            gameSetup: JSON.stringify(persistedGameState.gameSetup || {}, null, 2),
-            sessionSummary: persistedGameState.summary || sessionSummary || ''
+            factions: coerceCampaignStageToArray('factions', spec.factions).slice(0, 3),
+            majorConflicts: takeCampaignFieldItems(spec.majorConflicts, 4),
+            majorNPCs: coerceCampaignStageToArray('majorNPCs', spec.majorNPCs).slice(0, 4),
+            keyLocations: coerceCampaignStageToArray('keyLocations', spec.keyLocations).slice(0, 4),
+            // Compact JSON saves prompt tokens; do not inject rawModelOutput here (stale/truncated LLM blobs poison opening turns).
+            campaignSpecJson: JSON.stringify(spec || {}),
+            sessionSummary: persistedGameState.summary || sessionSummary || '',
           };
-        } else if ((resolvedMode === 'exploration' || resolvedMode === 'explore') && spec) {
+        } else if ((stackMode === 'exploration' || stackMode === 'explore') && spec) {
           injectTemplate = loadPrompt('dm_inject_explore.txt');
-          renderData = { factions: takeItems(spec.factions, 3) };
-        } else if ((resolvedMode === 'combat' || resolvedMode === 'decision' || resolvedMode === 'investigation') && spec) {
+          campaignInjectionKind = 'exploration';
+          renderData = { factions: coerceCampaignStageToArray('factions', spec.factions).slice(0, 3) };
+        } else if ((stackMode === 'combat' || stackMode === 'decision' || stackMode === 'investigation') && spec) {
           injectTemplate = loadPrompt('dm_inject_combat.txt');
+          campaignInjectionKind = 'combat or tense encounter';
           renderData = {
-            majorNPCs: takeItems(spec.majorNPCs, 4),
-            majorConflicts: takeItems(spec.majorConflicts, 4),
+            majorNPCs: coerceCampaignStageToArray('majorNPCs', spec.majorNPCs).slice(0, 4),
+            majorConflicts: takeCampaignFieldItems(spec.majorConflicts, 4),
           };
         }
 
@@ -282,13 +586,57 @@ router.post('/generate', async (req, res) => {
         console.warn('Failed to render campaignSpec injection for generate:', e);
       }
     }
+
+    try {
+      const jsonGuardDm = loadPrompt('json_output_guard.txt');
+      if (jsonGuardDm) systemMsgs.unshift({ role: 'system', content: jsonGuardDm });
+      const envelopeInstr = loadPrompt('dm_player_response_envelope.txt');
+      if (envelopeInstr) systemMsgs.unshift({ role: 'system', content: envelopeInstr });
+    } catch (e) {
+      console.warn('Failed to load DM JSON envelope / guard:', e);
+    }
+
+    if (userCombatEntry) {
+      try {
+        const handoffTpl = loadPrompt('dm_combat_entry_handoff.txt');
+        if (handoffTpl) {
+          const langFile = language && language.toLowerCase() === 'spanish' ? 'language_spanish.txt' : 'language_english.txt';
+          let languageInstruction = '';
+          try {
+            languageInstruction = loadPrompt(langFile) || '';
+          } catch (e) {
+            /* ignore */
+          }
+          systemMsgs.push({
+            role: 'system',
+            content: Mustache.render(handoffTpl, { languageInstruction, language }),
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to load dm_combat_entry_handoff.txt:', e);
+      }
+    }
+
+    const pcContextBlock = renderPlayerCharacterContextBlock(persistedGameState, language);
+    if (pcContextBlock) {
+      systemMsgs.push({ role: 'system', content: pcContextBlock });
+    }
+
     // Consolidate all system messages into one system-role prompt to ensure guard precedence
-    const consolidatedSystem = consolidateSystemMessages(systemMsgs);
+    let consolidatedSystem = appendSceneGroundingPolicy(consolidateSystemMessages(systemMsgs));
     const messagesToSend = [{ role: 'system', content: consolidatedSystem }, ...inboundMessages];
+    const dmPromptTraceParts = [
+      `composed DM rules core (play mode: ${stackMode})`,
+      ...(sessionSummaryToUse ? ['session recap in system stack'] : []),
+      ...(stackMode === 'initial' ? ['opening scene seed'] : []),
+      ...(campaignInjectionKind ? [`campaign world injection (${campaignInjectionKind})`] : []),
+      ...(userCombatEntry ? ['combat entry handoff (empty narration)'] : []),
+    ];
+    const outboundMessages = traceMessages(messagesToSend, dmPromptTraceParts.join('; '));
     // Debug: log the consolidated system message and outbound messages
     try {
       console.log('DEBUG: consolidated system (generate):', consolidatedSystem);
-      console.log('DEBUG: messagesToSend (generate):', JSON.stringify(messagesToSend, null, 2));
+      console.log('DEBUG: messagesToSend (generate):', JSON.stringify(outboundMessages, null, 2));
     } catch (e) {
       console.log('DEBUG: messagesToSend (generate) - could not stringify', e);
     }
@@ -296,24 +644,30 @@ router.post('/generate', async (req, res) => {
     // Use central generateResponse (handles model selection and fallbacks)
     try {
         // Dynamically estimate prompt size and compute a safe completion token budget.
-        // Conservative model context window assumption:
-        const MODEL_MAX_TOKENS = 4000;
-        const promptTokens = estimateTokenCount(messagesToSend);
-        let completionBudget = resolvedMode === 'initial' ? 800 : 500;
-        // Determine available tokens for completion (leave a small margin)
-        const available = MODEL_MAX_TOKENS - promptTokens - 50;
+        // Default 16k matches common chat models; override with DM_MODEL_CONTEXT_TOKENS for your deployment.
+        const MODEL_MAX_TOKENS = Math.min(
+          128000,
+          Math.max(4096, parseInt(process.env.DM_MODEL_CONTEXT_TOKENS || '16384', 10) || 16384)
+        );
+        const promptTokens = estimateTokenCount(outboundMessages);
+        let completionBudget = stackMode === 'initial' ? 1400 : userCombatEntry ? 200 : 550;
+        const available = MODEL_MAX_TOKENS - promptTokens - 80;
         if (available <= 0) {
-          completionBudget = 100;
+          console.warn(
+            `DM generate: estimated prompt tokens (${promptTokens}) exceed MODEL_MAX_TOKENS (${MODEL_MAX_TOKENS}); using completion floor (reply may still fail at the API if the real context is smaller).`
+          );
+          completionBudget = resolvedMode === 'initial' ? 1400 : 650;
         } else {
-          // Aim for a reasonable completion but don't exceed available. Use a higher minimum to reduce truncation.
-          completionBudget = Math.min(Math.max(completionBudget, 500), Math.min(1500, available));
+          completionBudget = Math.min(Math.max(completionBudget, 500), Math.min(2000, available));
         }
-        console.log(`Estimated prompt tokens: ${promptTokens}, using completion budget: ${completionBudget}`);
+        console.log(
+          `Estimated prompt tokens: ${promptTokens}, model context cap: ${MODEL_MAX_TOKENS}, completion budget: ${completionBudget}`
+        );
     // Persist outgoing request for debugging if gameId supplied (trim to cap)
     try {
       if (gameId) {
         const GameState = require('../models/GameState');
-        await GameState.findOneAndUpdate({ gameId }, { rawModelRequest: JSON.stringify(messagesToSend).slice(0, 200000) }, { upsert: true });
+        await GameState.findOneAndUpdate({ gameId }, { rawModelRequest: JSON.stringify(outboundMessages).slice(0, 200000) }, { upsert: true });
       }
     } catch (e) {
       console.warn('Failed saving rawModelRequest for generate:', e);
@@ -321,9 +675,9 @@ router.post('/generate', async (req, res) => {
 
     // Log clearly that we are about to call the LLM for the generate route and persist timestamps
     try {
-      console.log('OUTGOING (generate) messagesToSend:', JSON.stringify(messagesToSend, null, 2));
+      console.log('OUTGOING (generate) messagesToSend:', JSON.stringify(outboundMessages, null, 2));
     } catch (e) {
-      console.log('OUTGOING (generate) messagesToSend (could not stringify)', messagesToSend);
+      console.log('OUTGOING (generate) messagesToSend (could not stringify)', outboundMessages);
     }
 
     // Stamp LLM call start time
@@ -338,7 +692,7 @@ router.post('/generate', async (req, res) => {
 
     let aiMessage = null;
     try {
-      aiMessage = await generateResponse({ messages: messagesToSend }, { max_tokens: completionBudget, temperature: 0.8, gameId });
+      aiMessage = await generateResponse({ messages: outboundMessages }, { max_tokens: completionBudget, temperature: 0.8, gameId });
     } catch (llmErr) {
       console.error('LLM call failed for generate:', llmErr);
       try {
@@ -352,49 +706,241 @@ router.post('/generate', async (req, res) => {
       return res.status(500).json({ error: 'LLM call failed (see server logs).' });
     }
 
-    // Persist raw model output for debugging if gameId supplied
-    try {
-      if (gameId && typeof aiMessage !== 'undefined' && aiMessage !== null) {
-        const GameState = require('../models/GameState');
-        await GameState.findOneAndUpdate({ gameId }, { rawModelOutput: String(aiMessage).slice(0, 200000), $set: { llmCallCompletedAt: new Date().toISOString() } }, { upsert: true });
-      }
-    } catch (e) {
-      console.warn('Failed saving rawModelOutput for generate:', e);
-    }
-
     if (!aiMessage) {
         console.error('LLM returned no content for generate');
         return res.status(500).json({ error: 'AI response was empty or failed (see server logs).' });
     }
-        // If the model likely truncated mid-sentence, try a short continuation prompt (up to 2 retries).
-        function isLikelyTruncated(text) {
-          if (!text || typeof text !== 'string') return false;
-          const trimmed = text.trim();
-          if (!trimmed) return false;
-          // If it ends with an ellipsis or with an incomplete last character, consider it truncated.
-          if (/\.\.\.$/.test(trimmed)) return true;
-          // If last character is not a strong sentence terminator, consider truncated.
-          const last = trimmed.slice(-1);
-          if (!/[\.!\?\"'”\)\]\}]/.test(last)) return true;
-          return false;
-        }
-        let finalMessage = aiMessage;
-        if (isLikelyTruncated(aiMessage)) {
+
+        let finalRaw = String(aiMessage);
+        let envelope = parseDmPlayerEnvelope(finalRaw);
+        if (!envelope) {
           try {
-            // Build a continuation user message (no prefatory text).
-            const contUser = { role: 'user', content: 'Continue the previous narrative from where it stopped. Output only the continuation.' };
-            // Use a modest token budget for continuation.
-            const contResp = await generateResponse({ messages: [ { role: 'system', content: consolidatedSystem }, contUser ] }, { max_tokens: 600, temperature: 0.8, gameId });
-            if (contResp) {
-              finalMessage = String(aiMessage) + '\n' + String(contResp);
+            const repairUser = {
+              role: 'user',
+              content:
+                'Your previous assistant output was missing or invalid. Output ONLY one JSON object, no markdown fences, no other text. Keys: "narration" (string, markdown for the player), "imminentCombat" (boolean), "combatCue" (string, use "" when imminentCombat is false), optional "encounterState" (object) for combat tracking only.',
+            };
+            const repairMsgs = [{ role: 'system', content: consolidatedSystem }, ...inboundMessages, repairUser];
+            const repairOutbound = traceMessages(repairMsgs, 'DM JSON envelope repair');
+            const repairResp = await generateResponse(
+              { messages: repairOutbound },
+              { max_tokens: 900, temperature: 0.6, gameId }
+            );
+            if (repairResp) {
+              finalRaw = String(repairResp);
+              envelope = parseDmPlayerEnvelope(finalRaw);
             }
           } catch (e) {
-            console.warn('Continuation attempt failed:', e);
+            console.warn('JSON envelope repair failed:', e);
           }
         }
-        // Return raw model output; formatting should be handled by prompts
-        console.log('AI DM processed:', finalMessage);
-        res.json(finalMessage);
+
+        applyUserCombatToEnvelope(envelope, inboundMessages, persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter);
+        enforceAmbiguousWeaponNoCombat(envelope, inboundMessages, persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter);
+
+        console.log('AI DM envelope parsed:', !!envelope);
+
+        const combatStackNeeded =
+          envelope && envelope.imminentCombat && (userCombatEntry || stackMode !== 'combat');
+
+        let didCombatRedo = false;
+
+        // Imminent combat: rebuild system stack as a real combat turn (dm_inject_combat + skill_combat),
+        // not exploration inject + ad-hoc skill append (which left wrong campaign context).
+        if (combatStackNeeded) {
+          try {
+            console.log('Detected imminentCombat=true; re-running with combat campaign injection + skill_combat.');
+            const langFile = language && language.toLowerCase() === 'spanish' ? 'language_spanish.txt' : 'language_english.txt';
+            let langPromptCombat = '';
+            try {
+              langPromptCombat = loadPrompt(langFile) || '';
+            } catch (e) {
+              /* ignore */
+            }
+
+            let redoSystemMsgs = composeSystemMessages({
+              mode: 'combat',
+              sessionSummary: sessionSummaryToUse,
+              includeFullSkill: true,
+              language,
+            }).filter((m) => m.role === 'system');
+
+            if (persistedGameState && persistedGameState.campaignSpec) {
+              const spec = persistedGameState.campaignSpec;
+              const injectCombat = loadPrompt('dm_inject_combat.txt');
+              if (injectCombat) {
+                const renderData = {
+                  majorNPCs: takeCampaignFieldItems(spec.majorNPCs, 4),
+                  majorConflicts: takeCampaignFieldItems(spec.majorConflicts, 4),
+                  languageInstruction: langPromptCombat,
+                };
+                redoSystemMsgs.unshift({
+                  role: 'system',
+                  content: Mustache.render(injectCombat, renderData),
+                });
+              }
+            }
+
+            const pcRedoCtx = renderPlayerCharacterContextBlock(persistedGameState, language);
+            if (pcRedoCtx) {
+              redoSystemMsgs.push({ role: 'system', content: pcRedoCtx });
+            }
+
+            try {
+              const jsonGuardRedo = loadPrompt('json_output_guard.txt');
+              if (jsonGuardRedo) redoSystemMsgs.unshift({ role: 'system', content: jsonGuardRedo });
+              const envelopeRedo = loadPrompt('dm_player_response_envelope.txt');
+              if (envelopeRedo) redoSystemMsgs.unshift({ role: 'system', content: envelopeRedo });
+            } catch (e) {
+              console.warn('Failed to prepend JSON guard / envelope to combat redo stack:', e);
+            }
+
+            const consolidatedWithCombat = appendSceneGroundingPolicy(consolidateSystemMessages(redoSystemMsgs));
+
+            const combatHandoffText =
+              language && String(language).toLowerCase().startsWith('span')
+                ? '[DM / interno] Instrucciones de combate D&D 5e cargadas. Devuelve SOLO un objeto JSON (mismo esquema que el sobre DM): narration (markdown, todo lo visible al jugador), imminentCombat, combatCue, y "encounterState" (objeto) con participantes/HP/iniciativa según el sobre DM. ' +
+                  'Inicia el combate formal: sorpresa si aplica, luego iniciativa (d20 + Des), orden de turnos, y resuelve el ataque que declaró el jugador en su turno con tirada vs CA y daño si procede. Mantén la misma escena y personajes.'
+                : '[DM / internal] D&D 5e combat instructions are now loaded. Output ONLY one JSON object (same DM envelope schema): narration (markdown, all player-visible text), imminentCombat, combatCue, and "encounterState" (object) with participants/HP/initiative per the envelope doc. ' +
+                  'Begin formal combat: surprise if it applies, then initiative (d20 + Dex), establish turn order, then resolve the player’s declared attack on the correct turn with attack roll vs AC and damage if appropriate. Keep the same scene and cast.';
+            const combatHandoffUser = { role: 'user', content: combatHandoffText };
+            const messagesToSendCombat = [
+              { role: 'system', content: consolidatedWithCombat },
+              ...inboundMessages,
+              combatHandoffUser,
+            ];
+            const combatOutbound = traceMessages(
+              messagesToSendCombat,
+              'DM imminent-combat redo; dm_inject_combat + skill_combat; internal handoff user message'
+            );
+            const combatResp = await generateResponse({ messages: combatOutbound }, { max_tokens: 1200, temperature: 0.8, gameId });
+            if (combatResp) {
+              finalRaw = String(combatResp);
+              let combatEnv = parseDmPlayerEnvelope(finalRaw);
+              if (!combatEnv) {
+                console.warn('Combat redo: model output was not a valid DM envelope; refusing empty first-pass narration.');
+                return res.status(502).json({
+                  error:
+                    'Combat pass failed: model output was not valid DM envelope JSON. Retry the message or check server logs / rawModelOutput.',
+                  rawPreview: String(finalRaw).slice(0, 1500),
+                });
+              }
+              envelope = combatEnv;
+              applyUserCombatToEnvelope(envelope, inboundMessages, persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter);
+              enforceAmbiguousWeaponNoCombat(envelope, inboundMessages, persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter);
+              didCombatRedo = true;
+
+              if (!String(envelope.narration || '').trim()) {
+                const narrFixUser = {
+                  role: 'user',
+                  content:
+                    language && String(language).toLowerCase().startsWith('span')
+                      ? 'Tu último JSON tenía "narration" vacía. Las reglas de combate ya están activas. Devuelve UN solo objeto JSON (mismo esquema DM). "narration" debe ser texto markdown NO vacío para el jugador: iniciativa, tiradas y resolución del ataque. No uses narration "".'
+                      : 'Your last JSON had empty "narration". Combat rules are active. Return ONE JSON object (same DM envelope). "narration" must be non-empty markdown for the player: initiative, rolls, and attack resolution. Do not use an empty narration string.',
+                };
+                const narrFixOutbound = traceMessages(
+                  [...messagesToSendCombat, narrFixUser],
+                  'DM combat narration must be non-empty (repair)'
+                );
+                try {
+                  const narrFixResp = await generateResponse(
+                    { messages: narrFixOutbound },
+                    { max_tokens: 1200, temperature: 0.55, gameId }
+                  );
+                  if (narrFixResp) {
+                    finalRaw = String(narrFixResp);
+                    const fixedEnv = parseDmPlayerEnvelope(finalRaw);
+                    if (fixedEnv && String(fixedEnv.narration || '').trim()) {
+                      envelope = fixedEnv;
+                      applyUserCombatToEnvelope(envelope, inboundMessages, persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter);
+                      enforceAmbiguousWeaponNoCombat(envelope, inboundMessages, persistedGameState && persistedGameState.gameSetup && persistedGameState.gameSetup.generatedCharacter);
+                    }
+                  }
+                } catch (nfe) {
+                  console.warn('Combat narration repair pass failed:', nfe);
+                }
+              }
+
+              try {
+                if (gameId) {
+                  const GameState = require('../models/GameState');
+                  await GameState.findOneAndUpdate(
+                    { gameId },
+                    { rawModelOutput: String(finalRaw).slice(0, 200000) },
+                    { upsert: true }
+                  );
+                }
+              } catch (pe) {
+                console.warn('Failed to persist combat-aware rawModelOutput:', pe);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to re-run generate with combat stack:', e);
+          }
+        }
+
+        if (!envelope) {
+          const coerced = coerceInitialProseToEnvelope(finalRaw, stackMode, gameId);
+          if (coerced) envelope = coerced;
+        }
+
+        if (!envelope) {
+          return res.status(502).json({
+            error: 'DM reply was not valid envelope JSON',
+            rawPreview: String(finalRaw).slice(0, 1200),
+          });
+        }
+
+        if (userCombatEntry && combatStackNeeded && !didCombatRedo && !String(envelope.narration || '').trim()) {
+          return res.status(502).json({
+            error:
+              'Combat handoff did not complete: the model returned empty narration but the combat pass failed. Retry or check server logs.',
+            rawPreview: String(finalRaw).slice(0, 1200),
+          });
+        }
+
+        if (!String(envelope.narration || '').trim()) {
+          return res.status(502).json({
+            error:
+              'The model returned empty narration. Combat handoff must be followed by non-empty player-visible text; retry your last message.',
+            encounterState: envelope.encounterState != null ? envelope.encounterState : null,
+            rawPreview: String(finalRaw).slice(0, 1500),
+          });
+        }
+
+        const finalUsedCombatStack = stackMode === 'combat' || didCombatRedo;
+        try {
+          if (gameId) {
+            const GameState = require('../models/GameState');
+            const $set = { llmCallCompletedAt: new Date().toISOString() };
+            if (finalUsedCombatStack) $set.mode = 'combat';
+            if (envelope.encounterState != null) {
+              $set.encounterState = envelope.encounterState;
+            }
+            await GameState.findOneAndUpdate(
+              { gameId },
+              { rawModelOutput: String(finalRaw).slice(0, 200000), $set },
+              { upsert: true }
+            );
+          }
+        } catch (e) {
+          console.warn('Failed saving rawModelOutput for generate:', e);
+        }
+
+        if (gameId && persist && typeof persist === 'object' && String(persist.gameId || '') === String(gameId)) {
+          try {
+            const merged = mergePersistWithAssistantReply(persist, envelope, { finalUsedCombatStack });
+            if (merged) await persistGameStateFromBody(merged);
+          } catch (pe) {
+            console.warn('Post-generate persistGameState failed:', pe);
+          }
+        }
+
+        res.json({
+          narration: envelope.narration,
+          encounterState: envelope.encounterState != null ? envelope.encounterState : null,
+          activeCombat: Boolean(finalUsedCombatStack),
+        });
     } catch (error) {
         console.error('Error generating text:', error);
         res.status(500).json({ error: `Error generating text: ${String(error)}` });
@@ -473,10 +1019,14 @@ router.post('/generate-campaign', async (req, res) => {
     // Consolidate system messages into a single system-role prompt to reduce role drift and priming
     const consolidatedCampaignSystem = consolidateSystemMessages(systemMsgs);
     const messagesToSend = [{ role: 'system', content: consolidatedCampaignSystem }, userInstruction];
+    const campaignOutbound = traceMessages(
+      messagesToSend,
+      'full campaign JSON generator; JSON output guards; no-preface guard; language policy; DM core slice; user: campaign premise JSON'
+    );
     // Debug: log the consolidated system message and outbound messages
     try {
       console.log('DEBUG: consolidated system (generate-campaign):', consolidatedCampaignSystem);
-      console.log('DEBUG: messagesToSend (generate-campaign):', JSON.stringify(messagesToSend, null, 2));
+      console.log('DEBUG: messagesToSend (generate-campaign):', JSON.stringify(campaignOutbound, null, 2));
     } catch (e) {
       console.log('DEBUG: messagesToSend (generate-campaign) - could not stringify', e);
     }
@@ -484,7 +1034,7 @@ router.post('/generate-campaign', async (req, res) => {
     try {
         // Estimate prompt size and choose a completion budget so output won't be truncated.
         const MODEL_MAX_TOKENS = 4000;
-        const promptTokensCampaign = estimateTokenCount(messagesToSend);
+        const promptTokensCampaign = estimateTokenCount(campaignOutbound);
         let completionBudgetCampaign = 700;
         const availableCampaign = MODEL_MAX_TOKENS - promptTokensCampaign - 50;
         if (availableCampaign <= 0) {
@@ -497,7 +1047,7 @@ router.post('/generate-campaign', async (req, res) => {
           );
         }
         console.log(`Campaign generator: prompt tokens ${promptTokensCampaign}, completion budget ${completionBudgetCampaign}`);
-        const aiMessage = await generateResponse({ messages: messagesToSend }, { max_tokens: completionBudgetCampaign, temperature: 0.8, gameId });
+        const aiMessage = await generateResponse({ messages: campaignOutbound }, { max_tokens: completionBudgetCampaign, temperature: 0.8, gameId });
         if (!aiMessage) {
           return res.status(500).json({ error: 'AI response was empty or failed (see server logs).' });
         }
@@ -520,6 +1070,8 @@ router.post('/generate-campaign', async (req, res) => {
             // Do not call the model again to "repair" — avoid wasting tokens.
             // Leave parsed as null; rawModelOutput will be saved for inspection.
         }
+
+        if (parsed) ensureCampaignCoreTitle(parsed);
 
         // Persist campaignSpec and raw AI output into GameState if gameId supplied in request body
         try {
@@ -546,12 +1098,35 @@ router.post('/generate-campaign', async (req, res) => {
 
 // New: generate only core campaign spec (small, reliable output)
 router.post('/generate-campaign-core', async (req, res) => {
-  const { gameSetup = {}, sessionSummary = '', language = 'English', gameId = null, waitForStages = true } = req.body;
+  const { gameId = null, waitForStages = true, language = 'English' } = req.body;
   console.log('Campaign core generator called');
+  // Product flow: campaign core runs only after a character exists for this game (persisted by generate-character).
+  if (gameId) {
+    try {
+      const GameState = require('../models/GameState');
+      const gs = await GameState.findOne({ gameId }).select('gameSetup.generatedCharacter').lean();
+      if (!gs?.gameSetup?.generatedCharacter) {
+        return res.status(400).json({
+          error:
+            'Generate your character first and confirm it before generating the campaign. The server has no saved character for this game.',
+        });
+      }
+    } catch (e) {
+      console.warn('generate-campaign-core: failed to verify generatedCharacter:', e);
+      return res.status(500).json({ error: 'Could not verify game state before campaign generation.' });
+    }
+  }
+  // World-only: never use client gameSetup, sessionSummary, or character data for core generation.
+  const sessionSummaryForCore = '';
 
   // Prepare system messages (guards + core guidance)
   // Load campaign-core policy from prompt file so this behavior is editable (do NOT hardcode)
-  const baseSystemMsgs = composeSystemMessages({ mode: 'initial', sessionSummary, includeFullSkill: false, language }).filter(m => m.role === 'system');
+  const baseSystemMsgs = composeSystemMessages({
+    mode: 'initial',
+    sessionSummary: sessionSummaryForCore,
+    includeFullSkill: false,
+    language,
+  }).filter(m => m.role === 'system');
   const systemMsgs = [];
   try {
     const jsonGuard = loadPrompt('json_output_guard.txt');
@@ -605,17 +1180,25 @@ router.post('/generate-campaign-core', async (req, res) => {
       const langPrompt = loadPrompt(langFile);
       if (langPrompt) languageInstructionForTemplate = langPrompt;
     } catch (e) { /* ignore */ }
-    userPromptRendered = Mustache.render(template, { sessionSummary: sessionSummary || '', languageInstruction: languageInstructionForTemplate, language });
+    userPromptRendered = Mustache.render(template, {
+      sessionSummary: sessionSummaryForCore,
+      languageInstruction: languageInstructionForTemplate,
+      language,
+    });
   } catch (e) {
     console.error('Failed rendering campaign generator prompt template:', e);
     return res.status(500).json({ error: 'Failed rendering campaign generator prompt' });
   }
   const messagesToSend = [{ role: 'system', content: consolidated }, { role: 'user', content: userPromptRendered }];
+  const coreOutbound = traceMessages(
+    messagesToSend,
+    'campaign core JSON only; JSON guards; language policy; world premise policy; DM core slice; user: campaign template request'
+  );
   // Log the exact messages being sent to the model for debugging (redactable if needed).
   try {
-    console.log('OUTGOING (campaign-core) messagesToSend:', JSON.stringify(messagesToSend, null, 2));
+    console.log('OUTGOING (campaign-core) messagesToSend:', JSON.stringify(coreOutbound, null, 2));
   } catch (e) {
-    console.log('OUTGOING (campaign-core) messagesToSend (could not stringify):', messagesToSend);
+    console.log('OUTGOING (campaign-core) messagesToSend (could not stringify):', coreOutbound);
   }
 
   try {
@@ -623,13 +1206,13 @@ router.post('/generate-campaign-core', async (req, res) => {
     try {
       if (gameId) {
         const GameState = require('../models/GameState');
-        await GameState.findOneAndUpdate({ gameId }, { rawModelRequest: JSON.stringify(messagesToSend).slice(0, 200000) }, { upsert: true });
+        await GameState.findOneAndUpdate({ gameId }, { rawModelRequest: JSON.stringify(coreOutbound).slice(0, 200000) }, { upsert: true });
       }
     } catch (e) {
       console.warn('Failed saving rawModelRequest for campaign-core:', e);
     }
 
-    const aiMessage = await generateResponse({ messages: messagesToSend }, { max_tokens: 900, temperature: 0.8, gameId });
+    const aiMessage = await generateResponse({ messages: coreOutbound }, { max_tokens: 900, temperature: 0.8, gameId });
     if (!aiMessage) return res.status(500).json({ error: 'AI response empty' });
 
     const rawJson = extractFirstJsonObject(aiMessage) || aiMessage;
@@ -648,6 +1231,8 @@ router.post('/generate-campaign-core', async (req, res) => {
       }
       return res.status(500).json({ error: 'Failed to parse campaign core JSON', raw: aiMessage });
     }
+
+    ensureCampaignCoreTitle(parsed);
 
     // If caller requested to wait for background stages (default true), run them synchronously and fail fast on error.
     if (gameId && waitForStages) {
@@ -743,7 +1328,7 @@ async function generateCampaignStage({ gameId, stage, campaignCore, systemMsgs, 
         } catch (e) {}
         userPrompt = Mustache.render(tpl, { campaignConcept: campaignCore.campaignConcept, languageInstruction: languageInstructionForTemplate, language });
       } else {
-        // fallback to inline prompts (legacy)
+        // inline fallback if template file missing
         if (stage === 'factions') {
           userPrompt =
             `Based on this campaignConcept: ${campaignCore.campaignConcept}\n` +
@@ -765,13 +1350,20 @@ async function generateCampaignStage({ gameId, stage, campaignCore, systemMsgs, 
 
     const consolidated = consolidateSystemMessages(systemMsgs);
     const messagesToSend = [{ role: 'system', content: consolidated }, { role: 'user', content: userPrompt }];
+    const stageTrace =
+      stage === 'factions'
+        ? 'campaign build stage: factions JSON; inherits core-generation system stack'
+        : stage === 'majorNPCs'
+          ? 'campaign build stage: major NPCs JSON; inherits core-generation system stack'
+          : 'campaign build stage: key locations JSON; inherits core-generation system stack';
+    const stageOutbound = traceMessages(messagesToSend, stageTrace);
     // Log the exact messages being sent to the model for debugging (redactable if needed).
     try {
-      console.log(`OUTGOING (stage:${stage}) messagesToSend:`, JSON.stringify(messagesToSend, null, 2));
+      console.log(`OUTGOING (stage:${stage}) messagesToSend:`, JSON.stringify(stageOutbound, null, 2));
     } catch (e) {
-      console.log(`OUTGOING (stage:${stage}) messagesToSend (could not stringify):`, messagesToSend);
+      console.log(`OUTGOING (stage:${stage}) messagesToSend (could not stringify):`, stageOutbound);
     }
-    const aiMessage = await generateResponse({ messages: messagesToSend }, { max_tokens: 800, temperature: 0.8, gameId });
+    const aiMessage = await generateResponse({ messages: stageOutbound }, { max_tokens: 800, temperature: 0.8, gameId });
     if (!aiMessage) {
       console.warn(`Stage ${stage} returned empty response`);
       return false;
@@ -796,10 +1388,25 @@ async function generateCampaignStage({ gameId, stage, campaignCore, systemMsgs, 
       return false;
     }
 
+    const coerced = coerceCampaignStageToArray(stage, parsed);
+    if (!coerced.length) {
+      console.warn(`Stage ${stage}: empty array after coercion; raw snippet:`, String(rawJson).slice(0, 400));
+      try {
+        await require('../models/GameState').findOneAndUpdate(
+          { gameId },
+          { rawModelOutput: String(aiMessage).slice(0, 200000) },
+          { upsert: true, new: true }
+        );
+      } catch (pe) {
+        console.warn('Failed to persist rawModelOutput for empty coerced stage:', pe);
+      }
+      return false;
+    }
+
     // Persist into campaignSpec.<stage>
     try {
       const update = {};
-      update[`campaignSpec.${stage}`] = parsed;
+      update[`campaignSpec.${stage}`] = coerced;
       update.rawModelOutput = String(aiMessage).slice(0, 200000);
       await require('../models/GameState').findOneAndUpdate({ gameId }, update, { upsert: true, new: true });
       console.log(`Persisted campaign stage ${stage} for gameId=${gameId}`);
@@ -816,38 +1423,49 @@ async function generateCampaignStage({ gameId, stage, campaignCore, systemMsgs, 
 
 // Note: summary generation is now handled server-side as part of campaign/session flows.
 
-// Export the router to be used in other files
-module.exports = router;
-
 // Route to generate only a playerCharacter (separate from campaign generation)
-router.post('/generate-character', async (req, res) => {
-  const { gameSetup = {}, sessionSummary = '', language = 'English', gameId = null } = req.body;
-
-  // Enforce campaign-first policy: require an existing campaignSpec for this gameId.
-  if (!gameId) {
-    return res.status(400).json({ error: 'generate-character requires gameId. Generate campaign first and provide gameId.' });
-  }
+function safeJsonStringifyForPrompt(obj) {
   try {
-    const GameState = require('../models/GameState');
-    const gsCheck = await GameState.findOne({ gameId }).select('+campaignSpec');
-    if (!gsCheck || !gsCheck.campaignSpec) {
-      return res.status(400).json({ error: 'No campaignSpec found for this gameId. Please generate the campaign core before generating characters.' });
-    }
+    return JSON.stringify(obj != null && typeof obj === 'object' ? obj : {});
   } catch (e) {
-    console.warn('Failed to verify campaignSpec for generate-character:', e);
-    return res.status(500).json({ error: 'Failed to verify campaign state before character generation.' });
+    console.warn('generate-character: gameSetup JSON.stringify failed:', e?.message || e);
+    return '{}';
+  }
+}
+
+router.post('/generate-character', async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const { gameSetup = {}, language = 'English', gameId = null } = body;
+
+  if (!gameId) {
+    return res.status(400).json({ error: 'generate-character requires gameId.' });
   }
 
   try {
-    // Compose system messages and include the character-generation skill prompt
-    let systemMsgs = composeSystemMessages({ mode: 'initial', sessionSummary, includeFullSkill: false, language });
-    // Remove assistant-role entries
-    systemMsgs = (systemMsgs || []).filter(m => m.role === 'system');
+    // Character generation is NOT an in-play DM turn. Do not use composeSystemMessages(mode: initial):
+    // systemCore.txt describes the narration JSON envelope and conflicts with { "playerCharacter": ... }.
+    const systemMsgs = [];
+    try {
+      const jsonGuardDm = loadPrompt('json_output_guard.txt');
+      if (jsonGuardDm) systemMsgs.push({ role: 'system', content: jsonGuardDm });
+    } catch (e) {
+      /* ignore */
+    }
+    systemMsgs.push({
+      role: 'system',
+      content:
+        'CHARACTER GENERATION ONLY (not a play turn). Ignore any "DM reply envelope", "narration", or in-scene JSON shape. Your entire reply MUST be one JSON object whose only top-level key is "playerCharacter", exactly as specified in the following skill. No markdown fences, no extra keys, no prose outside JSON.',
+    });
+    try {
+      const langFile = language && language.toLowerCase().startsWith('span') ? 'language_spanish.txt' : 'language_english.txt';
+      const langPrompt = loadPrompt(langFile);
+      if (langPrompt) systemMsgs.push({ role: 'system', content: langPrompt });
+    } catch (e) {
+      /* ignore */
+    }
 
-    // Add the character-generation prompt, rendered with language instructions via Mustache.
     const charPrompt = loadPrompt('skill_character.txt');
     if (charPrompt) {
-      // Use existing language prompt templates (do not hardcode language strings).
       let langInstruction = '';
       try {
         if (language && language.toLowerCase().startsWith('span')) {
@@ -857,71 +1475,114 @@ router.post('/generate-character', async (req, res) => {
       } catch (e) {
         console.warn('Failed to load language prompt for character generation:', e);
       }
-      const renderedCharPrompt = Mustache.render(charPrompt, { languageInstruction: langInstruction, language });
-      systemMsgs.push({ role: 'system', content: renderedCharPrompt });
+      try {
+        const renderedCharPrompt = Mustache.render(charPrompt, { languageInstruction: langInstruction, language });
+        systemMsgs.push({ role: 'system', content: renderedCharPrompt });
+      } catch (e) {
+        console.error('generate-character: Mustache render failed for skill_character system section:', e);
+        return res.status(500).json({
+          error: 'generate-character: failed to render skill_character.txt (check Mustache placeholders).',
+          details: String(e && e.message ? e.message : e),
+          code: 'CHARACTER_PROMPT_RENDER_FAILED',
+        });
+      }
     }
 
-    // Consolidate into one system message
     const consolidated = consolidateSystemMessages(systemMsgs);
 
-    // Build user instruction by extracting the USER section from skill_character.txt (keeps phrasing editable)
-    let userContent = '';
-    try {
-      const fullCharTpl = loadPrompt('skill_character.txt');
-      const marker = '--- USER PROMPT BELOW (render this section as the user message) ---';
-      let userTpl = null;
-      if (fullCharTpl && fullCharTpl.includes(marker)) {
-        userTpl = fullCharTpl.split(marker)[1].trim();
-      } else {
-        // fallback to separate file if present
-        userTpl = loadPrompt('skill_character_user.txt');
-      }
-      const langFile = language && language.toLowerCase() === 'spanish' ? 'language_spanish.txt' : 'language_english.txt';
-      let languageInstructionForTemplate = '';
-      try {
-        const langPrompt = loadPrompt(langFile);
-        if (langPrompt) languageInstructionForTemplate = langPrompt;
-      } catch (e) {}
-      if (userTpl) {
-        userContent = Mustache.render(userTpl, { gameSetup: JSON.stringify(gameSetup), languageInstruction: languageInstructionForTemplate, language });
-      } else {
-        const langPrompt = languageInstructionForTemplate ? languageInstructionForTemplate + '\n\n' : '';
-        userContent = `${langPrompt}Using the following partial character info (may be empty): ${JSON.stringify(gameSetup)}\n\nReturn ONLY valid JSON with a top-level key "playerCharacter" whose value is an object containing: name, race, class, subclass (optional), level (set to 1), background, brief_backstory (2-3 sentences), stats {STR,DEX,CON,INT,WIS,CHA}, max_hp, ac, starting_equipment (array). Do not include any other keys or commentary.`;
-      }
-    } catch (e) {
-      console.warn('Failed to render character user prompt, falling back:', e);
-      userContent = `Using the following partial character info (may be empty): ${JSON.stringify(gameSetup)}\n\nReturn ONLY valid JSON with a top-level key "playerCharacter"...`;
+    // User message comes only from the marked section in skill_character.txt (no alternate files or inline fallbacks).
+    const fullCharTpl = loadPrompt('skill_character.txt');
+    const userMarker = '--- USER PROMPT BELOW (render this section as the user message) ---';
+    if (!fullCharTpl || !fullCharTpl.includes(userMarker)) {
+      return res.status(500).json({
+        error: 'generate-character: skill_character.txt must contain the USER PROMPT marker; no fallback prompt is used.',
+      });
     }
+    const userTpl = fullCharTpl.split(userMarker)[1].trim();
+    if (!userTpl) {
+      return res.status(500).json({
+        error: 'generate-character: skill_character.txt user section after marker is empty.',
+      });
+    }
+    const langFileUser = language && language.toLowerCase() === 'spanish' ? 'language_spanish.txt' : 'language_english.txt';
+    let languageInstructionForTemplate = '';
+    try {
+      const lp = loadPrompt(langFileUser);
+      if (lp) languageInstructionForTemplate = lp;
+    } catch (e) {
+      /* ignore */
+    }
+    let userContent;
+    try {
+      userContent = Mustache.render(userTpl, {
+        gameSetup: safeJsonStringifyForPrompt(gameSetup),
+        languageInstruction: languageInstructionForTemplate,
+        language,
+      });
+    } catch (e) {
+      console.error('generate-character: Mustache render failed for user template:', e);
+      return res.status(500).json({ error: 'generate-character: failed to render user prompt template.', details: String(e) });
+    }
+
     const messagesToSend = [{ role: 'system', content: consolidated }, { role: 'user', content: userContent }];
+    const charOutbound = traceMessages(
+      messagesToSend,
+      'player character sheet JSON; DM core slice; character generation skill; user: partial build + structured stats'
+    );
 
-    // Use a fixed, conservative completion budget for character generation (no token estimation needed)
-    const completionBudget = 400;
-    const aiMessage = await generateResponse({ messages: messagesToSend }, { max_tokens: completionBudget, temperature: 0.8, gameId });
-    if (!aiMessage) return res.status(500).json({ error: 'AI response empty' });
-
-    // Parse JSON (use balanced-brace extractor to avoid greedy regex issues)
-    let parsed = null;
-    try {
-      const raw = String(aiMessage || '');
-      console.log('Character generator raw output preview:', raw.slice(0, 2000));
-      const jsonText = extractFirstJsonObject(raw);
-      if (jsonText) {
-        try {
-          parsed = JSON.parse(jsonText);
-        } catch (pe) {
-          console.warn('JSON.parse failed on extracted JSON from character generator:', pe);
-          parsed = null;
-        }
-      } else {
-        console.warn('No JSON object found in AI response for character generator.');
-      }
-    } catch (e) {
-      console.warn('Failed to parse JSON from character generator (unexpected):', e);
+    const completionBudget = Math.min(2000, Math.max(800, parseInt(process.env.DM_CHARACTER_MAX_TOKENS || '1400', 10) || 1400));
+    let aiMessage = await generateResponse({ messages: charOutbound }, { max_tokens: completionBudget, temperature: 0.75, gameId });
+    if (!aiMessage) {
+      const detail = getLastGenerateFailureMessage() || 'No text from model.';
+      const useLm = String(process.env.DM_USE_LM_STUDIO || '').toLowerCase() === 'true';
+      const hint = useLm
+        ? `LM Studio mode (DM_USE_LM_STUDIO=true). Start LM Studio, load a model, and check ${process.env.DM_LM_STUDIO_URL || 'http://localhost:1234'} — try Server Settings → API → OpenAI-compatible /v1/chat/completions.`
+        : 'Using OpenAI: set DM_OPENAI_API_KEY in server/.env and ensure the key is valid.';
+      return res.status(503).json({
+        error: 'Character generation failed: the model returned no usable text.',
+        code: 'AI_RESPONSE_EMPTY',
+        detail,
+        hint,
+      });
     }
 
-    // Do NOT perform automatic retries. If the initial response cannot be parsed into a valid
-    // playerCharacter object, persist raw output for debugging and fail fast.
+    function tryParsePlayerCharacterBlob(text) {
+      const cleaned = normalizeJsonLikeQuotes(stripMarkdownJsonFence(String(text || '')));
+      const jsonText = extractFirstJsonObject(cleaned);
+      if (!jsonText) return null;
+      try {
+        return JSON.parse(jsonText);
+      } catch (pe) {
+        console.warn('JSON.parse failed on character generator blob:', pe?.message || pe);
+        return null;
+      }
+    }
+
+    const parsed = tryParsePlayerCharacterBlob(aiMessage);
+    console.log('Character generator raw output preview:', String(aiMessage).slice(0, 2000));
+
     if (parsed && parsed.playerCharacter) {
+      const {
+        validateGeneratedPlayerCharacter,
+        normalizeGeneratedPlayerCharacter,
+      } = require('../validatePlayerCharacter');
+      parsed.playerCharacter = normalizeGeneratedPlayerCharacter(parsed.playerCharacter);
+      const charCheck = validateGeneratedPlayerCharacter(parsed.playerCharacter);
+      if (!charCheck.ok) {
+        console.warn('generate-character: validation failed:', charCheck.error);
+        try {
+          if (gameId) {
+            await require('../models/GameState').findOneAndUpdate(
+              { gameId },
+              { rawModelOutput: String(aiMessage).slice(0, 200000) },
+              { upsert: true, new: true }
+            );
+          }
+        } catch (pe) {
+          console.warn('Failed to persist rawModelOutput after character validation failure:', pe);
+        }
+        return res.status(422).json({ error: charCheck.error, code: 'INVALID_PLAYER_CHARACTER' });
+      }
       // Persist generated character into GameState so clients loading the game will see it.
       try {
         if (gameId) {
@@ -935,23 +1596,57 @@ router.post('/generate-character', async (req, res) => {
       } catch (pe) {
         console.warn('Failed to persist generatedCharacter to GameState:', pe);
       }
-      return res.json(parsed);
+      try {
+        return res.json(parsed);
+      } catch (serErr) {
+        console.error('generate-character: res.json(parsed) failed:', serErr);
+        return res.status(500).json({
+          error: 'Generated character could not be sent as JSON (non-serializable values?).',
+          code: 'CHARACTER_RESPONSE_SERIALIZE_FAILED',
+          detail: String(serErr && serErr.message ? serErr.message : serErr),
+        });
+      }
     } else {
+      const rawStr = String(aiMessage || '');
+      const preview = rawStr.slice(0, 8000);
       try {
         if (gameId) {
           await require('../models/GameState').findOneAndUpdate(
             { gameId },
-            { rawModelOutput: String(aiMessage).slice(0, 200000) },
+            { rawModelOutput: rawStr.slice(0, 200000) },
             { upsert: true, new: true }
           );
         }
       } catch (pe) {
         console.warn('Failed to persist rawModelOutput after character parse failure:', pe);
       }
-      return res.status(500).json({ error: 'Failed to generate valid playerCharacter', raw: aiMessage });
+      return res.status(422).json({
+        error:
+          'The model did not return valid JSON with a top-level playerCharacter object. Check server logs for a preview.',
+        code: 'INVALID_MODEL_JSON',
+        preview,
+        previewLength: rawStr.length,
+      });
     }
   } catch (e) {
     console.error('Error generating character:', e);
-    res.status(500).json({ error: String(e) });
+    res.status(500).json({
+      error: String(e && e.message ? e.message : e),
+      code: 'GENERATE_CHARACTER_EXCEPTION',
+      stack: process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'dev' ? String(e && e.stack) : undefined,
+    });
   }
 });
+
+/** One-shot persist after setup (system message + campaign shell). Not named /save — clients must not POST /api/game-state/save. */
+router.post('/bootstrap-session', async (req, res) => {
+  try {
+    const gs = await persistGameStateFromBody(req.body);
+    res.json(gs);
+  } catch (e) {
+    console.error('bootstrap-session failed:', e);
+    res.status(400).json({ error: String(e && e.message ? e.message : e) });
+  }
+});
+
+module.exports = router;

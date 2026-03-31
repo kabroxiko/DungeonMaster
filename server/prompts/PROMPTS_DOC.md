@@ -39,9 +39,7 @@ If you rename a file, update `PROMPTS_MANIFEST.json` and any code references (or
 | skill_combat.txt | Combat mechanics: resource tracking (HP, spell slots, conditions), initiative/turn order, concise HP lists, and roll presentation conventions (single-line mechanical summaries + short narration) | `/generate` when mode='combat' | `{{languageInstruction}}` |
 | skill_investigation.txt | Investigation guidance | `/generate` when mode='investigation' | `{{languageInstruction}}` |
 | skill_decision.txt | Decision framing guidance | `/generate` when mode='decision' | `{{languageInstruction}}` |
-| skill_character.txt | Character-generation system + embedded user prompt | `/generate-character` (system + user extracted) | `{{gameSetup}}`, `{{languageInstruction}}` |
-| skill_character_examples_en.txt | Few-shot examples (English) for character style | Included for decision/initial as assistant few-shot | (none) |
-| skill_character_examples_es.txt | Few-shot examples (Spanish) for character style | Included for decision/initial as assistant few-shot | (none) |
+| skill_character.txt | Character-generation system + embedded user prompt | `/generate-character` (system + user extracted; no repair/fallback passes) | `{{gameSetup}}`, `{{languageInstruction}}` |
 
 ## Troubleshooting
 - If a stage fails, `GameState.rawModelRequest` and `GameState.rawModelOutput` are populated for debugging.

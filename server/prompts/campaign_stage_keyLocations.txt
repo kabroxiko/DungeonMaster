@@ -3,10 +3,11 @@ Campaign stage: keyLocations
 
 Based on this campaignConcept: {{campaignConcept}}
 
-Return ONLY a JSON array named "keyLocations" where each item is an object with:
+Return ONLY JSON (no surrounding text). Preferred shape:
+{"keyLocations":[{"name":"...","type":"...","significance":"..."}, ...]}
+
+A bare JSON array of those objects is also acceptable. Each item must have:
 - name (string)
 - type (string) — e.g., city, ruin, temple
 - significance (1-2 sentences)
-
-Return the array as raw JSON (no surrounding text or commentary).
 

@@ -1,8 +1,0 @@
-EJEMPLOS ACEPTABLES (usa como guía; no los emitas textualmente):
-{"playerCharacter":{"name":"Kael Thornbreaker","race":"Humano","class":"Pícaro","subclass":"Ladrón","level":1,"background":"Criminal","brief_backstory":"Kael creció en los callejones, aprendiendo a moverse sin ser visto. Ahora busca oportunidades para hacerse con oro y reputación.","stats":{"STR":10,"DEX":16,"CON":12,"INT":13,"WIS":11,"CHA":9},"max_hp":8,"ac":14,"starting_equipment":["Pistola","Armadura de cuero","Herramientas de ladrón"]}}
-{"playerCharacter":{"name":"Liriel Dawnwhisper","race":"Medio-Elfo","class":"Bardo","subclass":"Colegio del Saber","level":1,"background":"Artista","brief_backstory":"Liriel viajó con una compañía, aprendiendo canciones y relatos. Ahora colecciona historias y actúa en tabernas.","stats":{"STR":8,"DEX":14,"CON":12,"INT":13,"WIS":10,"CHA":15},"max_hp":7,"ac":12,"starting_equipment":["Laúd","Daga","Equipo de artista"]}}
-
-EJEMPLOS NO ACEPTABLES (evitar producir estos):
-{"playerCharacter":{"name":"Javier Delgado",...}}
-{"playerCharacter":{"name":"María García",...}}
-

@@ -1,11 +1,11 @@
 - {{{languageInstruction}}}
 Decision framing:
 - Do NOT present labeled choices or option lists to the player (no A/B/C or multiple-choice style prompts).
-- Instead, weave decision-relevant information into the narration: describe likely consequences, risks, and trade-offs inline, and then ask the player what they do.
+- Instead, weave decision-relevant information into the narration: describe likely consequences, risks, and trade-offs inline, then let the beat rest so the player can reply in free text—without a stock closing question.
 - Use the narrative to clarify stakes and likely outcomes; do not format as a menu of options.
 - Few-shot example (use as style guide; do not output examples verbatim):
 ACCEPTABLE:
-"You notice the keep's southern wall is poorly lit and seems less guarded; slipping along that side could let you bypass the sentries, but the uneven stones increase the risk of a noisy misstep. The eastern gate is open but watched by a patrol—forcing a confrontation could draw attention. What do you do?"
+"You notice the keep's southern wall is poorly lit and seems less guarded; slipping along that side could let you bypass the sentries, but the uneven stones increase the risk of a noisy misstep. The eastern gate is open but watched by a patrol—forcing a confrontation could draw attention."
 
 UNACCEPTABLE:
 "A) Sneak along the south wall\nB) Charge the eastern gate\nC) Wait and observe"

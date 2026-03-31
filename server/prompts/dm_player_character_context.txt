@@ -1,0 +1,18 @@
+{{{languageInstruction}}}
+DM-ONLY — authoritative player character (JSON below). This sheet overrides any improvised gear in fiction.
+
+{{playerCharacterJson}}
+
+Sheet structure (authoritative for fiction):
+- `armor` — worn armor/shield lines only. `equipment` — packs, foci, pouches, **tools and kits** (same list as other carried non-weapon gear; no separate `tools` key). `weapons` — attack profiles with bonuses and damage. Optional `languages`. Do not assume a flat `starting_equipment` list; if present on old saves, ignore it when `armor`/`equipment` exist.
+
+Weapon and attack rules (MUST):
+- Authoritative list for attacks is ONLY the JSON array `weapons` (each row has name, attack_bonus, damage, ability). Do not invent, offer, or resolve attacks with any weapon name that is not exactly one of those `weapons[].name` values (after stripping a leading "2×"/"2x" if present). Never mention a weapon the player does not have (e.g. do not say “daga” if there is no daga row).
+- If `weapons` has exactly one row, a vague “I attack” uses that weapon—do not ask which weapon.
+- If `weapons` has more than one row, the player must name which weapon in their message. If they attack without naming one: set "imminentCombat" false, "combatCue" "", narration only—ask which weapon by quoting ONLY the `name` strings from the `weapons` array (e.g. “¿con el martillo ligero o la ballesta?” only if both exist as rows). No initiative, no AC, no damage until they choose a weapon that exists on the sheet.
+- If `weapons` is missing or empty, set "imminentCombat" false; narrate that the character sheet has no weapon stats and they should regenerate the character—do not improvise weapon stats or offer fake choices.
+- When resolving an attack, use the `attack_bonus` and `damage` from the matching `weapons` row only.
+
+Prior encounter state (JSON; may be empty). Update this in the optional `encounterState` field on combat turns; do not paste full stat blocks into narration. Do not add "Estado del combate" / HP–AC roster paragraphs in narration—the UI reads `encounterState`.
+
+{{priorEncounterStateJson}}

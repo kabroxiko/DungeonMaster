@@ -1,11 +1,12 @@
 {{{languageInstruction}}}
 Initial adventure seed:
-Produce a richer, multi-paragraph opening scene (3–5 short paragraphs) rather than a single brief paragraph. The opening should still be narrative-first and avoid mechanical details.
-Structure the output as follows:
-  1) Brief context (1–2 sentences): who the character is (use provided character data when available), where they are, and why they are here right now. IMPORTANT: Begin with a mundane, unrelated reason the character is present (e.g., resting, traveling, working, visiting), not an explicit mission.
-  2) Sensory scene-setting (1–2 short paragraphs): vivid sensory details (sight, sound, smell, touch) and at least one notable NPC or landmark described briefly.
-  3) Immediate hook and stakes (1 short paragraph): the narrative should introduce an unexpected element (a clue, an odd NPC behavior, a sign of a faction, or an environmental anomaly) that naturally pulls the character toward a larger concern tied to the campaign background — do NOT start with a predefined quest or directive.
-  4) Leads & threads (1 short paragraph): mention existing threads, clues, or relevant NPCs neutrally. Do NOT frame these as suggested actions, recommended approaches, or explicit options for the player.
+Produce a free-form, narrative-first opening scene (1–5 short paragraphs). Avoid mechanical details and do not describe the player character (do not mention their name, appearance, stats, or explicit motivations). Focus on setting, atmosphere, events, and NPCs only when necessary.
+Requirements:
+- Include a brief line (1 sentence) that explains why the character is present in this location right now — make this reason mundane and unrelated to any mission, quest, or immediate objective (e.g., seeking shelter, buying bread, watching a festival, resting, delivering a package). This should be narrative flavor only, not a character biography or mechanical detail.
+- Include at least one clear narrative hook somewhere in the text (opening, middle, or end). A hook can be an unexpected clue, odd NPC behavior, a sensory anomaly, or any element that invites investigation — weave it into normal paragraphs only; no labeled hint sections (core DM rules).
+- Keep the tone immersive and sensory: use sight, sound, smell, touch, and brief concrete details to ground the scene.
+- You may mention NPCs or landmarks briefly, but do not frame the scene around a detailed character description of the player.
 - Do NOT include or render the character sheet in your response; the server will display the Character Sheet separately on the client UI.
-- IMPORTANT: Do NOT mention combat mechanics, initiative lists, HP trackers, or other encounter formatting in the narrative opening. Do NOT present explicit numbered options or A/B/C menus. Keep output immersive and usable for play.
-Style guidance: keep voice immersive, sensory, and player-focused. Avoid prefatory meta-text such as "Here's how it might look" or any explanations about the prompt. Produce only the narrative opening content when asked.
+- IMPORTANT: Do NOT mention combat mechanics, initiative lists, HP trackers, or other encounter formatting. Do NOT present explicit numbered options or A/B/C menus.
+Style guidance: avoid prefatory meta-text, explanations, and suggestions for play; end on scene, sensation, or beat like ordinary fiction (core DM rules on closers).
+Envelope (required — server rejects plain prose): Your entire reply MUST be a single JSON object and nothing else (no markdown fence, no preamble). Keys: "narration" (string: the full opening scene, Markdown allowed inside the string), "imminentCombat" (boolean, false for this opening), "combatCue" (string, "" when not in combat). Example shape: {"narration":"…","imminentCombat":false,"combatCue":""}

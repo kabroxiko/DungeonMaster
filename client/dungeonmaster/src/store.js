@@ -45,8 +45,21 @@ export default createStore({
         setCredits(state, credits) {
             state.credits = credits;
         },
-        setGameSetup(state, gameSetup) { // Modify setGameSetup to accept an object
-            state.gameSetup = gameSetup;
+        setGameSetup(state, gameSetup) {
+            if (!gameSetup || typeof gameSetup !== 'object') {
+                state.gameSetup = gameSetup;
+                return;
+            }
+            const next = { ...gameSetup };
+            if (next.generatedCharacter != null && typeof next.generatedCharacter === 'object') {
+                try {
+                    next.generatedCharacter = JSON.parse(JSON.stringify(next.generatedCharacter));
+                } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.warn('setGameSetup: could not clone generatedCharacter', e);
+                }
+            }
+            state.gameSetup = next;
         },
         createNewGame(state) {
             state.gameId = Date.now().toString();
@@ -70,6 +83,18 @@ export default createStore({
         },
         notifyLanguageChanged(state) {
             state.languageVersion = (state.languageVersion || 0) + 1;
+        },
+        /** Clears in-memory wizard id/setup when starting a new game (header → Setup). */
+        resetSetupWizard(state) {
+            state.gameId = null;
+            state.gameSetup = {
+                gameSystem: "",
+                characterName: "",
+                characterClass: "",
+                characterRace: "",
+                characterLevel: 1,
+                characterGender: "Male",
+            };
         },
         
     },

@@ -1,0 +1,12 @@
+{{{languageInstruction}}}
+COMBAT ENTRY — HANDOFF TURN (DM-only; do not show this heading to the player):
+
+The latest player message declares an attack or otherwise starts committed violence, and the full D&D 5e combat procedure is NOT loaded on this request. The server will run a follow-up request with combat rules.
+
+For THIS reply only:
+- Output a single JSON object (same DM reply envelope as always).
+- "narration" MUST be exactly "" (empty string). No scene text, no rolls, no damage, no questions, no markdown.
+- "imminentCombat": true
+- "combatCue": a very short internal label (e.g. "swing at guard", "fire crossbow").
+
+Do not resolve initiative, AC, or damage here. The next model call will apply formal D&D 5e combat (initiative, turn order, then resolution).

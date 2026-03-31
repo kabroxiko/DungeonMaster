@@ -8,8 +8,10 @@ const app = createApp(App);
 
 // Use environment-provided API base URL when available, otherwise default to backend on port 5001
 axios.defaults.baseURL = process.env.DM_API_BASE
-  ? process.env.DM_API_BASE.replace(/\/$/, '')
-  : (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5001` : '');
+    ? process.env.DM_API_BASE.replace(/\/$/, '')
+    : typeof window !== 'undefined'
+      ? `${window.location.protocol}//${window.location.hostname}:5001`
+      : '';
 
 // Add request interceptor
 axios.interceptors.request.use(
@@ -77,19 +79,26 @@ app.mixin({
 // Simple translation helper that reads the reactive store language
 const translations = {
   English: {
-    chat_placeholder: 'What would you like to do?',
+    chat_placeholder: 'What do you do?',
     send: 'Send',
     sending: 'Sending...',
     start_game: 'Start Game',
     new_game: 'New Game',
     load_game: 'Load Game',
+    load_game_empty: 'No saved games yet. Start a new game from the home screen.',
+    load_game_error: 'Could not load saved games. Check that the server is running.',
     setup_title: 'The Start of Your Adventure',
     setup_desc: 'Select the building blocks of your character and story.',
     starting: 'Starting...',
     generating_campaign: 'Generating campaign...',
-    campaign_generated: 'Campaign generated. Generating character...',
+    campaign_generated: 'Campaign generated.',
     generating_character: 'Generating character...',
+    character_ready_confirm: 'Review your character in the floating sheet (bottom-right), then continue to generate the campaign.',
+    confirm_character_continue: 'Confirm and generate campaign',
+    regenerate_character: 'Regenerate character',
+    back_to_edit: 'Back to edit',
     error_generating_character: 'Error generating character',
+    error_generating_campaign: 'Error generating campaign',
     saving_game: 'Saving game...',
     error_saving_game: 'Error saving game',
     loading: 'Loading...',
@@ -99,6 +108,14 @@ const translations = {
     subtitle: 'Dark Fantasy — DnD inspired',
     background: 'Background',
     equipment: 'Equipment',
+    sheet_armor: 'Armor',
+    sheet_languages: 'Languages',
+    equipment_legacy: 'Equipment (legacy)',
+    armor_class_abbr: 'AC',
+    weapons_sheet: 'Weapons',
+    weapons_sheet_missing: 'Weapon stats are missing from this sheet (no dice). Regenerate from setup so the server saves armor, equipment, and weapons fields.',
+    encounter_tracker: 'Encounter',
+    hit_points_abbr: 'HP',
     level_prefix: 'Level ',
     character_gender: 'Gender',
     gender_male: 'Male',
@@ -142,22 +159,38 @@ const translations = {
       { id: 'half-orc', label: 'Half-Orc' },
       { id: 'gnome', label: 'Gnome' },
       { id: 'tiefling', label: 'Tiefling' }
-    ]
+    ],
+    /* Character sheet: ability abbreviations (same as English PHB) */
+    statAbbr: {
+      STR: 'STR',
+      DEX: 'DEX',
+      CON: 'CON',
+      INT: 'INT',
+      WIS: 'WIS',
+      CHA: 'CHA'
+    }
   },
   Spanish: {
-    chat_placeholder: '¿Qué quieres hacer?',
+    chat_placeholder: '¿Qué haces?',
     send: 'Enviar',
     sending: 'Enviando...',
     start_game: 'Iniciar Juego',
     new_game: 'Nuevo Juego',
     load_game: 'Cargar Partida',
+    load_game_empty: 'No hay partidas guardadas. Crea una nueva desde el inicio.',
+    load_game_error: 'No se pudieron cargar las partidas. Comprueba que el servidor está en marcha.',
     setup_title: 'El comienzo de tu aventura',
     setup_desc: 'Selecciona los elementos básicos de tu personaje y la historia.',
     starting: 'Iniciando...',
     generating_campaign: 'Generando campaña...',
-    campaign_generated: 'Campaña generada. Generando personaje...',
+    campaign_generated: 'Campaña generada.',
     generating_character: 'Generando personaje...',
+    character_ready_confirm: 'Revisa tu personaje en la hoja flotante (esquina inferior derecha) y continúa para generar la campaña.',
+    confirm_character_continue: 'Confirmar y generar campaña',
+    regenerate_character: 'Regenerar personaje',
+    back_to_edit: 'Volver a editar',
     error_generating_character: 'Error generando personaje',
+    error_generating_campaign: 'Error generando campaña',
     saving_game: 'Guardando partida...',
     error_saving_game: 'Error guardando partida',
     loading: 'Cargando...',
@@ -167,6 +200,14 @@ const translations = {
     subtitle: 'Dark Fantasy — DnD inspirado',
     background: 'Historia',
     equipment: 'Equipo',
+    sheet_armor: 'Armadura',
+    sheet_languages: 'Idiomas',
+    equipment_legacy: 'Equipo (heredado)',
+    armor_class_abbr: 'CA',
+    weapons_sheet: 'Armas',
+    weapons_sheet_missing: 'Faltan las estadísticas de armas en esta hoja (sin dados). Regenera desde la configuración para que el servidor guarde armadura, equipo y armas.',
+    encounter_tracker: 'Encuentro',
+    hit_points_abbr: 'PG',
     level_prefix: 'Nivel ',
     character_gender: 'Género',
     gender_male: 'Masculino',
@@ -210,7 +251,16 @@ const translations = {
       { id: 'half-orc', label: 'Medio orco' },
       { id: 'gnome', label: 'Gnomo' },
       { id: 'tiefling', label: 'Tiflin' }
-    ]
+    ],
+    /* Character sheet: abreviaturas de características (convención D&D en español) */
+    statAbbr: {
+      STR: 'FUE',
+      DEX: 'DES',
+      CON: 'CON',
+      INT: 'INT',
+      WIS: 'SAB',
+      CHA: 'CAR'
+    }
   }
 };
 

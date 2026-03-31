@@ -5,18 +5,31 @@ Character generation rules:
 - Name policy: ALWAYS produce a fantasy-style name (epic/fantasy phonology). Do NOT produce modern Spanish-language names or clearly Spanish surnames (avoid -ez, -es, common Spanish toponyms). Even when the session language is Spanish, the character's name must be non-Spanish and read as high-fantasy.
 - Strong instruction: the generated playerCharacter.level MUST be 1. Ensure the JSON includes "level": 1 for the playerCharacter.
 - Narrative constraint: The character's brief_backstory should describe past facts and flavor (origin, upbringing, notable events) but MUST NOT include present objectives, goals, or directives (e.g., "seeking X", "will do Y"). Goals and decisions belong to the player during play and must not be baked into the background.
-- Provide the following fields in the output character object:
-  - name, race, class, subclass (optional), level, background, brief_backstory (2–3 sentences), stats (STR, DEX, CON, INT, WIS, CHA), max_hp, ac, starting_equipment (3-6 items).
-- Keep stats as 6 numbers between 8 and 18 appropriate to class (you may use a standard array).
-- Compute max_hp as typical for the class and level (approximate by averaging if needed), and AC as typical for equipment.
-- Output format: RETURN ONLY valid JSON representing a single object with the top-level key "playerCharacter" whose value is an object with the fields above (name, race, class, subclass (optional), level, background, brief_backstory (2-3 sentences), stats, max_hp, ac, starting_equipment). Do NOT include a "campaignConcept" or other keys in this response. Do not include surrounding markdown or commentary.
+
+Structured gear (MUST — use these exact keys; do NOT use a single flat "starting_equipment" list):
+- "armor" (array of strings): Worn armor and shield only (e.g. "armadura de cuero", "escudo"). Use [] only if the build has no worn armor or shield (e.g. unarmored Defense). Do not put weapons here.
+- "equipment" (array of strings): All non-weapon carried items and **tool proficiencies / kits** (thieves' tools, healer's kit, artisan's tools, etc.) — same list as packs, pouches, foci, holy symbol, rope. Do NOT use a separate `tools` key. Do NOT list melee/ranged weapons here.
+- "weapons" (array of objects): One row per attack at level 1 (each weapon + unarmed if relevant). Each: { "name", optional "quantity", "attack_bonus" (JSON number), "damage" (string with dice like 1d8+2 or d6+0), optional "ability" }. Use [] only if impossible; prefer valid rows over omitting the array.
+- "languages" (optional array of strings): Languages the character speaks (for the sheet UI).
+
+Consistency:
+- PHB-style class packages only; no impossible extra weapons.
+- All human-readable strings in playerCharacter (background, brief_backstory, armor, equipment, weapons[].name, languages) MUST match languageInstruction.
+- Keep stats as six numbers 8–18 appropriate to class. Compute max_hp and ac for level 1.
+
+Do NOT output "starting_equipment" or a top-level "tools" key. The client renders armor, weapons, equipment, and languages only.
+
+- Output format: RETURN ONLY valid JSON: one object with top-level key "playerCharacter" whose value includes the fields above. No other top-level keys. No markdown fences or commentary.
 
 --- USER PROMPT BELOW (render this section as the user message) ---
 {{{languageInstruction}}}
 Using the following partial character info (may be empty): {{gameSetup}}
 
 Return ONLY valid JSON with a top-level key "playerCharacter" whose value is an object containing:
-- name, race, class, subclass (optional), level (set to 1), background, brief_backstory (2-3 sentences), stats {STR,DEX,CON,INT,WIS,CHA}, max_hp, ac, starting_equipment (array).
+- name, race, class, subclass (optional), level (1), background, brief_backstory (2–3 sentences), stats {STR,DEX,CON,INT,WIS,CHA}, max_hp, ac
+- armor (array of strings; may be empty)
+- equipment (array of strings; may be [] but list gear when possible)
+- weapons (array of { name, quantity optional, attack_bonus, damage, ability }; may be [] but include attacks when possible)
+- languages (optional array of strings)
 
-Do not include any other keys or commentary. Output JSON only.
-
+Do not include "starting_equipment" or "tools" as separate keys (put tools/kits under equipment). Do not include any other keys or commentary. Output JSON only.

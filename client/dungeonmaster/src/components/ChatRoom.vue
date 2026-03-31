@@ -6,7 +6,7 @@
         <button @click="tryAgain">Try again</button>
     </div>
     <div class="chat-room two-column">
-        
+        <h2 v-if="campaignTitle" class="campaign-heading">{{ campaignTitle }}</h2>
         <!-- floating card handled globally -->
         <div class="chat-messages chat-messages-container" style="flex:1">
             <ChatMessage
@@ -27,12 +27,8 @@
         </form>
         <!-- Notetaker UI removed -->
 
-        <aside class="right-sidebar" style="width:360px; margin-left:24px;">
-          <!-- Notetaker removed; summaries are server-managed -->
-          <div style="height:16px"></div>
-        </aside>
-    <!-- Floating character card overlay -->
-    <FloatingCard v-if="playerCharacter" :character="playerCharacter" :language="language" :defaultOpen="false" />
+    <!-- Floating character sheet: PC HP shown here; enemy HP is not shown to the player -->
+    <FloatingCard v-if="playerCharacter" :character="playerCharacter" :hp-snapshot="playerHitPoints" :defaultOpen="false" />
     </div>
 </template>
 
@@ -84,7 +80,9 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                 totalTokenCount: 0,
                 errorMessage: null, // add error message data property
                 localPlayerCharacter: null,
+                lastEncounterState: null,
                 isSending: false,
+                campaignTitle: '',
 
 
             };
@@ -116,8 +114,30 @@ md.renderer.rules.heading_close = function(tokens, idx) {
         computed: {
             playerCharacter() {
                 return this.localPlayerCharacter || (this.$store.state.gameSetup && this.$store.state.gameSetup.generatedCharacter) || null;
-            }
-            ,
+            },
+            /** Current/max HP for the sheet: encounterState PC row when present, else full max_hp. */
+            playerHitPoints() {
+                const c = this.playerCharacter;
+                if (!c) return null;
+                let max = c.max_hp != null ? Number(c.max_hp) : null;
+                let current = max;
+                const es = this.lastEncounterState;
+                if (es && Array.isArray(es.participants)) {
+                    const lower = (x) => String(x || '').toLowerCase();
+                    const pc = es.participants.find(
+                        (p) =>
+                            p &&
+                            (lower(p.kind) === 'pc' || p.id === 'pc' || lower(p.id) === 'player')
+                    );
+                    if (pc) {
+                        if (pc.hp_max != null && !Number.isNaN(Number(pc.hp_max))) max = Number(pc.hp_max);
+                        if (pc.hp_current != null && !Number.isNaN(Number(pc.hp_current))) current = Number(pc.hp_current);
+                    }
+                }
+                if (max == null || Number.isNaN(max)) return null;
+                if (current == null || Number.isNaN(current)) current = max;
+                return { current, max };
+            },
             language: {
                 get() {
                     return (this.$store.state && this.$store.state.language) || 'English';
@@ -139,6 +159,13 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                 }
             },
 
+            narrationFromGenerateResponse(data) {
+                if (data == null) return '';
+                if (typeof data === 'object' && typeof data.narration === 'string') return data.narration;
+                if (typeof data === 'string') return data;
+                return '';
+            },
+
             incrementTokenCount(message) {
                 const tokenCountForMessage = Math.ceil(message.length / 4);
                 this.totalTokenCount += tokenCountForMessage;
@@ -148,11 +175,24 @@ md.renderer.rules.heading_close = function(tokens, idx) {
             // summary generation is handled server-side; frontend will not request summaries
 
         updateSummaryInChatRoom(updatedSummary) {
-        this.summary = updatedSummary;
-        // Call the setSummary mutation to update the summary in the Vuex store
-        this.$store.commit('setSummary', updatedSummary);
-        this.saveGameState();
-    },
+                this.summary = updatedSummary;
+                this.$store.commit('setSummary', updatedSummary);
+            },
+
+            /** Snapshot for server-side persist (conversation must include the latest user line before the assistant reply). */
+            buildPersistPayload() {
+                return {
+                    gameId: this.$store.state.gameId,
+                    gameSetup: this.$store.state.gameSetup,
+                    conversation: this.conversation,
+                    summaryConversation: this.summaryConversation,
+                    summary: this.summary,
+                    totalTokenCount: this.totalTokenCount,
+                    userAndAssistantMessageCount: this.userAndAssistantMessageCount,
+                    systemMessageContentDM: this.systemMessageContentDM,
+                    encounterState: this.lastEncounterState,
+                };
+            },
 
             async submitMessage() {
                 //const gameSetup = this.$store.state.gameSetup;
@@ -190,10 +230,16 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                         const response = await axios.post('/api/game-session/generate', {
                             messages: messagesToSend,
                             language: this.language,
+                            gameId: this.$store.state.gameId,
+                            persist: this.buildPersistPayload(),
                         });
-                        const aiMessageContent = response.data;
-
-
+                        if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'encounterState')) {
+                            this.lastEncounterState = response.data.encounterState || null;
+                        }
+                        const aiMessageContent = this.narrationFromGenerateResponse(response.data);
+                        if (!aiMessageContent) {
+                            throw new Error(response.data?.error || 'Empty narration from server');
+                        }
 
                         this.incrementTokenCount(aiMessageContent); // Increment token count
 
@@ -210,14 +256,13 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                             this.userAndAssistantMessageCount++;
                             console.log('User and assistant message count:');
                             console.log(this.userAndAssistantMessageCount);
-                            // Call saveGameState after each message
-                            this.saveGameState();
                         }
 
                         // Do not request frontend-generated summaries. Server handles summarization.
                     } catch (error) {
                         console.error('Error generating AI message:', error);
-                        this.errorMessage = "Failed to send message. Please try again."; // Set the error message
+                        const apiErr = error.response?.data?.error;
+                        this.errorMessage = apiErr || error.message || 'Failed to send message. Please try again.';
                     } finally {
                         this.isSending = false;
                     }
@@ -240,9 +285,16 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                         mode: 'initial',
                         includeFullSkill: true,
                         language: this.language,
-                        sessionSummary
+                        sessionSummary,
+                        persist: this.buildPersistPayload(),
                     });
-                    const aiMessageContent = typeof response.data === 'string' ? response.data : (response.data?.text || JSON.stringify(response.data));
+                    if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'encounterState')) {
+                        this.lastEncounterState = response.data.encounterState || null;
+                    }
+                    const aiMessageContent = this.narrationFromGenerateResponse(response.data);
+                    if (!aiMessageContent) {
+                        throw new Error(response.data?.error || 'Empty opening narration');
+                    }
 
                     const aiMessage = {
                         role: 'assistant',
@@ -251,11 +303,15 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                     this.conversation.push(aiMessage);
                     this.summaryConversation.push(aiMessage);
                     this.messages.push({ user: "Dungeon Master", text: aiMessageContent });
-
-                    // Save the updated state
-                    this.saveGameState();
                 } catch (err) {
                     console.error('Error generating initial AI message:', err);
+                    const apiErr = err.response?.data?.error;
+                    const preview = err.response?.data?.rawPreview;
+                    this.errorMessage =
+                        apiErr ||
+                        (preview ? `${err.message || 'Request failed'}. ${String(preview).slice(0, 280)}` : null) ||
+                        err.message ||
+                        'Could not start the adventure.';
                 }
             },
             tryAgain() {
@@ -270,30 +326,6 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                 return message + hiddenMessage;
             }, */
 
-            async saveGameState() {
-                // Game state to save
-                const gameState = {
-                    gameId: this.$store.state.gameId,
-                    userId: this.$store.state.userId,
-                    gameSetup: this.$store.state.gameSetup,
-                    conversation: this.conversation,
-                    summaryConversation: this.summaryConversation,
-                    summary: this.summary,
-                    totalTokenCount: this.totalTokenCount,
-                    userAndAssistantMessageCount: this.userAndAssistantMessageCount,
-                    systemMessageContentDM: this.systemMessageContentDM
-                };
-
-                try {
-                    // Save game state to backend
-                    await axios.post('/api/game-state/save', gameState);
-                    console.log('Game saved');
-                    console.log(gameState);
-
-                } catch (error) {
-                    console.error('Error saving game state:', error);
-                }
-            },
             async loadGameState(gameId) {
                 try {
                     const response = await axios.get(`/api/game-state/load/${gameId}`);
@@ -311,7 +343,10 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                     this.totalTokenCount = gameState.totalTokenCount;
                     this.userAndAssistantMessageCount = gameState.userAndAssistantMessageCount;
                     this.systemMessageContentDM = gameState.systemMessageContentDM;
-                    
+                    this.lastEncounterState = gameState.encounterState || null;
+                    const spec = gameState.campaignSpec;
+                    this.campaignTitle =
+                        spec && typeof spec.title === 'string' && spec.title.trim() ? spec.title.trim() : '';
 
                     // Note: Do NOT auto-extract generatedCharacter from systemMessageContentDM.
                     // The server no longer relies on this fallback; gameSetup.generatedCharacter must be provided explicitly.
@@ -363,11 +398,20 @@ md.renderer.rules.heading_close = function(tokens, idx) {
   }
   .two-column {
     display: flex;
-    gap: 24px;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
     width: 100%;
-    max-width: 980px;
+    max-width: 720px;
     margin: 0 auto;
+  }
+
+  .campaign-heading {
+    margin: 0 0 4px 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--gm-text, #e8e4dc);
+    line-height: 1.3;
   }
 
   .chat-message {

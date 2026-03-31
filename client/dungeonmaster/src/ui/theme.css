@@ -257,6 +257,15 @@ body.gm-theme {
   font-size: 0.95rem;
   margin-top: 4px;
 }
+/* HP/AC line: must not use --gm-text (light); same contrast as body on parchment */
+.parchment-panel .floating-hp {
+  color: #1a150c;
+  font-size: 1rem;
+  font-weight: 800;
+  margin-top: 10px;
+  letter-spacing: 0.03em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
 .parchment-panel .floating-body {
   color: #2b220f;
   font-family: var(--gm-font-sans);
@@ -307,12 +316,48 @@ body.gm-theme {
   font-weight: 900;
   margin-top: 4px;
 }
+.char-weapons-missing .weapons-missing-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(230, 225, 216, 0.78);
+}
+.char-weapons ul {
+  margin: 6px 0 0 1.25rem;
+  color: #2b220f;
+}
+.char-weapons li {
+  margin-bottom: 6px;
+}
+.char-weapons .weapon-stats {
+  font-size: 0.9em;
+  color: #4a3d24;
+}
+.char-armor ul {
+  margin: 6px 0 0 1.25rem;
+  color: #2b220f;
+}
+.char-armor li {
+  margin-bottom: 6px;
+}
 .char-equipment ul {
   margin: 6px 0 0 1.25rem;
   color: #2b220f;
 }
 .char-equipment li {
   margin-bottom: 6px;
+}
+.char-languages ul,
+.char-equipment-legacy ul {
+  margin: 6px 0 0 1.25rem;
+  color: #2b220f;
+}
+.char-languages li,
+.char-equipment-legacy li {
+  margin-bottom: 6px;
+}
+.char-equipment-legacy .cs-section-title {
+  opacity: 0.85;
 }
 
 /* Responsive: stack attributes into rows on small screens */
@@ -430,4 +475,5 @@ body.gm-theme {
 }
 .floating-header { padding-bottom: 8px; border-bottom: 1px solid rgba(0,0,0,0.06); margin-bottom: 8px; }
 .floating-sub { font-size: 0.9rem; color: var(--gm-muted); margin-top:4px; }
+.floating-hp { font-size: 0.95rem; font-weight: 700; color: var(--gm-text); margin-top: 8px; letter-spacing: 0.02em; }
 .floating-body { padding-top:8px; }

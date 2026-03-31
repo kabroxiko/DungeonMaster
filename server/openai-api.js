@@ -6,6 +6,26 @@ const USE_LM_STUDIO = String(process.env.DM_USE_LM_STUDIO || 'false').toLowerCas
 const LM_STUDIO_URL = process.env.DM_LM_STUDIO_URL || 'http://localhost:1234';
 const LM_STUDIO_MODEL = process.env.DM_LM_STUDIO_MODEL || process.env.DM_OPENAI_MODEL || 'gpt-3.5-turbo';
 
+/** Last failure reason for routes to surface when `generateResponse` returns null (not secrets). */
+let lastGenerateFailureMessage = '';
+
+function summarizeAxiosError(err) {
+  if (!err) return 'Unknown error';
+  const d = err.response?.data;
+  if (d != null) {
+    try {
+      return typeof d === 'string' ? d.slice(0, 800) : JSON.stringify(d).slice(0, 800);
+    } catch (e) {
+      return String(d).slice(0, 800);
+    }
+  }
+  return String(err.message || err.code || err).slice(0, 800);
+}
+
+function getLastGenerateFailureMessage() {
+  return lastGenerateFailureMessage;
+}
+
 /**
  * generateResponse accepts either:
  *  - { messages: [...] } (array of chat messages), or
@@ -16,6 +36,7 @@ const LM_STUDIO_MODEL = process.env.DM_LM_STUDIO_MODEL || process.env.DM_OPENAI_
  *  - OpenAI REST API otherwise
  */
 async function generateResponse(input = {}, options = {}) {
+  lastGenerateFailureMessage = '';
   const model = process.env.DM_OPENAI_MODEL || DEFAULT_MODEL;
   const messages = Array.isArray(input.messages)
     ? input.messages
@@ -56,6 +77,7 @@ async function generateResponse(input = {}, options = {}) {
       if (content) return content;
       // fallthrough if unexpected shape
     } catch (err) {
+      lastGenerateFailureMessage = summarizeAxiosError(err);
       console.error('LM Studio /v1/chat/completions failed:', err?.response?.data ?? err.message ?? err);
       await persistDiagnostic({ llmCallError: String(err?.response?.data ?? err.message ?? err).slice(0, 200000), llmCallFallbackAt: new Date().toISOString() });
     }
@@ -82,9 +104,14 @@ async function generateResponse(input = {}, options = {}) {
         (data?.response && data.response?.generated_text) ||
         null;
       if (result) return result;
-      // If still nothing, return stringified response for debugging
-      return JSON.stringify(data);
+      const keys = data && typeof data === 'object' ? Object.keys(data).join(',') : typeof data;
+      console.warn('LM Studio /api/v1/chat: no text in expected fields; response keys:', keys);
+      lastGenerateFailureMessage =
+        lastGenerateFailureMessage ||
+        `LM Studio responded but no model text was found (check loaded model and /api/v1/chat vs /v1/chat/completions). Keys: ${keys}`;
+      return null;
     } catch (err) {
+      lastGenerateFailureMessage = summarizeAxiosError(err);
       console.error('LM Studio /api/v1/chat failed:', err?.response?.data ?? err.message ?? err);
       await persistDiagnostic({ llmCallError: String(err?.response?.data ?? err.message ?? err).slice(0, 200000), llmCallFallbackAt: new Date().toISOString() });
       return null;
@@ -108,8 +135,12 @@ async function generateResponse(input = {}, options = {}) {
   };
 
   try {
-    return await callOpenAI(model);
+    const out = await callOpenAI(model);
+    if (out) return out;
+    lastGenerateFailureMessage = 'OpenAI returned no assistant message (empty choices).';
+    return null;
   } catch (err) {
+    lastGenerateFailureMessage = summarizeAxiosError(err);
     console.error('Error generating text (primary):', err?.response?.data ?? err.message ?? err);
     await persistDiagnostic({ llmCallError: String(err?.response?.data ?? err.message ?? err).slice(0, 200000), llmCallStartedAt: new Date().toISOString() });
     const code = err?.response?.data?.error?.code || '';
@@ -128,6 +159,7 @@ async function generateResponse(input = {}, options = {}) {
         }
         return fallbackResp;
       } catch (e2) {
+        lastGenerateFailureMessage = summarizeAxiosError(e2);
         console.error('Fallback to gpt-3.5-turbo failed:', e2?.response?.data ?? e2.message ?? e2);
         await persistDiagnostic({ llmFallbackError: String(e2?.response?.data ?? e2.message ?? e2).slice(0, 200000) });
       }
@@ -136,4 +168,4 @@ async function generateResponse(input = {}, options = {}) {
   }
 }
 
-module.exports = { generateResponse };
+module.exports = { generateResponse, getLastGenerateFailureMessage };

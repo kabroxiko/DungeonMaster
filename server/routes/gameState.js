@@ -1,80 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const GameState = require('../models/GameState');
-const { generateResponse } = require('../openai-api');
-const { loadPrompt } = require('../promptManager');
 
-// Save game state 
-router.post('/save', async (req, res) => {
-    const {
-        gameId,
-        gameSetup,
-        conversation,
-        summaryConversation,
-        summary,
-        totalTokenCount,
-        userAndAssistantMessageCount,
-        systemMessageContentDM
-    } = req.body;
-    // Do NOT auto-extract generatedCharacter from systemMessageContentDM.
-    // Persist only what the client explicitly provided in `gameSetup`.
-    let finalGameSetup = gameSetup || {};
-
-    const update = {
-        gameId,
-        gameSetup: finalGameSetup,
-        conversation,
-        summaryConversation,
-        summary,
-        totalTokenCount,
-        userAndAssistantMessageCount,
-        systemMessageContentDM,
-        mode: req.body.mode || undefined,
-        campaignSpec: req.body.campaignSpec || undefined,
-    };
-
-    try {
-        console.log('Received save request for gameId:', gameId);
-        // Ensure consolidated system core is persisted once per game so we don't need to render it repeatedly.
-        try {
-          if (gameId) {
-            const existing = await GameState.findOne({ gameId }).select('+systemCore');
-            if (!existing || !existing.systemCore) {
-              // Build core system messages (mode=initial as canonical) and persist consolidated string.
-              const { composeSystemMessages } = require('../promptManager');
-              const coreMsgs = composeSystemMessages({ mode: 'initial', sessionSummary: '', includeFullSkill: false, language: req.body.language || 'English' }).filter(m => m.role === 'system');
-              const consolidatedCore = coreMsgs.map(m => m.content).join('\n\n');
-              update.systemCore = consolidatedCore;
-            }
-          }
-        } catch (e) {
-          console.warn('Failed to persist consolidated system core during save:', e);
-        }
-        // Log a short preview of the payload (avoid spamming full conversation in prod)
-        console.log('Save payload preview:', {
-            gameId,
-            summary: summary ? summary.slice(0, 200) : '',
-            totalTokenCount,
-            userAndAssistantMessageCount,
-        });
-
-        // Find and update the game state by gameId, or create a new one if it doesn't exist
-        let gameState = await GameState.findOneAndUpdate({ gameId }, update, { new: true, upsert: true });
-
-        console.log('Saved game state _id:', gameState?._id);
-        res.json(gameState);
-        // Trigger background summary generation for this game (non-blocking)
-        try {
-          const { triggerSummaryForGame } = require('../summaryWorker');
-          if (gameId) triggerSummaryForGame(gameId);
-        } catch (e) {
-          console.warn('Failed to trigger background summary after save:', e);
-        }
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to save game state' });
-    }
-});
+// Persistence is server-driven: POST /api/game-session/bootstrap-session (setup shell) and
+// POST /api/game-session/generate with a `persist` payload (each successful reply). No public POST /save.
 
 // Load game state
 router.get('/load/:gameId', async (req, res) => {
@@ -134,12 +63,7 @@ router.get('/all', async (req, res) => {
     try {
         // Find all game states
         const gameStates = await GameState.find({});
-        
-        if (!gameStates || gameStates.length === 0) {
-            return res.status(404).json({ error: 'No game states found' });
-        }
-
-        res.json(gameStates);
+        res.json(Array.isArray(gameStates) ? gameStates : []);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to load game states' });

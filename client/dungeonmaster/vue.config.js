@@ -1,20 +1,15 @@
 const { defineConfig } = require('@vue/cli-service');
 
+const devPort = Number(process.env.DM_FRONTEND_PORT) || 8080;
+
 module.exports = defineConfig({
     transpileDependencies: true,
     devServer: {
         //https: true,  // Enables HTTPS for the dev server
+        port: devPort,
         hot: false,
         liveReload: false,
         allowedHosts: 'all',
-        proxy: {
-            '^/api': {
-                target: 'http://localhost:5001',
-                changeOrigin: true,
-                logLevel: 'debug',
-                pathRewrite: { '^/api': '/api' },
-            },
-        },
     },
     chainWebpack: config => {
         config.module

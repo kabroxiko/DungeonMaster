@@ -13,6 +13,10 @@ const GameStateSchema = new mongoose.Schema({
     conversation: Array,
     summaryConversation: Array,
     summary: String,
+    summaryUpdatedAt: { type: String },
+    // Baselines for when we last generated `summary` (used to throttle background summaries)
+    summaryLastRunAtExchangeCount: { type: Number, default: 0 },
+    summaryLastRunTokenApprox: { type: Number, default: 0 },
     totalTokenCount: Number,
     userAndAssistantMessageCount: Number,
     systemMessageContentDM: String,
@@ -25,12 +29,16 @@ const GameStateSchema = new mongoose.Schema({
     campaignSpec: {
         type: Object,
     },
+    // Last combat / encounter snapshot from DM envelope (optional; not shown in narration)
+    encounterState: {
+        type: Object,
+    },
     // Raw last AI model output (for debugging / audit). Stored server-side only.
     rawModelOutput: {
         type: String,
         select: false,
     },
-    // Consolidated system core message persisted once per game (DM-only)
+    // Legacy: optional cached DM system blob (no longer written; compose from prompts each /generate)
     systemCore: {
         type: String,
         select: false,
@@ -51,6 +59,9 @@ const GameStateSchema = new mongoose.Schema({
     llmFallbackSucceededAt: { type: String },
     llmFallbackError: { type: String, select: false },
     llmModelUsed: { type: String },
+    // Set when initial /generate accepted plain prose as narration because the model skipped JSON envelope
+    dmInitialEnvelopeCoercedAt: { type: String },
+    dmInitialEnvelopeCoercedChars: { type: Number },
 });
 
 module.exports = mongoose.model('GameState', GameStateSchema);

@@ -26,6 +26,8 @@
 import { mapGetters } from "vuex";
 import GMTheme from "@/ui/Theme.vue";
 import UIButton from "@/ui/Button.vue";
+import { SESSION_SETUP_GAME_ID } from "@/setupSession.js";
+import store from "./store";
 
 export default {
   name: "App",
@@ -74,6 +76,14 @@ export default {
       this.$router.push("/"); // Navigate to home instead of login
     },
     navigateTo(route) {
+      if (route === "/setup" || route === "/setup/") {
+        try {
+          sessionStorage.removeItem(SESSION_SETUP_GAME_ID);
+        } catch (e) {
+          /* ignore */
+        }
+        store.commit("resetSetupWizard");
+      }
       this.$router.push(route);
     },
   },

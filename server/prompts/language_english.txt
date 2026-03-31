@@ -1,2 +1,1 @@
-MANDATORY: RESPOND ONLY IN ENGLISH for ALL human-readable content — including labels, fields, narratives, and descriptions — whether the output is JSON or free text. Keep JSON valid when requested. Do NOT change fantasy-style names.
-
+MANDATORY: RESPOND ONLY IN ENGLISH for ALL human-readable content — including labels, fields, narratives, descriptions, and every JSON string value the player will read on screen (e.g. brief_backstory, background, free-text race/class/subclass, each armor line, each equipment line including tool/kits, each weapons[].name, languages) — whether the output is JSON or plain text. JSON key names may follow technical conventions. Keep JSON valid. Do NOT change fantasy-style character names.

@@ -1,7 +1,7 @@
 {{{languageInstruction}}}
 Campaign core policy (DM-ONLY):
 - When generating the campaign CORE, IGNORE any player-specific data present in the session summary or the provided gameSetup. Do NOT reference character names, backgrounds, or player objectives.
-- Produce a concise campaign core only: include "campaignConcept" (2 sentences), "majorConflicts" (3-5 short strings), and "toneAndStyle" (1-2 adjectives). Keep outputs minimal and focused.
+- Produce a concise campaign core only: include "title" (short player-facing campaign name), "campaignConcept" (2 sentences), "majorConflicts" (3-5 short strings), and "toneAndStyle" (1-2 adjectives). Keep outputs minimal and focused.
 - Output MUST be valid JSON only when used with a JSON output guard. Do NOT include any commentary, examples, or narrative beyond the allowed fields.
 
 Session summary (may be empty): {{sessionSummary}}
@@ -9,9 +9,10 @@ Session summary (may be empty): {{sessionSummary}}
 Instructions:
 - OUTPUT ONLY valid JSON (no surrounding markdown or commentary).
 - The JSON MUST be a single object containing the following top-level keys (exact names required):
-  1) "campaignConcept" (string): a concise, 2-sentence high-level summary of the campaign's core premise and stakes (world-level — politics, religion, factions, crises). Do NOT include narrative prose or an opening scene here.
-  2) "majorConflicts" (array of short strings): short descriptions of 3–5 ongoing large-scale conflicts or tensions that drive the campaign.
-  3) "toneAndStyle" (string): 1–2 short adjectives describing voice and tone. Do NOT provide examples or sample adjectives.
+  1) "title" (string): a short, evocative campaign name for players (roughly 2–8 words). No colon-separated subtitles; no full sentences. This is the label shown in game lists.
+  2) "campaignConcept" (string): a concise, 2-sentence high-level summary of the campaign's core premise and stakes (world-level — politics, religion, factions, crises). Do NOT include narrative prose or an opening scene here.
+  3) "majorConflicts" (array of short strings): short descriptions of 3–5 ongoing large-scale conflicts or tensions that drive the campaign.
+  4) "toneAndStyle" (string): 1–2 short adjectives describing voice and tone. Do NOT provide examples or sample adjectives.
 
 Constraints:
 - The output must be valid JSON only. Do NOT include any explanatory text, examples, or markdown.
