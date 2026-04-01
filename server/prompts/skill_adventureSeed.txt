@@ -3,7 +3,7 @@ Initial adventure seed:
 Produce a free-form, narrative-first opening scene (1–5 short paragraphs). Avoid mechanical details and do not describe the player character (do not mention their name, appearance, stats, or explicit motivations). Focus on setting, atmosphere, events, and NPCs only when necessary.
 Requirements:
 - Include a brief line (1 sentence) that explains why the character is present in this location right now — make this reason mundane and unrelated to any mission, quest, or immediate objective (e.g., seeking shelter, buying bread, watching a festival, resting, delivering a package). This should be narrative flavor only, not a character biography or mechanical detail.
-- Include at least one clear narrative hook somewhere in the text (opening, middle, or end). A hook can be an unexpected clue, odd NPC behavior, a sensory anomaly, or any element that invites investigation — weave it into normal paragraphs only; no labeled hint sections (core DM rules).
+- Include at least one clear narrative hook somewhere in the text (opening, middle, or end) that fits the campaign you were given — something that can lead toward the DM’s hidden through-line over time, not a random new subplot. A hook can be an unexpected clue, odd NPC behavior, or a sensory anomaly — weave it into normal paragraphs only; no labeled hint sections (core DM rules).
 - Keep the tone immersive and sensory: use sight, sound, smell, touch, and brief concrete details to ground the scene.
 - You may mention NPCs or landmarks briefly, but do not frame the scene around a detailed character description of the player.
 - Do NOT include or render the character sheet in your response; the server will display the Character Sheet separately on the client UI.

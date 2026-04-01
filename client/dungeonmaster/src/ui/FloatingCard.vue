@@ -1,7 +1,7 @@
 <template>
   <div :class="['floating-card', { open: isOpen }]">
     <div
-      class="floating-panel parchment-panel ornate-border"
+      class="floating-panel parchment-panel ornate-border char-sheet-panel"
       v-show="isOpen"
       role="dialog"
       aria-modal="true"
@@ -9,73 +9,110 @@
       tabindex="-1"
       :aria-labelledby="titleId"
     >
-      <div class="floating-header">
-        <h2 :id="titleId" class="ui-heading">{{ character.name }}</h2>
-        <div class="floating-sub">{{ displayRace }} • {{ displayClass }}{{ character.level ? (' — ' + $t('level_prefix') + character.level) : '' }}</div>
-        <div v-if="combatStatsLine" class="floating-hp" aria-live="polite">{{ combatStatsLine }}</div>
-      </div>
-      <div class="floating-body">
-        <div class="char-sheet">
-          <div class="attributes-row" v-if="character.stats">
-            <h3 class="cs-section-title">{{ $i18n.attributes }}</h3>
-            <div class="attributes-grid">
-              <div v-for="key in statKeys" :key="key" class="attr-box">
-                <div class="attr-label">{{ statAbbr(key) }}</div>
-                <div class="attr-value">{{ character.stats[key] }}</div>
-              </div>
+      <header class="floating-header char-sheet-header">
+        <div class="char-sheet-hero">
+          <h2 :id="titleId" class="ui-heading char-sheet-name">{{ character.name }}</h2>
+          <p class="floating-sub char-sheet-lineage">
+            <span class="char-sheet-lineage-main">{{ displayRace }} · {{ displayClass }}</span>
+            <template v-if="character.subclass">
+              <span class="char-sheet-subclass"> · {{ character.subclass }}</span>
+            </template>
+            <template v-if="character.level">
+              <span class="char-sheet-level"> — {{ $t('level_prefix') }}{{ character.level }}</span>
+            </template>
+          </p>
+          <p v-if="character.background" class="char-sheet-bg-role">{{ character.background }}</p>
+        </div>
+        <div
+          class="cs-vitals"
+          role="group"
+          :aria-label="$i18n.sheet_aria_vitals"
+          aria-live="polite"
+        >
+          <div class="cs-vitals-combat">
+            <div v-if="hpChipValue" class="cs-vital cs-vital--hp">
+              <span class="cs-vital-label">{{ $i18n.hit_points_abbr }}</span>
+              <span class="cs-vital-value">{{ hpChipValue }}</span>
+            </div>
+            <div v-if="acChipValue" class="cs-vital cs-vital--ac">
+              <span class="cs-vital-label">{{ $i18n.armor_class_abbr }}</span>
+              <span class="cs-vital-value">{{ acChipValue }}</span>
             </div>
           </div>
-
-          <div class="char-history">
-            <h3 class="cs-section-title">{{ $i18n.background }}</h3>
-            <div class="cs-backstory" v-if="character.brief_backstory">{{ character.brief_backstory }}</div>
-          </div>
-
-          <div class="char-armor" v-if="armorList.length">
-            <h3 class="cs-section-title">{{ $i18n.sheet_armor }}</h3>
-            <ul>
-              <li v-for="(it, i) in armorList" :key="'a'+i">{{ formatEquipmentQuantity(it) }}</li>
-            </ul>
-          </div>
-
-          <div class="char-weapons" v-if="character.weapons && character.weapons.length">
-            <h3 class="cs-section-title">{{ $i18n.weapons_sheet }}</h3>
-            <ul>
-              <li v-for="(w, i) in character.weapons" :key="'w'+i">
-                <span class="weapon-name">{{ weaponDisplayName(w) }}</span>
-                <span class="weapon-stats">
-                  <template v-if="w.attack_bonus != null"> — +{{ w.attack_bonus }}</template>
-                  <span> · {{ weaponDamageText(w) }}</span>
-                  <template v-if="w.ability"> ({{ w.ability }})</template>
-                </span>
+          <div class="cs-vitals-wallet">
+            <span class="cs-wallet-heading">{{ $i18n.sheet_coinage }}</span>
+            <ul class="cs-coin-strip" :aria-label="$i18n.sheet_coinage">
+              <li
+                v-for="row in coinageStrip"
+                :key="row.key"
+                class="cs-coin-chip"
+                :class="{ 'cs-coin-chip--zero': row.amount === 0 }"
+              >
+                <span class="cs-coin-amt" aria-hidden="true">{{ row.amount }}</span>
+                <span class="cs-coin-unit">{{ row.abbr }}</span>
               </li>
             </ul>
           </div>
-          <div v-else-if="showWeaponsMissingHint" class="char-weapons char-weapons-missing">
+        </div>
+      </header>
+      <div class="floating-body char-sheet-body">
+        <div class="char-sheet">
+          <section v-if="character.stats" class="cs-block cs-block--attrs">
+            <h3 class="cs-section-title">{{ $i18n.attributes }}</h3>
+            <div class="attributes-grid char-sheet-attr-grid">
+              <div v-for="key in statKeys" :key="key" class="attr-box char-sheet-attr">
+                <div class="attr-label">{{ statAbbr(key) }}</div>
+                <div class="attr-value">{{ character.stats[key] }}</div>
+                <div class="attr-mod attr-mod-pill">{{ abilityModText(character.stats[key]) }}</div>
+              </div>
+            </div>
+          </section>
+
+          <section v-if="character.brief_backstory" class="cs-block cs-block--story">
+            <h3 class="cs-section-title">{{ $i18n.sheet_story }}</h3>
+            <div class="cs-backstory">{{ character.brief_backstory }}</div>
+          </section>
+
+          <section v-if="armorList.length" class="cs-block cs-block--armor">
+            <h3 class="cs-section-title">{{ $i18n.sheet_armor }}</h3>
+            <ul class="cs-list cs-list--plain">
+              <li v-for="(it, i) in armorList" :key="'a'+i">{{ formatEquipmentQuantity(it) }}</li>
+            </ul>
+          </section>
+
+          <section v-if="character.weapons && character.weapons.length" class="cs-block cs-block--weapons">
+            <h3 class="cs-section-title">{{ $i18n.weapons_sheet }}</h3>
+            <ul class="cs-weapon-list">
+              <li v-for="(w, i) in character.weapons" :key="'w'+i" class="cs-weapon-row">
+                <div class="cs-weapon-main">
+                  <span class="weapon-name">{{ weaponDisplayName(w) }}</span>
+                  <span v-if="w.ability" class="cs-weapon-ability">{{ w.ability }}</span>
+                </div>
+                <div class="cs-weapon-stats">
+                  <span v-if="w.attack_bonus != null" class="cs-weapon-hit">+{{ w.attack_bonus }}</span>
+                  <span class="cs-weapon-damage">{{ weaponDamageText(w) }}</span>
+                </div>
+              </li>
+            </ul>
+          </section>
+          <section v-else-if="showWeaponsMissingHint" class="cs-block cs-block--weapons char-weapons-missing">
             <h3 class="cs-section-title">{{ $i18n.weapons_sheet }}</h3>
             <p class="weapons-missing-hint">{{ $i18n.weapons_sheet_missing }}</p>
-          </div>
+          </section>
 
-          <div class="char-equipment" v-if="equipmentList.length">
+          <section v-if="equipmentList.length" class="cs-block cs-block--gear">
             <h3 class="cs-section-title">{{ $i18n.equipment }}</h3>
-            <ul>
+            <ul class="cs-list cs-list--plain">
               <li v-for="(it, i) in equipmentList" :key="'e'+i">{{ formatEquipmentQuantity(it) }}</li>
             </ul>
-          </div>
+          </section>
 
-          <div v-if="legacyStartingEquipment.length" class="char-equipment char-equipment-legacy">
-            <h3 class="cs-section-title">{{ $i18n.equipment_legacy }}</h3>
-            <ul>
-              <li v-for="(it, i) in legacyStartingEquipment" :key="'l'+i">{{ formatEquipmentQuantity(it) }}</li>
-            </ul>
-          </div>
-
-          <div class="char-languages" v-if="languageList.length">
+          <section v-if="languageList.length" class="cs-block cs-block--langs">
             <h3 class="cs-section-title">{{ $i18n.sheet_languages }}</h3>
-            <ul>
-              <li v-for="(it, i) in languageList" :key="'lang'+i">{{ it }}</li>
-            </ul>
-          </div>
+            <div class="cs-lang-tags">
+              <span v-for="(it, i) in languageList" :key="'lang'+i" class="cs-lang-tag">{{ it }}</span>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -88,6 +125,10 @@
 </template>
 
 <script>
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export default {
   name: "FloatingCard",
   props: {
@@ -113,8 +154,7 @@ export default {
       const a = this.character && this.character.armor;
       return Array.isArray(a) ? a.map((x) => String(x)) : [];
     },
-    /** Explicit equipment; falls back to legacy starting_equipment only when equipment absent. */
-    /** Equipment lines plus legacy `tools` (same section — tools are not a separate sheet category). */
+    /** Equipment lines plus `tools` when present (merged for display — tools are not a separate sheet category). */
     equipmentList() {
       const c = this.character;
       const e = c && c.equipment;
@@ -133,13 +173,6 @@ export default {
       }
       return list;
     },
-    /** Old saves: flat list when no explicit equipment array. */
-    legacyStartingEquipment() {
-      const hasExplicit = Array.isArray(this.character?.equipment) && this.character.equipment.length;
-      if (hasExplicit) return [];
-      const s = this.character && this.character.starting_equipment;
-      return Array.isArray(s) ? s.map((x) => String(x)) : [];
-    },
     languageList() {
       const l = this.character && this.character.languages;
       return Array.isArray(l) ? l.map((x) => String(x)) : [];
@@ -147,10 +180,7 @@ export default {
     showWeaponsMissingHint() {
       const w = this.character && this.character.weapons;
       const hasRows = Array.isArray(w) && w.length > 0;
-      const hasOther =
-        this.armorList.length > 0 ||
-        this.equipmentList.length > 0 ||
-        this.legacyStartingEquipment.length > 0;
+      const hasOther = this.armorList.length > 0 || this.equipmentList.length > 0;
       return !hasRows && hasOther;
     },
     hpDisplayText() {
@@ -176,11 +206,40 @@ export default {
       const lab = (this.$i18n && this.$i18n.armor_class_abbr) || 'AC';
       return `${lab} ${n}`;
     },
-    combatStatsLine() {
-      const hp = this.hpDisplayText;
-      const ac = this.acDisplayText;
-      if (hp && ac) return `${hp} · ${ac}`;
-      return hp || ac || '';
+    hpChipValue() {
+      const t = this.hpDisplayText;
+      if (!t) return '';
+      const label = (this.$i18n && this.$i18n.hit_points_abbr) || 'HP';
+      return t.replace(new RegExp(`\\s*${escapeRegExp(label)}\\s*$`, 'i'), '').trim();
+    },
+    acChipValue() {
+      const t = this.acDisplayText;
+      if (!t) return '';
+      const lab = (this.$i18n && this.$i18n.armor_class_abbr) || 'AC';
+      return t.replace(new RegExp(`^${escapeRegExp(lab)}\\s+`, 'i'), '').trim();
+    },
+    normalizedCoinage() {
+      const keys = ['pp', 'gp', 'ep', 'sp', 'cp'];
+      const out = { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 };
+      const c = this.character && this.character.coinage;
+      if (c && typeof c === 'object' && !Array.isArray(c)) {
+        for (const k of keys) {
+          const n = Math.floor(Number(c[k]));
+          out[k] = Number.isFinite(n) && n >= 0 ? n : 0;
+        }
+      }
+      return out;
+    },
+    /** PHB order: pp, gp, ep, sp, cp — one chip per denomination for the wallet strip. */
+    coinageStrip() {
+      const order = ['pp', 'gp', 'ep', 'sp', 'cp'];
+      const cur = this.normalizedCoinage;
+      const abbr = (this.$i18n && this.$i18n.coin_abbr) || {};
+      return order.map((key) => ({
+        key,
+        amount: cur[key],
+        abbr: abbr[key] || key,
+      }));
     },
   },
   data() {
@@ -192,6 +251,13 @@ export default {
     };
   },
   methods: {
+    abilityModText(score) {
+      const n = Number(score);
+      if (!Number.isFinite(n)) return '';
+      const m = Math.floor((n - 10) / 2);
+      if (m >= 0) return `+${m}`;
+      return String(m);
+    },
     localizeSheetField(value, list) {
       if (value == null || value === '') return '';
       const raw = String(value).trim();

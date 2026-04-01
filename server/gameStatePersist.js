@@ -1,4 +1,6 @@
 const GameState = require('./models/GameState');
+const { mergeCampaignSpecPreservingDmSecrets } = require('./campaignSpecDmSecrets');
+const { normalizeCoinageObject, ensurePlayerCharacterSheetDefaults } = require('./validatePlayerCharacter');
 
 /**
  * Upsert full play snapshot (conversation, setup, counters, encounter). Used only from server routes — not exposed as /save.
@@ -9,9 +11,18 @@ async function persistGameStateFromBody(body) {
     throw new Error('persistGameStateFromBody: gameId is required');
   }
 
+  let gameSetup = body.gameSetup || {};
+  if (gameSetup.generatedCharacter && typeof gameSetup.generatedCharacter === 'object') {
+    const lang = gameSetup.language || 'English';
+    gameSetup = {
+      ...gameSetup,
+      generatedCharacter: ensurePlayerCharacterSheetDefaults(gameSetup.generatedCharacter, { language: lang }),
+    };
+  }
+
   const update = {
     gameId,
-    gameSetup: body.gameSetup || {},
+    gameSetup,
     conversation: body.conversation,
     summaryConversation: body.summaryConversation,
     summary: body.summary,
@@ -19,7 +30,13 @@ async function persistGameStateFromBody(body) {
     userAndAssistantMessageCount: body.userAndAssistantMessageCount,
     systemMessageContentDM: body.systemMessageContentDM,
   };
-  if (body.campaignSpec !== undefined) update.campaignSpec = body.campaignSpec;
+  if (body.campaignSpec !== undefined) {
+    const existing = await GameState.findOne({ gameId }).select('campaignSpec').lean();
+    update.campaignSpec = mergeCampaignSpecPreservingDmSecrets(
+      existing && existing.campaignSpec,
+      body.campaignSpec
+    );
+  }
   if (body.mode != null && body.mode !== '') {
     update.mode = body.mode;
   }
@@ -67,6 +84,20 @@ function mergePersistWithAssistantReply(persistBase, envelope, { finalUsedCombat
 
   const mode = finalUsedCombatStack ? 'combat' : persistBase.mode;
 
+  let gameSetup = persistBase.gameSetup;
+  if (
+    envelope &&
+    envelope.coinage != null &&
+    typeof envelope.coinage === 'object' &&
+    !Array.isArray(envelope.coinage)
+  ) {
+    const gs = { ...(persistBase.gameSetup || {}) };
+    const gc = { ...(gs.generatedCharacter || {}) };
+    gc.coinage = normalizeCoinageObject(envelope.coinage);
+    gs.generatedCharacter = gc;
+    gameSetup = gs;
+  }
+
   return {
     ...persistBase,
     gameId: persistBase.gameId,
@@ -74,6 +105,7 @@ function mergePersistWithAssistantReply(persistBase, envelope, { finalUsedCombat
     summaryConversation: sumConv,
     encounterState,
     mode,
+    gameSetup,
     userAndAssistantMessageCount: (persistBase.userAndAssistantMessageCount || 0) + countInc,
     totalTokenCount: (persistBase.totalTokenCount || 0) + extraNarrationTokens,
   };

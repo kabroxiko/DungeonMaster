@@ -4,7 +4,10 @@ DM-ONLY — authoritative player character (JSON below). This sheet overrides an
 {{playerCharacterJson}}
 
 Sheet structure (authoritative for fiction):
-- `armor` — worn armor/shield lines only. `equipment` — packs, foci, pouches, **tools and kits** (same list as other carried non-weapon gear; no separate `tools` key). `weapons` — attack profiles with bonuses and damage. Optional `languages`. Do not assume a flat `starting_equipment` list; if present on old saves, ignore it when `armor`/`equipment` exist.
+- `armor` — worn armor/shield lines only. `equipment` — packs, foci, pouches, **tools and kits**, and **ordinary clothes** when the character has no body armor (same list as other carried non-weapon gear; no separate `tools` key). `weapons` — attack profiles with bonuses and damage. `languages` — **PHB 5e** set for that PC (race + class + subclass + background at level 1); **authoritative** for what they can speak or use (e.g. Druidic, Thieves’ Cant). `coinage` — D&D 5e coins on hand: **pp, gp, ep, sp, cp** (integers); **authoritative** for what they can pay. There is no `starting_equipment` field — use structured `equipment` only.
+
+Wealth (MUST):
+- Costs use **appropriate denominations** (PHB exchange). Do not hand-wave free purchases unless a **gift**, wage, or reward is established in fiction. When cash changes, set optional envelope `coinage` to the **new full object** `{ pp, gp, ep, sp, cp }` so the sheet stays in sync.
 
 Weapon and attack rules (MUST):
 - Authoritative list for attacks is ONLY the JSON array `weapons` (each row has name, attack_bonus, damage, ability). Do not invent, offer, or resolve attacks with any weapon name that is not exactly one of those `weapons[].name` values (after stripping a leading "2×"/"2x" if present). Never mention a weapon the player does not have (e.g. do not say “daga” if there is no daga row).

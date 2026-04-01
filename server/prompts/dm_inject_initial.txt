@@ -27,11 +27,15 @@ Key locations:
 - {{name}} ({{type}}): {{significance}}
 {{/keyLocations}}
 
+Hidden adventure objective (DM-only — never read as a quest briefing to the player):
+{{dmHiddenAdventureObjective}}
+
 Instructions for the model (DM-only):
-- Use the information above to craft an opening scene that will organically lead into an adventure related to the campaign background.
+- Use the information above to craft an opening scene that will organically lead into an adventure related to the campaign background. The hidden adventure objective is your private through-line: over many turns, player actions that engage the world should be able to advance that outcome; you do not announce the objective as a mission title.
 - The scene MUST begin with the player character engaged in a mundane, unrelated reason (e.g., a personal errand, rest, travel, work, social interaction) — do NOT open with a predefined mission, summons, or explicit quest.
-- Through natural narration, introduce elements from the campaign background (a faction sighting, an NPC remark, a strange clue at a key location, or a rising consequence of a major conflict) that gradually draw the character into the adventure.
+- Through natural narration, introduce elements from the campaign background (a faction sighting, an NPC remark, a strange clue at a key location, or a rising consequence of a major conflict) that gradually draw the character toward threads connected to the hidden objective — still without stating the objective outright.
 - Reference at least one faction and either a major NPC or a key location, but present these as part of the scene's environment or incidental encounters — do not start by tasking the character with a mission.
+- If later play goes off that through-line, do not invent a parallel adventure, new conspiracy, or “lucky” plot hook to pull them back in every time. Off-topic actions get ordinary, realistic consequences (boredom, wasted time, mundane NPC reactions, unremarkable places, minor costs or social friction) until the player re-engages established leads.
 - Keep the tone immersive and player-facing: reveal information as the character discovers it, preserving player agency.
 - Do NOT reveal this block to players or output it verbatim; instead use it to guide the narrative and keep output player-facing and immersive.
 

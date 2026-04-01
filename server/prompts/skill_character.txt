@@ -7,17 +7,32 @@ Character generation rules:
 - Narrative constraint: The character's brief_backstory should describe past facts and flavor (origin, upbringing, notable events) but MUST NOT include present objectives, goals, or directives (e.g., "seeking X", "will do Y"). Goals and decisions belong to the player during play and must not be baked into the background.
 
 Structured gear (MUST — use these exact keys; do NOT use a single flat "starting_equipment" list):
-- "armor" (array of strings): Worn armor and shield only (e.g. "armadura de cuero", "escudo"). Use [] only if the build has no worn armor or shield (e.g. unarmored Defense). Do not put weapons here.
-- "equipment" (array of strings): All non-weapon carried items and **tool proficiencies / kits** (thieves' tools, healer's kit, artisan's tools, etc.) — same list as packs, pouches, foci, holy symbol, rope. Do NOT use a separate `tools` key. Do NOT list melee/ranged weapons here.
+- "armor" (array of strings): Worn armor and shield only (e.g. "armadura de cuero", "escudo"). Use [] when the character has no worn armor that grants AC (e.g. unarmored Defense with no shield). A shield alone goes in `armor` as one line; body armor (leather, chain, etc.) also goes here. Do not put weapons here.
+- "equipment" (array of strings): All **non-weapon** carried items and **tool proficiencies / kits** (thieves' tools, healer's kit, artisan's tools, etc.) — packs, pouches, foci, holy symbol, rope, **ammunition** (arrows, bolts, bullets) when not covered elsewhere. Do NOT use a separate `tools` key. **Never** list a weapon here if it already has a row in `weapons` (e.g. if `weapons` includes "daga", do not also put "daga" in `equipment` — the dagger appears only under `weapons`).
+  **Clothes (MUST when no body armor):** If the character has **no body armor** (leather, hide, chain, scale, breastplate, half plate, ring mail, splint, plate, padded, etc.) — including when `armor` is [] or lists **only** a shield — include **one** clear line for **everyday garments** (shirt and trousers / tunic and breeches / dress / “ropa de viaje” / “travel clothes”, etc.) in `equipment`. **A cloak, cape, mantle, or boots alone does not count** as that line — add real under-layer clothing too (or a single combined phrase such as “travel clothes and cloak”). Everyday clothes are not armor: they do not change AC. If they already wear body armor, do not add a redundant “clothes” line unless narratively notable; default is one base-garment line only when unarmored (or shield-only).
 - "weapons" (array of objects): One row per attack at level 1 (each weapon + unarmed if relevant). Each: { "name", optional "quantity", "attack_bonus" (JSON number), "damage" (string with dice like 1d8+2 or d6+0), optional "ability" }. Use [] only if impossible; prefer valid rows over omitting the array.
-- "languages" (optional array of strings): Languages the character speaks (for the sheet UI).
+- "languages" (REQUIRED array of strings): **D&D 5e Player’s Handbook** only — list every language this PC **knows at level 1** from **race + class + subclass (if any) + background**, using PHB rules (no extra tongues, no omissions).
+  - **Race (PHB):** Include each language the race grants (most grant **Common** plus a racial language where listed; **half-elf** also gets **one extra** of your choice from the PHB standard language list; **human** in baseline PHB is **Common** only unless you use a printed variant that adds a language—do not invent one).
+  - **Class (PHB, 1st level):** **Druid** → add **Druidic**. **Rogue** → add **Thieves’ Cant**. **Bard** → add **two** languages of your choice from the PHB standard list. Other classes: add only what the PHB **explicitly** grants at level 1 (e.g. some **cleric domains** grant languages at 1—include those if you chose such a domain). Do **not** grant languages from higher levels or from features that are not language grants.
+  - **Background:** If the chosen PHB-style background grants languages (fixed or “choose from standard languages”), include those picks—must be **PHB-standard** language names (same pool as above).
+  - **Standard pool (examples, not exhaustive):** Common, Dwarvish, Elvish, Giant, Gnomish, Goblin, Halfling, Infernal, Orc, Primordial, Sylvan, Undercommon, Druidic, Thieves’ Cant — use the **printed PHB** list and quantities for race/class/background; **deduplicate** (each entry once).
+  - **Localization:** Human-readable names MUST follow **languageInstruction** (e.g. Spanish session: use proper Spanish forms such as **Común**, **Élfico**, **Infernal** — not ad‑hoc spellings like “Espanol” and **not** real-world national languages as sheet entries unless the table explicitly uses them; default is PHB fantasy languages only).
+- "coinage" (JSON object, REQUIRED): D&D 5e **coins on the person** at level 1, keys **"pp","gp","ep","sp","cp"** (non-negative integers). **Top-level key MUST be `coinage`** — not `currency` or `gold_gp`.
+  **How to set it (PHB — read carefully):**
+  - **Class starting equipment** is **not** paid out of `coinage`. If the PC takes the normal class equipment packages, those items are **granted**; you do **not** zero out cash because “chain mail used all their gold.”
+  - **Background starting equipment (MANDATORY for cash):** Open the PHB entry for the chosen `background` (including localized names, e.g. **Soldier / soldado**). Whatever **coins** that background lists (e.g. “belt pouch containing **10 gp**”, “pouch containing **15 gp**”, **25 gp** purse for Noble, etc.) MUST be reflected in **`coinage`** — put that amount in **gp** (or split into sp/cp only if the text specifies smaller coins). **If the background gives starting coin, `coinage` must not be all zeros.**
+  - **Alternative class rule — rolled gold:** Only if you explicitly chose the **roll gold and buy gear** option for that class, use the correct die formula, “purchase” items, and put the **leftover** into `coinage`. Do **not** use this path unless you are simulating that option; default is **equipment packages + background pouch**.
+  - After applying the above, if the PHB background truly lists **no** starting coins and you used standard equipment, **all zeros** is acceptable.
+  During play the DM updates `coinage` when money changes.
+
+Economy (for generated character — play will follow the same rule): Purchases spend **appropriate coin types** (PHB exchange: 1 pp = 10 gp, 1 gp = 10 sp, 1 ep = 5 sp, 1 sp = 10 cp). Do not assume unlimited funds. Only **gifts, wages, loot, or rewards clearly established in the story** add coin without spending. The model must not imply free goods or services unless narration has established a gift or payment.
 
 Consistency:
 - PHB-style class packages only; no impossible extra weapons.
-- All human-readable strings in playerCharacter (background, brief_backstory, armor, equipment, weapons[].name, languages) MUST match languageInstruction.
+- All human-readable strings in playerCharacter (background, brief_backstory, armor, equipment, weapons[].name, languages, clothing line in equipment) MUST match languageInstruction.
 - Keep stats as six numbers 8–18 appropriate to class. Compute max_hp and ac for level 1.
 
-Do NOT output "starting_equipment" or a top-level "tools" key. The client renders armor, weapons, equipment, and languages only.
+Do NOT output "starting_equipment" or a top-level "tools" key. The client renders armor, weapons, equipment, languages, and coinage.
 
 - Output format: RETURN ONLY valid JSON: one object with top-level key "playerCharacter" whose value includes the fields above. No other top-level keys. No markdown fences or commentary.
 
@@ -28,8 +43,9 @@ Using the following partial character info (may be empty): {{gameSetup}}
 Return ONLY valid JSON with a top-level key "playerCharacter" whose value is an object containing:
 - name, race, class, subclass (optional), level (1), background, brief_backstory (2–3 sentences), stats {STR,DEX,CON,INT,WIS,CHA}, max_hp, ac
 - armor (array of strings; may be empty)
-- equipment (array of strings; may be [] but list gear when possible)
+- equipment (array of strings; include one clothing line when there is no body armor, per rules above)
 - weapons (array of { name, quantity optional, attack_bonus, damage, ability }; may be [] but include attacks when possible)
-- languages (optional array of strings)
+- languages (array of strings; PHB-derived from race, class, subclass, background at level 1 — see rules above)
+- coinage: { "pp", "gp", "ep", "sp", "cp" } — include **background** starting coin from PHB (e.g. Soldier/soldado pouch **10 gp**); class gear is not “paid from” this. Key **`coinage` only** (never `currency`).
 
 Do not include "starting_equipment" or "tools" as separate keys (put tools/kits under equipment). Do not include any other keys or commentary. Output JSON only.

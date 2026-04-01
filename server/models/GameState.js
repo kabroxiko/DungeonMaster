@@ -38,7 +38,7 @@ const GameStateSchema = new mongoose.Schema({
         type: String,
         select: false,
     },
-    // Legacy: optional cached DM system blob (no longer written; compose from prompts each /generate)
+    // Optional stored system-core prompt text (debug/audit; routes compose from prompt files at runtime)
     systemCore: {
         type: String,
         select: false,
@@ -62,6 +62,9 @@ const GameStateSchema = new mongoose.Schema({
     // Set when initial /generate accepted plain prose as narration because the model skipped JSON envelope
     dmInitialEnvelopeCoercedAt: { type: String },
     dmInitialEnvelopeCoercedChars: { type: Number },
+    // Set when initial /generate recovered narration from truncated/invalid JSON (diagnostic)
+    dmInitialEnvelopeSalvagedAt: { type: String },
+    dmInitialEnvelopeSalvagedChars: { type: Number },
 });
 
 module.exports = mongoose.model('GameState', GameStateSchema);

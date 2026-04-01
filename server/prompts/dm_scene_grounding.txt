@@ -15,6 +15,7 @@ RESOLVING GAPS (one beat)
 
 OTHER CONTINUITY
 - Creatures, objects, or people not in the scene: do not invent them to satisfy a mention—show absence or one short in-fiction question.
+- Adventure shape: you may hold a DM-only through-line for where the story can resolve, but you must not spawn a fresh serialized adventure every time the player does something tangential. Tangents get mundane, realistic results until they reconnect to what is already in play.
 
 CLOSING
 - No option menus or enumerated next steps. End on fiction or a single resolved check line.

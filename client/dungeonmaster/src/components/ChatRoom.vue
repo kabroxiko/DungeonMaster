@@ -166,6 +166,25 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                 return '';
             },
 
+            /** When the DM envelope includes coinage, sync the sheet in Vuex + local copy. */
+            applyCoinageFromGenerateResponse(data) {
+                if (!data || !data.coinage || typeof data.coinage !== 'object') return;
+                const keys = ['pp', 'gp', 'ep', 'sp', 'cp'];
+                const cur = {};
+                for (const k of keys) {
+                    const n = Math.floor(Number(data.coinage[k]));
+                    cur[k] = Number.isFinite(n) && n >= 0 ? n : 0;
+                }
+                const gs = { ...this.$store.state.gameSetup };
+                const gc = { ...(gs.generatedCharacter || {}) };
+                gc.coinage = cur;
+                gs.generatedCharacter = gc;
+                this.$store.commit('setGameSetup', gs);
+                if (this.localPlayerCharacter) {
+                    this.localPlayerCharacter = { ...this.localPlayerCharacter, coinage: cur };
+                }
+            },
+
             incrementTokenCount(message) {
                 const tokenCountForMessage = Math.ceil(message.length / 4);
                 this.totalTokenCount += tokenCountForMessage;
@@ -236,6 +255,7 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                         if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'encounterState')) {
                             this.lastEncounterState = response.data.encounterState || null;
                         }
+                        this.applyCoinageFromGenerateResponse(response.data);
                         const aiMessageContent = this.narrationFromGenerateResponse(response.data);
                         if (!aiMessageContent) {
                             throw new Error(response.data?.error || 'Empty narration from server');
@@ -291,6 +311,7 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                     if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'encounterState')) {
                         this.lastEncounterState = response.data.encounterState || null;
                     }
+                    this.applyCoinageFromGenerateResponse(response.data);
                     const aiMessageContent = this.narrationFromGenerateResponse(response.data);
                     if (!aiMessageContent) {
                         throw new Error(response.data?.error || 'Empty opening narration');
@@ -348,8 +369,7 @@ md.renderer.rules.heading_close = function(tokens, idx) {
                     this.campaignTitle =
                         spec && typeof spec.title === 'string' && spec.title.trim() ? spec.title.trim() : '';
 
-                    // Note: Do NOT auto-extract generatedCharacter from systemMessageContentDM.
-                    // The server no longer relies on this fallback; gameSetup.generatedCharacter must be provided explicitly.
+                    // Use gameSetup.generatedCharacter from the server only — do not parse it from systemMessageContentDM.
                     // If store already contains generatedCharacter, ensure localPlayerCharacter is set
                     if (this.$store.state.gameSetup && this.$store.state.gameSetup.generatedCharacter && !this.localPlayerCharacter) {
                         this.localPlayerCharacter = this.$store.state.gameSetup.generatedCharacter;

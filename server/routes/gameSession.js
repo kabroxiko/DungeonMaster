@@ -14,8 +14,17 @@ const {
 const { traceMessages } = require('../promptDebug');
 const Mustache = require('mustache');
 const { persistGameStateFromBody, mergePersistWithAssistantReply } = require('../gameStatePersist');
+const { normalizeCoinageObject } = require('../validatePlayerCharacter');
+const { redactCampaignSpecForClient } = require('../campaignSpecDmSecrets');
 
 const DEFAULT_MODEL = process.env.DM_OPENAI_MODEL || 'gpt-3.5-turbo';
+
+function dmHiddenAdventureObjectiveForPrompt(spec) {
+  const s =
+    spec && typeof spec.dmHiddenAdventureObjective === 'string' ? spec.dmHiddenAdventureObjective.trim() : '';
+  if (s) return s;
+  return 'Not set in campaign core: infer one coherent arc from campaignConcept and majorConflicts. When the player acts off that arc, use mundane, realistic outcomes—do not invent a new adventure or conspiracy.';
+}
 
 // Note: Output formatting and presentation should be enforced via prompts.
 
@@ -141,6 +150,136 @@ function normalizeJsonLikeQuotes(s) {
     .replace(/\u201d/g, '"')
     .replace(/\u2018/g, "'")
     .replace(/\u2019/g, "'");
+}
+
+/** Strip BOM / zero-width chars some APIs prepend. */
+function stripBomAndInvisible(s) {
+  if (!s || typeof s !== 'string') return s;
+  return s.replace(/^\uFEFF/, '').replace(/^[\u200B-\u200D\uFEFF]+/, '');
+}
+
+function jsonParseLenientObject(jsonStr) {
+  if (!jsonStr || typeof jsonStr !== 'string') return null;
+  const tryParse = (t) => {
+    try {
+      const o = JSON.parse(t);
+      return o && typeof o === 'object' && !Array.isArray(o) ? o : null;
+    } catch (e) {
+      return null;
+    }
+  };
+  let o = tryParse(jsonStr);
+  if (o) return o;
+  const trimmedTrailingComma = jsonStr.replace(/,\s*\}\s*$/, '}');
+  if (trimmedTrailingComma !== jsonStr) {
+    o = tryParse(trimmedTrailingComma);
+    if (o) return o;
+  }
+  return null;
+}
+
+/**
+ * Coerce model "narration" field to a string (some models emit numbers, arrays of paragraphs, or {markdown}).
+ * @returns {string|null} null if the key is missing or shape is unusable
+ */
+function narrationFromEnvelopeField(raw) {
+  if (raw === undefined) return null;
+  if (raw === null) return '';
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
+  if (Array.isArray(raw)) {
+    const parts = raw.filter((x) => typeof x === 'string');
+    return parts.length ? parts.join('\n\n') : '';
+  }
+  if (typeof raw === 'object') {
+    if (typeof raw.markdown === 'string') return raw.markdown;
+    if (typeof raw.text === 'string') return raw.text;
+    if (typeof raw.content === 'string') return raw.content;
+  }
+  return null;
+}
+
+/**
+ * When the model starts a JSON envelope but truncates mid-string or omits closing braces, recover narration.
+ * Persists dmInitialEnvelopeSalvagedAt for diagnostics (workspace policy).
+ */
+function salvageTruncatedInitialEnvelope(raw, gameId) {
+  const s = stripBomAndInvisible(stripLlmChannelNoise(stripMarkdownJsonFence(String(raw || '')))).trim();
+  if (!s || s.length < 12) return null;
+  const m = s.match(/"narration"\s*:\s*"/);
+  if (!m) return null;
+  const start = m.index + m[0].length;
+  let i = start;
+  let out = '';
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '\\' && i + 1 < s.length) {
+      const n = s[i + 1];
+      if (n === 'n') {
+        out += '\n';
+        i += 2;
+        continue;
+      }
+      if (n === 't') {
+        out += '\t';
+        i += 2;
+        continue;
+      }
+      if (n === 'r') {
+        out += '\r';
+        i += 2;
+        continue;
+      }
+      if (n === '"' || n === '\\' || n === '/') {
+        out += n;
+        i += 2;
+        continue;
+      }
+      if (n === 'u' && i + 5 < s.length) {
+        const hex = s.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          out += String.fromCharCode(parseInt(hex, 16));
+          i += 6;
+          continue;
+        }
+      }
+      out += n;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') break;
+    out += ch;
+    i++;
+  }
+  const narration = out.trim();
+  if (narration.length < 8) return null;
+  console.warn(
+    '[DM] Initial opening: salvaged narration from truncated/partial envelope JSON.',
+    JSON.stringify({ gameId: gameId || null, length: narration.length, preview: narration.slice(0, 120) })
+  );
+  try {
+    if (gameId) {
+      const GameState = require('../models/GameState');
+      GameState.findOneAndUpdate(
+        { gameId },
+        {
+          $set: {
+            dmInitialEnvelopeSalvagedAt: new Date().toISOString(),
+            dmInitialEnvelopeSalvagedChars: Math.min(narration.length, 500000),
+          },
+        },
+        { upsert: true }
+      ).catch((e) => console.warn('Failed to persist dmInitialEnvelopeSalvagedAt:', e));
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  return {
+    narration,
+    imminentCombat: false,
+    combatCue: '',
+    encounterState: null,
+  };
 }
 
 function takeCampaignFieldItems(field, n) {
@@ -299,28 +438,30 @@ function stripLlmChannelNoise(s) {
 /** Player-visible text is envelope.narration; imminentCombat never sent to client. */
 function parseDmPlayerEnvelope(raw) {
   if (raw == null) return null;
-  let s = stripLlmChannelNoise(stripMarkdownJsonFence(String(raw)));
+  let s = stripBomAndInvisible(stripLlmChannelNoise(stripMarkdownJsonFence(String(raw))));
   s = normalizeJsonLikeQuotes(s);
   const extracted = extractFirstJsonObject(s);
-  const jsonStr = extracted || (s.startsWith('{') ? s : null);
+  const trimmed = s.trim();
+  const jsonStr = extracted || (trimmed.startsWith('{') ? trimmed : null);
   if (!jsonStr) return null;
-  try {
-    const obj = JSON.parse(jsonStr);
-    if (!obj || typeof obj !== 'object') return null;
-    if (typeof obj.narration !== 'string') return null;
-    let encounterState = null;
-    if (obj.encounterState != null && typeof obj.encounterState === 'object' && !Array.isArray(obj.encounterState)) {
-      encounterState = obj.encounterState;
-    }
-    return {
-      narration: obj.narration,
-      imminentCombat: Boolean(obj.imminentCombat),
-      combatCue: typeof obj.combatCue === 'string' ? obj.combatCue : '',
-      encounterState,
-    };
-  } catch (e) {
-    return null;
+  const obj = jsonParseLenientObject(jsonStr);
+  if (!obj) return null;
+  const narration = narrationFromEnvelopeField(obj.narration);
+  if (narration === null) return null;
+  let encounterState = null;
+  if (obj.encounterState != null && typeof obj.encounterState === 'object' && !Array.isArray(obj.encounterState)) {
+    encounterState = obj.encounterState;
   }
+  const base = {
+    narration,
+    imminentCombat: Boolean(obj.imminentCombat),
+    combatCue: typeof obj.combatCue === 'string' ? obj.combatCue : '',
+    encounterState,
+  };
+  if (obj.coinage != null && typeof obj.coinage === 'object' && !Array.isArray(obj.coinage)) {
+    base.coinage = normalizeCoinageObject(obj.coinage);
+  }
+  return base;
 }
 
 /**
@@ -329,7 +470,7 @@ function parseDmPlayerEnvelope(raw) {
  */
 function coerceInitialProseToEnvelope(raw, stackMode, gameId) {
   if (stackMode !== 'initial') return null;
-  const s = stripLlmChannelNoise(stripMarkdownJsonFence(String(raw || ''))).trim();
+  const s = stripBomAndInvisible(stripLlmChannelNoise(stripMarkdownJsonFence(String(raw || '')))).trim();
   if (s.length < 24) return null;
   if (/^\s*[\[{]/.test(s)) return null;
   console.warn(
@@ -556,6 +697,7 @@ router.post('/generate', async (req, res) => {
             majorConflicts: takeCampaignFieldItems(spec.majorConflicts, 4),
             majorNPCs: coerceCampaignStageToArray('majorNPCs', spec.majorNPCs).slice(0, 4),
             keyLocations: coerceCampaignStageToArray('keyLocations', spec.keyLocations).slice(0, 4),
+            dmHiddenAdventureObjective: dmHiddenAdventureObjectiveForPrompt(spec),
             // Compact JSON saves prompt tokens; do not inject rawModelOutput here (stale/truncated LLM blobs poison opening turns).
             campaignSpecJson: JSON.stringify(spec || {}),
             sessionSummary: persistedGameState.summary || sessionSummary || '',
@@ -563,13 +705,17 @@ router.post('/generate', async (req, res) => {
         } else if ((stackMode === 'exploration' || stackMode === 'explore') && spec) {
           injectTemplate = loadPrompt('dm_inject_explore.txt');
           campaignInjectionKind = 'exploration';
-          renderData = { factions: coerceCampaignStageToArray('factions', spec.factions).slice(0, 3) };
+          renderData = {
+            factions: coerceCampaignStageToArray('factions', spec.factions).slice(0, 3),
+            dmHiddenAdventureObjective: dmHiddenAdventureObjectiveForPrompt(spec),
+          };
         } else if ((stackMode === 'combat' || stackMode === 'decision' || stackMode === 'investigation') && spec) {
           injectTemplate = loadPrompt('dm_inject_combat.txt');
           campaignInjectionKind = 'combat or tense encounter';
           renderData = {
             majorNPCs: coerceCampaignStageToArray('majorNPCs', spec.majorNPCs).slice(0, 4),
             majorConflicts: takeCampaignFieldItems(spec.majorConflicts, 4),
+            dmHiddenAdventureObjective: dmHiddenAdventureObjectiveForPrompt(spec),
           };
         }
 
@@ -650,15 +796,16 @@ router.post('/generate', async (req, res) => {
           Math.max(4096, parseInt(process.env.DM_MODEL_CONTEXT_TOKENS || '16384', 10) || 16384)
         );
         const promptTokens = estimateTokenCount(outboundMessages);
-        let completionBudget = stackMode === 'initial' ? 1400 : userCombatEntry ? 200 : 550;
+        let completionBudget = stackMode === 'initial' ? 2200 : userCombatEntry ? 200 : 550;
         const available = MODEL_MAX_TOKENS - promptTokens - 80;
         if (available <= 0) {
           console.warn(
             `DM generate: estimated prompt tokens (${promptTokens}) exceed MODEL_MAX_TOKENS (${MODEL_MAX_TOKENS}); using completion floor (reply may still fail at the API if the real context is smaller).`
           );
-          completionBudget = resolvedMode === 'initial' ? 1400 : 650;
+          completionBudget = resolvedMode === 'initial' ? 2200 : 650;
         } else {
-          completionBudget = Math.min(Math.max(completionBudget, 500), Math.min(2000, available));
+          const cap = stackMode === 'initial' ? Math.min(4500, available) : Math.min(2000, available);
+          completionBudget = Math.min(Math.max(completionBudget, 500), cap);
         }
         console.log(
           `Estimated prompt tokens: ${promptTokens}, model context cap: ${MODEL_MAX_TOKENS}, completion budget: ${completionBudget}`
@@ -713,6 +860,9 @@ router.post('/generate', async (req, res) => {
 
         let finalRaw = String(aiMessage);
         let envelope = parseDmPlayerEnvelope(finalRaw);
+        if (!envelope && stackMode === 'initial') {
+          envelope = salvageTruncatedInitialEnvelope(finalRaw, gameId);
+        }
         if (!envelope) {
           try {
             const repairUser = {
@@ -724,11 +874,14 @@ router.post('/generate', async (req, res) => {
             const repairOutbound = traceMessages(repairMsgs, 'DM JSON envelope repair');
             const repairResp = await generateResponse(
               { messages: repairOutbound },
-              { max_tokens: 900, temperature: 0.6, gameId }
+              { max_tokens: stackMode === 'initial' ? 1600 : 900, temperature: 0.6, gameId }
             );
             if (repairResp) {
               finalRaw = String(repairResp);
               envelope = parseDmPlayerEnvelope(finalRaw);
+              if (!envelope && stackMode === 'initial') {
+                envelope = salvageTruncatedInitialEnvelope(finalRaw, gameId);
+              }
             }
           } catch (e) {
             console.warn('JSON envelope repair failed:', e);
@@ -936,11 +1089,15 @@ router.post('/generate', async (req, res) => {
           }
         }
 
-        res.json({
+        const responseBody = {
           narration: envelope.narration,
           encounterState: envelope.encounterState != null ? envelope.encounterState : null,
           activeCombat: Boolean(finalUsedCombatStack),
-        });
+        };
+        if (envelope.coinage != null && typeof envelope.coinage === 'object') {
+          responseBody.coinage = normalizeCoinageObject(envelope.coinage);
+        }
+        res.json(responseBody);
     } catch (error) {
         console.error('Error generating text:', error);
         res.status(500).json({ error: `Error generating text: ${String(error)}` });
@@ -1043,7 +1200,7 @@ router.post('/generate-campaign', async (req, res) => {
           // Use a higher minimum to reduce risk of truncation for campaign generation.
           completionBudgetCampaign = Math.min(
             1500,
-            Math.max(600, Math.min(availableCampaign, completionBudgetCampaign + (hiddenPlotline ? 200 : 0)))
+            Math.max(600, Math.min(availableCampaign, completionBudgetCampaign))
           );
         }
         console.log(`Campaign generator: prompt tokens ${promptTokensCampaign}, completion budget ${completionBudgetCampaign}`);
@@ -1088,8 +1245,8 @@ router.post('/generate-campaign', async (req, res) => {
           console.warn('Failed to persist campaignSpec/rawModelOutput to GameState:', e);
         }
 
-        // Return parsed campaign JSON (campaignConcept) or raw AI output
-        res.json(parsed || aiMessage);
+        // Return parsed campaign JSON (campaignConcept) or raw AI output (strip DM-only fields for clients)
+        res.json(parsed ? redactCampaignSpecForClient(parsed) : aiMessage);
     } catch (error) {
         console.error('Error generating text:', error);
         res.status(500).json({ error: `Error generating text: ${String(error)}` });
@@ -1212,7 +1369,7 @@ router.post('/generate-campaign-core', async (req, res) => {
       console.warn('Failed saving rawModelRequest for campaign-core:', e);
     }
 
-    const aiMessage = await generateResponse({ messages: coreOutbound }, { max_tokens: 900, temperature: 0.8, gameId });
+    const aiMessage = await generateResponse({ messages: coreOutbound }, { max_tokens: 1000, temperature: 0.8, gameId });
     if (!aiMessage) return res.status(500).json({ error: 'AI response empty' });
 
     const rawJson = extractFirstJsonObject(aiMessage) || aiMessage;
@@ -1265,10 +1422,10 @@ router.post('/generate-campaign-core', async (req, res) => {
           const existing = await GameState.findOne({ gameId }).lean();
           const combined = Object.assign({}, parsed, (existing && existing.campaignSpec) ? existing.campaignSpec : {});
           await GameState.findOneAndUpdate({ gameId }, { campaignSpec: combined, rawModelOutput: String(aiMessage).slice(0, 200000) }, { upsert: true });
-          return res.json(combined);
+          return res.json(redactCampaignSpecForClient(combined));
         } catch (e) {
           console.warn('Failed persisting combined campaignSpec after stages:', e);
-          return res.json(parsed);
+          return res.json(redactCampaignSpecForClient(parsed));
         }
       } catch (e) {
         console.error('Synchronous campaign stages failed:', e);
@@ -1276,7 +1433,7 @@ router.post('/generate-campaign-core', async (req, res) => {
       }
     }
     // Default: respond immediately and generate stages asynchronously (not used when waitForStages=true)
-    res.json(parsed);
+    res.json(redactCampaignSpecForClient(parsed));
 
     if (gameId) {
       setImmediate(() => {
@@ -1566,7 +1723,7 @@ router.post('/generate-character', async (req, res) => {
         validateGeneratedPlayerCharacter,
         normalizeGeneratedPlayerCharacter,
       } = require('../validatePlayerCharacter');
-      parsed.playerCharacter = normalizeGeneratedPlayerCharacter(parsed.playerCharacter);
+      parsed.playerCharacter = normalizeGeneratedPlayerCharacter(parsed.playerCharacter, { language });
       const charCheck = validateGeneratedPlayerCharacter(parsed.playerCharacter);
       if (!charCheck.ok) {
         console.warn('generate-character: validation failed:', charCheck.error);
@@ -1642,7 +1799,9 @@ router.post('/generate-character', async (req, res) => {
 router.post('/bootstrap-session', async (req, res) => {
   try {
     const gs = await persistGameStateFromBody(req.body);
-    res.json(gs);
+    const o = typeof gs.toObject === 'function' ? gs.toObject() : { ...gs };
+    if (o.campaignSpec) o.campaignSpec = redactCampaignSpecForClient(o.campaignSpec);
+    res.json(o);
   } catch (e) {
     console.error('bootstrap-session failed:', e);
     res.status(400).json({ error: String(e && e.message ? e.message : e) });

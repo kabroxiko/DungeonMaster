@@ -115,8 +115,6 @@ const injected = Mustache.render(tpl, { factions: spec.factions.slice(0,3) });
 systemMsgs.unshift({ role: 'system', content: injected });
 ```
 
-<!-- removed deprecated snippet referencing hooks -->
-
 ## Checklist before finishing a patch
 
 - [ ] Read the target file(s) before editing.

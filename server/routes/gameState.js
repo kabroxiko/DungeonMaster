@@ -1,6 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const GameState = require('../models/GameState');
+const { redactCampaignSpecForClient } = require('../campaignSpecDmSecrets');
+const { ensurePlayerCharacterSheetDefaults } = require('../validatePlayerCharacter');
+
+function gameStateDocForClient(doc) {
+  if (!doc) return doc;
+  const o = typeof doc.toObject === 'function' ? doc.toObject() : { ...doc };
+  if (o.campaignSpec) o.campaignSpec = redactCampaignSpecForClient(o.campaignSpec);
+  if (o.gameSetup && o.gameSetup.generatedCharacter && typeof o.gameSetup.generatedCharacter === 'object') {
+    const lang = o.gameSetup.language || 'English';
+    o.gameSetup = {
+      ...o.gameSetup,
+      generatedCharacter: ensurePlayerCharacterSheetDefaults(o.gameSetup.generatedCharacter, { language: lang }),
+    };
+  }
+  return o;
+}
 
 // Persistence is server-driven: POST /api/game-session/bootstrap-session (setup shell) and
 // POST /api/game-session/generate with a `persist` payload (each successful reply). No public POST /save.
@@ -17,7 +33,7 @@ router.get('/load/:gameId', async (req, res) => {
             return res.status(404).json({ error: 'No game state found for this game' });
         }
 
-        res.json(gameState);
+        res.json(gameStateDocForClient(gameState));
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to load game state' });
@@ -63,7 +79,8 @@ router.get('/all', async (req, res) => {
     try {
         // Find all game states
         const gameStates = await GameState.find({});
-        res.json(Array.isArray(gameStates) ? gameStates : []);
+        const list = Array.isArray(gameStates) ? gameStates : [];
+        res.json(list.map((g) => gameStateDocForClient(g)));
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Failed to load game states' });
