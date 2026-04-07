@@ -1,0 +1,112 @@
+{{{languageInstruction}}}
+Character generation rules:
+- Generate a detailed player character using D&D 5e conventions.
+- Use provided fields when present (Race, Class, Level, Background). For any missing field, choose a sensible random value that fits a classic fantasy setting.
+- **LOCKED choices (mandatory — the server overwrites mistakes, but you must still match):** The user message includes JSON `gameSetup` with `race`, `class`, optional `subrace`, optional `subclass` (string ids such as `gnome`, `bard`, `forest_gnome`, `life`). When a key is present and its value is **not** the literal `random`, you **must** use **exactly** that D&D 5e PHB option for the sheet: same race, same subrace if specified, same class, same subclass if specified. **Do not** substitute a different race, subrace, class, or subclass (no “creative” swaps, no “similar” ancestry, no defaulting to Human or Fighter). Human-readable spellings in the session language must describe **that** id only. If `subrace` or `subclass` is absent or `random`, you may choose a legal PHB option; if present and fixed, output must match it.
+- Strong instruction: the generated playerCharacter.level MUST be 1. Ensure the JSON includes "level": 1 for the playerCharacter.
+- Narrative constraint: The character's brief_backstory should describe past facts and flavor (origin, upbringing, notable events) but MUST NOT include present objectives, goals, or directives framing what they will do next. Goals and decisions belong to the player during play and must not be baked into the background.
+
+Background (PHB) — must match the story:
+- **`background` display string = localized PHB title:** The JSON value for **`background`** is what the **player reads on the character sheet**. It MUST be the **PHB background name in the session language** (see **languageInstruction**). **Spanish sessions:** Spanish PHB-style titles only — never English PHB titles. **English sessions:** English PHB titles only.
+- **`background` and `brief_backstory` are one path:** Pick a **legal PHB background** whose **identity and past** are exactly what the backstory describes (same profession, community, training, or social role—not a random label). If the story fits wilderness or isolated living, use **Outlander** (localized title), not Soldier unless military service is clear. If it fits study or scholarship, use **Sage** (localized); faith institutions → **Acolyte** (localized); match other PHB backgrounds with the **localized** title in **`background`**.
+- **Do not default to Soldier / Soldado.** Use it **only** when the backstory clearly involves **military service, legion, garrison, officer/enlisted past, or formal war training**—otherwise choose a different PHB background that fits.
+- **Workflow:** Draft the **brief_backstory** (2–3 sentences of past facts), then set **`background`** to the **localized** PHB title that matches; adjust wording if needed so they are **obviously the same life**. A reader should see the background title and think “yes, that’s the same person as this paragraph.”
+
+Structured gear (MUST — use these exact keys; do NOT use a single flat "starting_equipment" list):
+- "armor" (array of **strings and/or objects**): Worn armor and shield only, session language per **languageInstruction**. Use [] when the character has no worn armor that grants AC (including unarmored Defense with no shield). **Prefer structured rows** with `name` plus `ac_bonus` and/or `base_ac` per PHB armor AC (Dex cap implied by class rules). Plain strings remain valid when they name the worn piece clearly. You may append AC clarity in the string when helpful. A shield alone goes in `armor`; body armor also goes here. Do not put weapons here.
+- "equipment" (array of strings): **General adventuring gear** that is **not** worn body armor, **not** a weapon attack row, and **not** a PHB **Tool** (see `tools` below). Include: packs, pouches, belt pouches, rope, torches/rations if listed, **ammunition** when not covered elsewhere, **spellbook**, **holy symbol**, **druidic focus**, **component pouch** or **arcane focus** (crystal, orb, rod, wand, staff-as-focus), and similar. **Never** duplicate a weapon name here if that weapon has a row in `weapons`. Do **not** put PHB **Tools**-chapter items here — those go in `tools`.
+  **Clothes (MUST when no body armor):** If the character has **no body armor** (leather, hide, chain, scale, breastplate, half plate, ring mail, splint, plate, padded, etc.) — including when `armor` is [] or lists **only** a shield — include **one** clear line for **everyday garments** in `equipment`, in the session language. **A cloak, cape, mantle, or boots alone does not count** as that line — add real under-layer clothing or one combined phrase naming a full base outfit. Everyday clothes are not armor: they do not change AC. If they already wear body armor, do not add a redundant “clothes” line unless narratively notable; default is one base-garment line only when unarmored (or shield-only).
+- "tools" (array of strings, REQUIRED — use `[]` only when the PC truly has **no** PHB tool-type items): PHB **Tools** and tool-like kits **only** — thieves’ tools; **artisan’s tools** (name the trade); disguise kit; forgery kit; gaming set; herbalism kit; navigator’s tools; poisoner’s kit; potter’s tools; smith’s tools; tinker’s tools; weaver’s tools; woodcarver’s tools; **musical instrument** (Bard / background when the PHB grants an instrument as equipment — list the instrument here); land vehicles **if** granted as a tool entry; etc. Background/class lines such as “thieves’ tools” or “navigator’s tools” belong here, **not** in `equipment`. **Never** duplicate a weapon name here if that weapon has a row in `weapons`.
+  **PHB starting equipment — merge three sources (MANDATORY):** Build `armor`, `weapons`, `equipment`, and `tools` by **combining** (1) **one** legal **class** starting-equipment package at level 1, (2) **everything** the chosen **background** grants, and (3) any **race** or **subclass** entry that **explicitly** lists a carried item at level 1 (PHB text only — do not invent racial “flavor” packs). **Sort into arrays:** armor (AC) → `armor`; attacks → `weapons`; PHB Tools / kits / instruments → `tools`; other packs, foci, spellbook, holy symbol, clothes, rope, ammo, etc. → `equipment`. If you use **rolled gold** instead of packages, **purchase** the same categories the PHB packages would have included and list them in the correct array — do not leave mandatory class items abstract or implied.
+  **Hard checklist — class/background mandatory lines (localized names per languageInstruction; the server does not patch missing lines):**
+  - **Wizard (hybrid spellbook):** a **spellbook** line in **`equipment`** in the session language — required.
+  - **Artificer:** **thieves’ tools** in **`tools`** plus a **spell/formula record** line in **`equipment`** per TCoE (localized journal or formula book title).
+  - **Cleric** or **Paladin:** a **holy symbol** line in **`equipment`** (PHB class starting equipment includes it).
+  - **Druid:** a **druidic focus** line in **`equipment`** naming the PHB object you chose (localized).
+  - **Wizard, Sorcerer, Bard, Warlock** (when the class has spellcasting at level 1): **either** a **component pouch** **or** an **arcane focus** line in **`equipment`** — never both missing.
+  - **Bard:** a **musical instrument** line in **`tools`** matching the PHB package you chose (in addition to pouch or arcane focus in **`equipment`** above).
+  Before finishing, **re-read** `equipment` **and** `tools` against the PHB class + background + race/subclass entries you used and **add any line you still omitted** in the correct array.
+- "weapons" (array of objects): One row per attack at level 1 (each weapon + unarmed if relevant). Each: { "name", optional "quantity", "attack_bonus" (JSON number), "damage" (string with PHB dice expression and modifiers), optional "ability" }. Use [] only if impossible; prefer valid rows over omitting the array.
+- "languages" (REQUIRED array of strings): **D&D 5e Player’s Handbook** only — list every language this PC **knows at level 1** from **race + class + subclass (if any) + background**, using PHB rules (no extra tongues, no omissions).
+  - **Race / subrace (PHB):** Include each language the race and chosen subrace grant (most grant **Common** plus a racial language where listed; **half-elf** also gets **one extra** of your choice from the PHB standard language list; **human** in baseline PHB is **Common** only unless you use a printed variant that adds a language—do not invent one). If `gameSetup` includes **subrace**, use that PHB subrace for traits and languages.
+  - **Class (PHB, 1st level):** **Druid** → add **Druidic**. **Rogue** → add **Thieves’ Cant**. **Bard** → add **two** languages of your choice from the PHB standard list. Other classes: add only what the PHB **explicitly** grants at level 1 (including domain or subclass language grants when applicable). Do **not** grant languages from higher levels or from features that are not language grants.
+  - **Background:** If the chosen PHB-style background grants languages (fixed or “choose from standard languages”), include those picks—must be **PHB-standard** language names (same pool as above).
+  - **Standard pool:** Use only languages from the **printed PHB** for race, class, subclass, and background with correct quantities; **deduplicate** (each entry once).
+  - **Localization:** Human-readable language names MUST follow **languageInstruction** (Spanish session → Spanish PHB-style names; English → English PHB names). No ad‑hoc spellings and **not** real-world national languages as sheet entries unless the table explicitly uses them.
+- "coinage" (JSON object, REQUIRED): D&D 5e **coins on the person** at level 1, keys **"pp","gp","ep","sp","cp"** (non-negative integers). **Top-level key MUST be `coinage`** — not `currency` or `gold_gp`.
+
+  **Yes — the PHB defines starting currency.** Use only these sources (Player’s Handbook): **Chapter 4 (Backgrounds)** gives each background a **fixed gold pouch** in its starting equipment. **Chapter 5 (Equipment)** says you either take your **class equipment packages** or, alternatively, roll **Starting Wealth by Class**, buy gear at listed prices, and keep the **remainder** — background equipment (including its gold) still applies when using the standard rules.
+
+  **Default for this generator (use unless you explicitly simulate rolled class wealth):** The PC takes **PHB class equipment packages** + **PHB background equipment**. Then **`coinage.gp` = exactly the gp from the background’s starting equipment** (below). Put the full amount in **`gp`**; use **0** for `pp`, `ep`, `sp`, `cp` unless the background text names those coins. **Class gear is not purchased from `coinage`** — do not reduce `gp` because the PC received armor or weapons from their class.
+
+  **PHB Chapter 4 — background pouch → `coinage.gp` (match `background` to the PHB background; localized titles use the same number):**
+  - **Acolyte / Acolito** → **15 gp**
+  - **Charlatan / Charlatán** → **15 gp**
+  - **Criminal** → **15 gp**
+  - **Entertainer / Artista** → **15 gp**
+  - **Folk Hero / Héroe del pueblo** → **10 gp**
+  - **Guild Artisan / Artesano gremial** → **15 gp**
+  - **Hermit / Ermitaño** → **5 gp**
+  - **Noble / Nobleza** → **25 gp**
+  - **Outlander / Marginado** → **10 gp**
+  - **Sage / Sabio** → **10 gp**
+  - **Sailor / Marino** → **10 gp**
+  - **Soldier / Soldado** → **10 gp**
+  - **Urchin / Golfillo** → **10 gp**
+
+  **PHB Chapter 5 — Starting Wealth by Class (only if you explicitly chose gold instead of class equipment packages):** Roll the formula **once**, subtract the **gp cost** of the class items you list (PHB weapon/armor/gear prices), then set **`coinage.gp` = that remainder + the background `gp` from the list above** (background pouch is separate and always added). Formulas: **Barbarian** 2d4×10 gp · **Bard** 5d4×10 · **Cleric** 5d4×10 · **Druid** 2d4×10 · **Fighter** 5d4×10 · **Monk** **5d4 gp (not ×10)** · **Paladin** 5d4×10 · **Ranger** 5d4×10 · **Rogue** 4d4×10 · **Sorcerer** 3d4×10 · **Warlock** 4d4×10 · **Wizard** 4d4×10. **Artificer** (if used, TCoE): rolled option **5d4×10 gp** — otherwise use packages + background gp only.
+
+  **Do not invent wealth:** Narrative “noble,” “merchant family,” etc. **does not** change these numbers. Values like **100 / 500 / 1000 `gp`** at level 1 with standard packages are **wrong** unless they are the genuine result of a legal rolled-wealth calculation (they almost never are).
+
+  - If the PHB background you use truly lists **no** starting coins and you used standard equipment, **all-zero** `coinage` is acceptable.
+  During play the DM updates `coinage` when money changes.
+
+Economy (for generated character — play will follow the same rule): Purchases spend **appropriate coin types** (PHB exchange: 1 pp = 10 gp, 1 gp = 10 sp, 1 ep = 5 sp, 1 sp = 10 cp). Do not assume unlimited funds. **Starting `coinage` is not family fortune or narrative treasure** — only the PHB background coin entry (or legal rolled-gold remainder). Only **gifts, wages, loot, or rewards clearly established in the story** add coin without spending during play. The model must not imply free goods or services unless narration has established a gift or payment.
+
+Spellcasting (when the class has spells at level 1 in the PHB / TCoE — wizard, sorcerer, warlock, bard, cleric, druid, paladin, artificer, ranger when applicable):
+- Include **`spells`**: array of spell rows `{ "name": string, "level": number }`. Use **level 0** only for cantrips; **1–9** for leveled spells. **Every PHB spell has exactly one printed level — emit that level only.** Do **not** list the **same spell `name` twice** with different `level` values (a spell is either a cantrip or a leveled spell, never both). **No duplicate spell names** in the array (one row per spell). Names in **languageInstruction**. Only the **Wizard** uses **`prepared`: boolean** on **leveled** rows (hybrid spellbook — see below). **All other classes: omit `prepared`** on every row.
+- **Class spell mechanics (match the PC’s class — Spanish labels for reference):**
+  - **Aprendidos / “Known” (short fixed list, always ready — no daily preparation in JSON):** **Bard, Sorcerer, Warlock, Ranger** (and subclasses that use “spells known” per PHB). List **only** spells the PC **knows** at level 1 with PHB-legal counts. **Never** add `prepared`. **Sorcerer & Bard at level 1:** **four** cantrips + **two** first-level spells — **hard cap:** the JSON must contain **exactly two** `spells` rows with `"level": 1` (not three, not six); same idea for Warlock when both leveled picks are 1st-level. **Hechicero / bardo / brujo:** cuenta filas con `"level": 1` y no excedas **dos** en nivel 1. **Warlock:** **two** cantrips + **two** leveled spells known (usually both 1st-level). **Ranger:** at level 1 baseline PHB often has **no** spells yet — use `[]` unless your table gives spells at 1.
+  - **Preparados / “Prepared from class list”** (access the **class spell list**; after a long rest you choose what’s ready — the sheet lists **only** today’s prepared leveled spells + cantrips, **not** the whole class list): **Cleric, Druid, Paladin, Artificer.** **Omit `prepared`** on every row (every listed leveled spell is “prepared for today”). **Cleric & Druid:** number of leveled rows = **WIS modifier + class level** (minimum **1**). **Paladin:** **CHA modifier + half paladin level** rounded down (minimum **1**). **Artificer (TCoE):** leveled rows prepared today = **INT modifier + half artificer level** rounded down (minimum **1**) — at level 1 that is **max(1, INT mod)** leveled spells (plus cantrips per TCoE).
+  - **Híbrido / “Hybrid” — Wizard only:** Spellbook + daily prep. **Not** the same as “Preparados” above: the `spells` array lists **every** leveled spell **written in the book**, and **`prepared`** marks today’s subset.
+    1. **In the spellbook (level 1 wizard, PHB):** **Six** different **1st-level** spells in `spells` as **`"level": 1`**.
+    2. **Cantrips:** **Three** rows **`"level": 0`** — no `prepared`.
+    3. **Prepared today:** Exactly **`wizard level + Intelligence modifier`** of those leveled book spells have **`prepared`: `true`** (minimum **1**); the rest **`prepared`: `false`**.
+    4. **Spell slots:** Separate from how many you prepared. Level 1 wizard: **`spell_slots` `"1": 2`**. Slots are “ammo”; cantrips use no slots.
+- Include **`spell_slots`**: object with string keys `"1"` … `"9"` and **non-negative integer** values = **full** spell slots after a long rest at this level (PHB table for that class at level 1). Slots are **“ammo”** for leveled spells: preparing a spell does not mean infinite casts. Cantrips do not spend slots. Omit keys for slot levels the class does not have. **Warlock** uses Pact Magic (often one first-level slot at character level 1). **Wizard level 1 (PHB):** use **`"1": 2`** — two 1st-level slots per long rest. Classes with no spells: use `"spells": []` and omit `spell_slots` or use `{}`. **Note:** In the printed PHB, **Arcane Recovery** is a **2nd-level** wizard feature; this app generates **level 1 only**, so do **not** grant or describe Arcane Recovery for new PCs here.
+
+Consistency:
+- PHB-style class packages only; no impossible extra weapons. **Incomplete starting gear** (missing mandatory class/background lines in the correct arrays per the checklist above) is unacceptable — fix the JSON before output.
+- All human-readable strings in playerCharacter (background, brief_backstory, armor, equipment, tools, weapons[].name, languages, clothing line in equipment, spell names) MUST match languageInstruction.
+- Keep stats as six numbers 8–18 appropriate to class. Compute max_hp and ac for level 1.
+- **`ac` is a single JSON number** (total AC at level 1). Never make `ac` an object and never nest `armor` or `weapons` inside `ac` — `armor` and `weapons` are sibling keys of `ac` at the same level as `max_hp`.
+
+Do NOT output "starting_equipment" as a flat list. The client renders armor, weapons, equipment, **tools**, languages, coinage, and spells when present.
+
+YAML structure (MANDATORY — follow before you output):
+- **Shape:** One top-level key `playerCharacter` whose value is the full character mapping. No other top-level keys.
+- **Indentation:** Use consistent spaces for nesting. Close every mapping and sequence; do not stop mid-document.
+- **Self-check:** Mentally validate that your output is parseable YAML. Fix structure until it would succeed.
+
+- Output format: RETURN ONLY valid YAML: one document with top-level key `playerCharacter` whose value includes the fields above. No markdown fences or commentary. The document MUST be **syntactically complete** and MUST NOT be followed by any prose, prefixes, or channel tags.
+
+--- USER PROMPT BELOW (render this section as the user message) ---
+{{{languageInstruction}}}
+pcDisplayName: {{pcDisplayName}}
+
+Partial character info (JSON, may be empty): {{gameSetup}}
+
+**Ids in that JSON lock character build:** non-`random` `race` / `class` / `subrace` / `subclass` are authoritative — your YAML must reflect those PHB choices only.
+
+Return ONLY valid YAML with top-level key `playerCharacter` whose value is a mapping containing:
+- race, subrace (optional when the table chose one), class, subclass (optional), level (1), background, brief_backstory (2–3 sentences), stats {STR,DEX,CON,INT,WIS,CHA}, max_hp, ac
+- armor (array of strings and/or { "name", optional "ac_bonus", "base_ac", "ac" }; may be empty)
+- equipment (array of strings; general gear and **non-tool** class items — **Wizard:** spellbook; **Artificer:** spell/formula record (TCoE); holy symbol for Cleric/Paladin; druidic focus for Druid; component pouch **or** arcane focus for Wizard/Sorcerer/Bard/Warlock; packs, rope, ammo, clothes when unarmored; plus other background **non-tool** items; the server does not insert missing class lines)
+- tools (array of strings; PHB Tools / kits / **musical instrument** when granted — **Artificer:** thieves’ tools; **Bard:** instrument; background-granted tool types; use `[]` if none)
+- weapons (array of { name, quantity optional, attack_bonus, damage, ability }; may be [] but include attacks when possible)
+- languages (array of strings; PHB-derived from race, subrace when present, class, subclass, background at level 1 — see rules above)
+- coinage: { "pp", "gp", "ep", "sp", "cp" } — **PHB rules:** default = **background gp pouch only** (Chapter 4 table in the rules above); class packages are free. Rolled class wealth (Chapter 5) only if you explicitly use that path: remainder after purchases **+** background gp. Key **`coinage` only** (never `currency`).
+- spells (optional array): `{ "name", "level" }` per row — **one row per spell**, **correct PHB level only** (never the same name as both level 0 and level ≥1). **`prepared`** **only** for **Wizard** (hybrid spellbook). **Wizard level 1:** **3** cantrips + **6** first-level spells in book, with **exactly** `level + INT mod` (min 1) marked `prepared: true`. **All other casters:** omit `prepared`. Level 0 = cantrip.
+- spell_slots (optional object): string keys spell level, integer counts after a long rest; **wizard level 1:** **`"1": 2`**. Omit or `{}` for non-casters.
+
+Do not include "starting_equipment" as a key. **Include** separate **`equipment`** and **`tools`** sequences as specified (do not merge tool-type items into `equipment`). Do not include any other keys or commentary. Output YAML only. **Close every open structure** (see “YAML structure” above — especially when the last property is `spell_slots`, `stats`, or `coinage`).

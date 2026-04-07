@@ -25,7 +25,6 @@ export default createStore({
         gameId: null, // Initialize gameId as null 
         credits: 0,
         gameSetup: { // Initialize gameSetup as an object
-            gameSystem: '',
             characterName: '',
             characterClass: '',
             characterRace: '',
@@ -42,6 +41,10 @@ export default createStore({
         authTick: 0,
         /** Bumped when header "New game" resets the setup wizard (same-route /setup must reset local UI). */
         setupWizardResetTick: 0,
+        /** DnD 5e race/class/sub lists from GET /api/meta/character-options (authoritative). */
+        characterCatalog: null,
+        /** Bumped when characterCatalog updates so $i18n recomputes. */
+        characterCatalogVersion: 0,
 
     },
     mutations: {
@@ -79,6 +82,7 @@ export default createStore({
             }
             const next = { ...gameSetup };
             delete next.generatedCharacter;
+            delete next.gameSystem;
             if (next.playerCharacters != null && typeof next.playerCharacters === 'object') {
                 try {
                     next.playerCharacters = JSON.parse(JSON.stringify(next.playerCharacters));
@@ -131,7 +135,6 @@ export default createStore({
         resetSetupWizard(state) {
             state.gameId = null;
             state.gameSetup = {
-                gameSystem: "",
                 characterName: "",
                 characterClass: "",
                 characterRace: "",
@@ -140,7 +143,11 @@ export default createStore({
             };
             state.setupWizardResetTick = (state.setupWizardResetTick || 0) + 1;
         },
-        
+        setCharacterCatalog(state, payload) {
+            state.characterCatalog = payload && typeof payload === 'object' ? payload : null;
+            state.characterCatalogVersion = (state.characterCatalogVersion || 0) + 1;
+        },
+
     },
     actions: {
         loginUser({ commit }, { user, authToken, userId }) {
@@ -171,6 +178,20 @@ export default createStore({
             commit('bumpAuthTick');
         },
         /** Merge server profile (nickname, etc.) after reload or when JWT may be stale. */
+        async loadCharacterCatalog({ commit, state }) {
+            try {
+                const { data } = await axios.get('/api/meta/character-options', {
+                    headers: state.language ? { 'X-DM-Language': String(state.language).trim() } : {},
+                });
+                if (data && typeof data === 'object') {
+                    commit('setCharacterCatalog', data);
+                }
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn('loadCharacterCatalog failed', e && e.message);
+                commit('setCharacterCatalog', null);
+            }
+        },
         async refreshSessionUser({ commit, state, dispatch }) {
             if (!state.authToken) return;
             try {

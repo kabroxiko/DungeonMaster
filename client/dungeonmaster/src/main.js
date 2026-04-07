@@ -20,6 +20,17 @@ axios.interceptors.request.use(
             config.headers = config.headers || {};
             if (!config.headers.Authorization) config.headers.Authorization = `Bearer ${t}`;
         }
+        try {
+            const lang = store.state.language;
+            if (lang && String(lang).trim() !== '') {
+                config.headers = config.headers || {};
+                if (!config.headers['X-DM-Language']) {
+                    config.headers['X-DM-Language'] = String(lang).trim();
+                }
+            }
+        } catch (e) {
+            /* ignore */
+        }
         if (__dmDevLog) console.log('Request:', config.url);
         return config;
     },
@@ -242,66 +253,7 @@ const translations = {
     gender_female_short: 'Female',
     random: 'Random',
     character_name_placeholder: 'Leave blank for a random name',
-    /** Display labels for setup subclass ids (see SetupForm.vue). */
-    subclass_labels: {
-      assassin: 'Assassin',
-      battle_master: 'Battle Master',
-      champion: 'Champion',
-      land: 'Circle of the Land',
-      moon: 'Circle of the Moon',
-      lore: 'College of Lore',
-      valor: 'College of Valor',
-      draconic: 'Draconic Bloodline',
-      hunter: 'Hunter',
-      life: 'Life Domain',
-      devotion: 'Oath of Devotion',
-      berserker: 'Path of the Berserker',
-      totem: 'Path of the Totem Warrior',
-      evocation: 'School of Evocation',
-      fiend: 'The Fiend',
-      thief: 'Thief',
-      war: 'War Domain',
-      way_of_open_hand: 'Way of the Open Hand',
-    },
-    /** Display labels for setup subrace ids (see SetupForm.vue subracesByRace). */
-    subrace_labels: {
-      high_elf: 'High Elf',
-      wood_elf: 'Wood Elf',
-      drow: 'Drow',
-      hill_dwarf: 'Hill Dwarf',
-      mountain_dwarf: 'Mountain Dwarf',
-      lightfoot: 'Lightfoot Halfling',
-      stout: 'Stout Halfling',
-      forest_gnome: 'Forest Gnome',
-      rock_gnome: 'Rock Gnome',
-    },
-    classes: [
-      { id: 'random', label: 'Random' },
-      { id: 'artificer', label: 'Artificer' },
-      { id: 'barbarian', label: 'Barbarian' },
-      { id: 'bard', label: 'Bard' },
-      { id: 'cleric', label: 'Cleric' },
-      { id: 'druid', label: 'Druid' },
-      { id: 'fighter', label: 'Fighter' },
-      { id: 'monk', label: 'Monk' },
-      { id: 'paladin', label: 'Paladin' },
-      { id: 'ranger', label: 'Ranger' },
-      { id: 'rogue', label: 'Rogue' },
-      { id: 'sorcerer', label: 'Sorcerer' },
-      { id: 'warlock', label: 'Warlock' },
-      { id: 'wizard', label: 'Wizard' },
-    ],
-    races: [
-      { id: 'random', label: 'Random' },
-      { id: 'dwarf', label: 'Dwarf' },
-      { id: 'elf', label: 'Elf' },
-      { id: 'gnome', label: 'Gnome' },
-      { id: 'half-elf', label: 'Half-Elf' },
-      { id: 'half-orc', label: 'Half-Orc' },
-      { id: 'halfling', label: 'Halfling' },
-      { id: 'human', label: 'Human' },
-      { id: 'tiefling', label: 'Tiefling' },
-    ],
+    /* races, classes, subclass_labels, subrace_labels: from GET /api/meta/character-options (Vuex) */
     /* Character sheet: ability abbreviations (same as English PHB) */
     statAbbr: {
       STR: 'STR',
@@ -538,64 +490,7 @@ const translations = {
     gender_female_short: 'Femenino',
     random: 'Aleatorio',
     character_name_placeholder: 'Déjalo vacío para un nombre al azar',
-    subclass_labels: {
-      assassin: 'Asesino',
-      way_of_open_hand: 'Camino del puño abierto',
-      champion: 'Campeón',
-      hunter: 'Cazador',
-      moon: 'Círculo de la luna',
-      land: 'Círculo de la tierra',
-      lore: 'Colegio del saber',
-      valor: 'Colegio del valor',
-      war: 'Dominio de la guerra',
-      life: 'Dominio de la vida',
-      fiend: 'El maligno',
-      evocation: 'Escuela de evocación',
-      devotion: 'Juramento de devoción',
-      thief: 'Ladrón',
-      draconic: 'Linaje dracónico',
-      battle_master: 'Maestro de batalla',
-      berserker: 'Senda del furioso',
-      totem: 'Senda del tótem',
-    },
-    subrace_labels: {
-      high_elf: 'Elfo alto',
-      wood_elf: 'Elfo de los bosques',
-      drow: 'Drow',
-      hill_dwarf: 'Enano de las colinas',
-      mountain_dwarf: 'Enano de la montaña',
-      lightfoot: 'Mediano piesligeros',
-      stout: 'Mediano fornido',
-      forest_gnome: 'Gnomo del bosque',
-      rock_gnome: 'Gnomo de las rocas',
-    },
-    classes: [
-      { id: 'random', label: 'Aleatorio' },
-      { id: 'artificer', label: 'Artífice' },
-      { id: 'barbarian', label: 'Bárbaro' },
-      { id: 'bard', label: 'Bardo' },
-      { id: 'warlock', label: 'Brujo' },
-      { id: 'cleric', label: 'Clérigo' },
-      { id: 'druid', label: 'Druida' },
-      { id: 'ranger', label: 'Explorador' },
-      { id: 'fighter', label: 'Guerrero' },
-      { id: 'sorcerer', label: 'Hechicero' },
-      { id: 'wizard', label: 'Mago' },
-      { id: 'monk', label: 'Monje' },
-      { id: 'paladin', label: 'Paladín' },
-      { id: 'rogue', label: 'Pícaro' },
-    ],
-    races: [
-      { id: 'random', label: 'Aleatorio' },
-      { id: 'elf', label: 'Elfo' },
-      { id: 'dwarf', label: 'Enano' },
-      { id: 'gnome', label: 'Gnomo' },
-      { id: 'human', label: 'Humano' },
-      { id: 'halfling', label: 'Mediano' },
-      { id: 'half-elf', label: 'Medio elfo' },
-      { id: 'half-orc', label: 'Medio orco' },
-      { id: 'tiefling', label: 'Tiflin' },
-    ],
+    /* races, classes, subclass_labels, subrace_labels: from GET /api/meta/character-options (Vuex) */
     /* Character sheet: abreviaturas de características (convención D&D en español) */
     statAbbr: {
       STR: 'FUE',
@@ -688,10 +583,26 @@ const translations = {
 /** Map store language strings to a translations bundle (handles `Spanish`, `spanish`, etc.). */
 function resolveTranslationBundle(lang) {
   const raw = String(lang || 'English').trim();
-  if (translations[raw]) return translations[raw];
-  const low = raw.toLowerCase();
-  if (low.startsWith('span')) return translations.Spanish;
-  return translations.English;
+  let base;
+  if (translations[raw]) base = translations[raw];
+  else {
+    const low = raw.toLowerCase();
+    base = low.startsWith('span') ? translations.Spanish : translations.English;
+  }
+  const cat = store.state.characterCatalog;
+  const out = { ...base };
+  if (cat && Array.isArray(cat.races) && cat.races.length) {
+    out.races = cat.races;
+    out.classes = Array.isArray(cat.classes) ? cat.classes : [];
+    out.subclass_labels = cat.subclass_labels && typeof cat.subclass_labels === 'object' ? cat.subclass_labels : {};
+    out.subrace_labels = cat.subrace_labels && typeof cat.subrace_labels === 'object' ? cat.subrace_labels : {};
+  } else {
+    out.races = [];
+    out.classes = [];
+    out.subclass_labels = {};
+    out.subrace_labels = {};
+  }
+  return out;
 }
 
 app.config.globalProperties.$t = (key) => {
@@ -709,6 +620,7 @@ app.config.globalProperties.$t = (key) => {
 app.mixin({
   computed: {
     $i18n() {
+      void this.$store.state.characterCatalogVersion;
       const lang = (this.$store && this.$store.state && this.$store.state.language) || 'English';
       return resolveTranslationBundle(lang);
     }
@@ -722,17 +634,21 @@ const AUTH_UI_MUTATIONS = new Set([
   'clearSession',
 ]);
 
-const appVm = app.mount('#app');
-
-store.subscribe((mutation) => {
-  if (!AUTH_UI_MUTATIONS.has(mutation.type)) return;
-  // GIS and other callbacks can commit outside Vue's tracked stack; force root flush.
-  queueMicrotask(() => {
-    try {
-      appVm.$forceUpdate();
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('store.subscribe auth UI refresh failed', e);
-    }
+let appVm;
+store
+  .dispatch('loadCharacterCatalog')
+  .catch(() => {})
+  .finally(() => {
+    appVm = app.mount('#app');
+    store.subscribe((mutation) => {
+      if (!AUTH_UI_MUTATIONS.has(mutation.type)) return;
+      queueMicrotask(() => {
+        try {
+          appVm.$forceUpdate();
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('store.subscribe auth UI refresh failed', e);
+        }
+      });
+    });
   });
-});

@@ -127,9 +127,11 @@
                 ref="lobbyInlineSetup"
                 lobby-inline
                 :lobby-interactions-locked="partyLobbyActionsFrozen"
+                :after-character-persisted="syncLobbyAfterCharacterPersisted"
                 @lobby-character-done="onLobbyInlineCharacterDone"
                 @lobby-inline-wizard-hold="onLobbyInlineWizardHold"
                 @lobby-inline-confirm-sheet="onLobbyInlineConfirmSheet"
+                @lobby-inline-after-character-saved="onLobbyInlineAfterCharacterSaved"
             />
         </section>
         <p v-if="lastStartError" class="party-lobby__warn">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</p>
@@ -994,7 +996,7 @@ export default {
                 const labels = this.$i18n.subclass_labels || {};
                 const keyUnderscore = s.toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
                 if (labels[keyUnderscore]) return labels[keyUnderscore];
-                return s;
+                return s.replace(/\*+$/u, '').trim();
             },
             localizePartySubraceLabel(subraceRaw) {
                 const s = String(subraceRaw || '').trim();
@@ -1002,26 +1004,27 @@ export default {
                 const labels = this.$i18n.subrace_labels || {};
                 const keyUnderscore = s.toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
                 if (labels[keyUnderscore]) return labels[keyUnderscore];
-                return s;
+                return s.replace(/\*+$/u, '').trim();
             },
             /** Race · subrace · class · subclass — Level n (localized); empty if no sheet fields. */
             formatPartyMemberSheetSummary(sheet) {
                 if (!sheet || typeof sheet !== 'object') return '';
                 const race = this.localizePartySheetField(sheet.race, this.$i18n.races || []);
+                /** Prefer canonical ids so lobby matches FloatingCard (model prose in `subrace` may include footnote markers). */
                 const subraceSrc =
-                    sheet.subrace != null && String(sheet.subrace).trim()
-                        ? sheet.subrace
-                        : sheet.subraceId;
+                    sheet.subraceId != null && String(sheet.subraceId).trim()
+                        ? sheet.subraceId
+                        : sheet.subrace;
                 const subraceLine = this.localizePartySubraceLabel(subraceSrc);
                 const clsRaw =
-                    sheet.class != null && String(sheet.class).trim()
-                        ? sheet.class
-                        : sheet.characterClass;
+                    sheet.characterClass != null && String(sheet.characterClass).trim()
+                        ? sheet.characterClass
+                        : sheet.class;
                 const cls = this.localizePartySheetField(clsRaw, this.$i18n.classes || []);
                 const subRaw =
-                    sheet.subclass != null && String(sheet.subclass).trim()
-                        ? sheet.subclass
-                        : sheet.subclassId;
+                    sheet.subclassId != null && String(sheet.subclassId).trim()
+                        ? sheet.subclassId
+                        : sheet.subclass;
                 const sub = this.localizePartySubclassLabel(subRaw);
                 const lv =
                     sheet.level != null && !Number.isNaN(Number(sheet.level))
@@ -1169,6 +1172,15 @@ export default {
                 }
                 this.lobbyInlineWizardHold = true;
                 this.lobbyCharacterEditorOpen = true;
+            },
+            /**
+             * Passed to inline SetupForm: after /generate-character persists, run the same GET /load as a full refresh
+             * so transcript, roster, and localPlayerCharacter stay in sync with Mongo.
+             */
+            async syncLobbyAfterCharacterPersisted(gameId) {
+                const gid = gameId != null ? String(gameId).trim() : '';
+                if (!gid) return false;
+                return await this.loadGameState(gid, { replaceLocalCharacter: true });
             },
             /** Keep the transcript pinned to the latest line after load, send, or DM push. */
             scrollChatToBottom({ smooth = false } = {}) {
@@ -1556,6 +1568,11 @@ export default {
 
             onLobbyInlineConfirmSheet(sheet) {
                 this.lobbyInlineConfirmSheet = sheet && typeof sheet === 'object' ? sheet : null;
+            },
+
+            /** Normal party lobby: after generate/regenerate, leave “edit character” so embedded sheet matches refresh. */
+            onLobbyInlineAfterCharacterSaved() {
+                this.lobbyCharacterEditorOpen = false;
             },
 
             logPartyLobbyDebug(reason) {

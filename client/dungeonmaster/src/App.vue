@@ -143,6 +143,9 @@ export default {
     },
   },
   watch: {
+    language() {
+      this.$store.dispatch('loadCharacterCatalog');
+    },
     isAuthenticated(val) {
       if (!val) {
         this.$nextTick(() => this.resetAndInitGoogleSignIn());

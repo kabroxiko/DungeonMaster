@@ -130,7 +130,16 @@
         <div class="setup-form-row-group setup-form-row-group--2">
           <div class="form-row">
             <label for="character-name" class="form-label">{{$i18n.character_name}}</label>
-            <input id="character-name" class="control" v-model="formData.characterName" type="text" autocomplete="off" :placeholder="$i18n.character_name_placeholder" :aria-label="$i18n.character_name" />
+            <input
+              id="character-name"
+              class="control"
+              v-model="formData.characterName"
+              type="text"
+              autocomplete="off"
+              :placeholder="$i18n.character_name_placeholder"
+              :aria-label="$i18n.character_name"
+              @input="onCharacterNameInput"
+            />
           </div>
           <div class="form-row">
             <label for="character-gender" class="form-label">{{$i18n.character_gender}}</label>
@@ -156,6 +165,7 @@
               class="control"
               v-model="formData.subrace"
               :aria-label="$i18n.subrace"
+              @change="onSubraceChange"
             >
               <option v-for="s in availableSubraces" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
@@ -180,6 +190,7 @@
               class="control"
               v-model="formData.subclass"
               :aria-label="$i18n.subclass"
+              @change="onSubclassChange"
             >
               <option v-for="s in availableSubclasses" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
@@ -231,6 +242,43 @@
         SESSION_CHAT_TOAST,
     } from '@/setupSession.js';
 
+    /**
+     * Character / regenerate tracing — logs use prefix `[GMAI character:` via console.log (not the server terminal).
+     * Enable any ONE of:
+     * - URL: `?gmaiDebugCharacter=1` (same tab; no reload needed if you add it and navigate)
+     * - localStorage: `gmDebugCharacterFlow` = `1` for this origin, then reload
+     * - DevTools console: `window.__GMAI_DEBUG_CHARACTER__ = true` then generate/regenerate again
+     * - `npm run serve` dev bundle: also on when `process.env.NODE_ENV === 'development'`
+     * Server (Go) logs are separate: `DM_DEBUG_CHARACTER_FLOW=true` in the API process.
+     */
+    const GM_DEBUG_CHARACTER_FLOW_LS = 'gmDebugCharacterFlow';
+    const SESSION_DEBUG_HINT_LS = 'gmaiCharDebugHintShown';
+    const SESSION_DEBUG_ON_ACK_LS = 'gmaiCharDebugOnAck';
+
+    function characterFlowDebugUrlOn() {
+        try {
+            if (typeof window === 'undefined' || !window.location) return false;
+            const search = window.location.search || '';
+            if (search) {
+                const q = new URLSearchParams(search);
+                if (q.get('gmaiDebugCharacter') === '1' || q.get('gmDebugCharacterFlow') === '1') {
+                    return true;
+                }
+            }
+            const hash = window.location.hash || '';
+            const qi = hash.indexOf('?');
+            if (qi >= 0) {
+                const q = new URLSearchParams(hash.slice(qi + 1));
+                if (q.get('gmaiDebugCharacter') === '1' || q.get('gmDebugCharacterFlow') === '1') {
+                    return true;
+                }
+            }
+        } catch (e) {
+            /* ignore */
+        }
+        return false;
+    }
+
     export default {
         props: {
             /** Rendered inside ChatRoom party lobby: same flow as /setup?joinGame without leaving chat. */
@@ -243,8 +291,24 @@
                 type: Boolean,
                 default: false,
             },
+            /**
+             * After /generate-character, optional hook (e.g. ChatRoom loadGameState) so transcript + lobby mirror refresh.
+             * SetupForm always follows with GET /game-state/load to align Vuex, confirm sheet, and join flags.
+             * @param {string} gameId
+             * @returns {Promise<void>}
+             */
+            afterCharacterPersisted: {
+                type: Function,
+                default: null,
+            },
         },
-        emits: ['lobby-character-done', 'lobby-inline-wizard-hold', 'lobby-inline-confirm-sheet'],
+        emits: [
+            'lobby-character-done',
+            'lobby-inline-wizard-hold',
+            'lobby-inline-confirm-sheet',
+            /** Party lobby: after /generate-character, parent closes “edit” so the embedded sheet (same as refresh) shows instead of the confirm step. */
+            'lobby-inline-after-character-saved',
+        ],
         data() {
             return {
                 setupPhase: 'form',
@@ -266,8 +330,16 @@
                 /** confirm step: which long action is running (button labels + spinners). */
                 setupBusyAction: null,
                 progressMessage: '',
+                /** True after the user types in the name field; false when name came from preview/sheet. Used on regenerate. */
+                characterNameIsManual: false,
+                /** Persisted intent: user explicitly chose random (do not lose on refresh/prefill). */
+                wizardRandomIntent: {
+                    characterRace: false,
+                    characterClass: false,
+                    subrace: false,
+                    subclass: false,
+                },
                 formData: {
-                    gameSystem: 'Dungeons and Dragons 5th Edition',
                     characterName: '',
                     characterClass: '',
                     characterRace: '',
@@ -276,88 +348,12 @@
                     subclass: 'random',
                     subrace: 'random',
                 },
-                classes: [],
-                races: [],
-                subclasses: [],
             };
         },
         components: { UIPanel, FloatingCard },
         created() {
-          // Provide DnD 5e class and race lists for selects
-          // initial values (labels come from $i18n.classes / $i18n.races)
-          // Ensure defaults (use ids matching localized lists)
           if (!this.formData.characterClass) this.formData.characterClass = 'random';
           if (!this.formData.characterRace) this.formData.characterRace = 'random';
-          // allowed classes mapping by race id (permits most combos, but restricts some unreasonable ones)
-          this.allowedClassesByRace = {
-            'random': null, // null means all allowed
-            'human': null,
-            'elf': null,
-            'dwarf': null,
-            'halfling': ['random','bard','cleric','druid','fighter','rogue','wizard','sorcerer','warlock'],
-            'half-elf': null,
-            'half-orc': ['random','barbarian','fighter','paladin','ranger','rogue','cleric'],
-            'gnome': ['random','bard','cleric','druid','wizard','sorcerer','warlock','rogue'],
-            'tiefling': null
-          };
-          // Subclasses mapping by class id: array of {id,label,minLevel}
-          this.subclassesByClass = {
-            'random': [],
-            'barbarian': [{id:'berserker', label:'Berserker'}, {id:'totem', label:'Path of the Totem'}],
-            'bard': [{id:'lore', label:'College of Lore'}, {id:'valor', label:'College of Valor'}],
-            'cleric': [{id:'life', label:'Life Domain'}, {id:'war', label:'War Domain'}],
-            'druid': [{id:'land', label:'Circle of the Land'}, {id:'moon', label:'Circle of the Moon'}],
-            'fighter': [{id:'champion', label:'Champion'}, {id:'battle_master', label:'Battle Master'}],
-            'monk': [{id:'way_of_open_hand', label:'Way of the Open Hand'}],
-            'paladin': [{id:'devotion', label:'Oath of Devotion'}],
-            'ranger': [{id:'hunter', label:'Hunter'}],
-            'rogue': [{id:'thief', label:'Thief'}, {id:'assassin', label:'Assassin'}],
-            'sorcerer': [{id:'draconic', label:'Draconic Bloodline'}],
-            'warlock': [{id:'fiend', label:'The Fiend'}],
-            'wizard': [{id:'evocation', label:'School of Evocation'}]
-          };
-          // classMinLevel: minimum class level at which subclass choice is available
-          this.classMinLevel = {
-            'random': 1,
-            'barbarian': 3,
-            'bard': 3,
-            'cleric': 1,
-            'druid': 2,
-            'fighter': 3,
-            'monk': 3,
-            'paladin': 3,
-            'ranger': 3,
-            'rogue': 3,
-            'sorcerer': 1,
-            'warlock': 1,
-            'wizard': 2,
-            'artificer': 3
-          };
-          /** PHB-style subraces by race id (ids align with $i18n.subrace_labels). */
-          this.subracesByRace = {
-            random: [],
-            human: [],
-            'half-elf': [],
-            'half-orc': [],
-            tiefling: [],
-            elf: [
-              { id: 'high_elf', label: 'High Elf' },
-              { id: 'wood_elf', label: 'Wood Elf' },
-              { id: 'drow', label: 'Drow' },
-            ],
-            dwarf: [
-              { id: 'hill_dwarf', label: 'Hill Dwarf' },
-              { id: 'mountain_dwarf', label: 'Mountain Dwarf' },
-            ],
-            halfling: [
-              { id: 'lightfoot', label: 'Lightfoot Halfling' },
-              { id: 'stout', label: 'Stout Halfling' },
-            ],
-            gnome: [
-              { id: 'forest_gnome', label: 'Forest Gnome' },
-              { id: 'rock_gnome', label: 'Rock Gnome' },
-            ],
-          };
           try {
             const j = sessionStorage.getItem(SESSION_JOIN_UI_GAME_ID);
             const gid = this.$store.state.gameId;
@@ -379,6 +375,36 @@
                 sensitivity: 'base',
                 numeric: true,
               });
+            },
+            /** DnD 5e setup rules from GET /api/meta/character-options (Vuex). */
+            setupRules() {
+                const c = this.$store.state.characterCatalog;
+                if (!c) {
+                    return {
+                        allowedClassesByRace: {},
+                        subclassesByClass: { random: [] },
+                        subracesByRace: {},
+                        classMinLevel: { random: 1 },
+                    };
+                }
+                return {
+                    allowedClassesByRace: c.allowedClassesByRace || {},
+                    subclassesByClass: c.subclassesByClass || { random: [] },
+                    subracesByRace: c.subracesByRace || {},
+                    classMinLevel: c.classMinLevel || { random: 1 },
+                };
+            },
+            allowedClassesByRace() {
+                return this.setupRules.allowedClassesByRace;
+            },
+            subclassesByClass() {
+                return this.setupRules.subclassesByClass;
+            },
+            subracesByRace() {
+                return this.setupRules.subracesByRace;
+            },
+            classMinLevel() {
+                return this.setupRules.classMinLevel;
             },
             availableRaces() {
               const list = this.$i18n.races || [];
@@ -577,6 +603,13 @@
                     if (val) this.initJoinFlow(val);
                 },
             },
+            /** Lobby: when Vuex gains your sheet after load, fill the wizard if picks are still default (race/class random). */
+            '$store.state.gameSetup.playerCharacters': {
+                deep: true,
+                handler() {
+                    this.onLobbyPlayerCharactersMaybePrefill();
+                },
+            },
         },
         mounted() {
             // Vue 3: string watch '$store.state.gameId' is unreliable; use $watch on the getter.
@@ -621,6 +654,11 @@
             } else if (!this.joinGameIdFromRoute) {
                 this.tryRestoreSetupFromServer();
             }
+            if (this.lobbyInline) {
+                this.prefillInlineLobbyFormIfPossible();
+                this.$nextTick(() => this.prefillInlineLobbyFormIfPossible());
+            }
+            this.logCharacterDebugBootstrap();
             this.emitLobbyInlineConfirmSheet();
         },
         beforeUnmount() {
@@ -763,6 +801,116 @@
                     return true;
                 }
             },
+            /**
+             * After prefill from the persisted sheet, restore wizard selects that stayed empty/random
+             * when the sheet did not map cleanly (e.g. label/id edge cases). Used after regenerate.
+             */
+            restoreWizardFieldsIfIncompleteAfterPrefill(prev) {
+                if (!prev || typeof prev !== 'object') return;
+                const fd = this.formData;
+                const pick = (cur, p) => {
+                    const bad = !cur || cur === 'random';
+                    const pOk = p && p !== 'random';
+                    return bad && pOk ? p : cur;
+                };
+                fd.characterRace = pick(fd.characterRace, prev.characterRace);
+                fd.characterClass = pick(fd.characterClass, prev.characterClass);
+                fd.subclass = pick(fd.subclass, prev.subclass);
+                fd.subrace = pick(fd.subrace, prev.subrace);
+                const lvl = Number(fd.characterLevel);
+                const plvl = Number(prev.characterLevel);
+                if (Number.isNaN(lvl) || lvl < 1 || lvl > 20) {
+                    if (!Number.isNaN(plvl) && plvl >= 1 && plvl <= 20) {
+                        fd.characterLevel = plvl;
+                    }
+                }
+                if (prev.gender === 'Male' || prev.gender === 'Female') {
+                    if (fd.gender !== 'Male' && fd.gender !== 'Female') {
+                        fd.gender = prev.gender;
+                    }
+                }
+            },
+            /**
+             * After the server persists a generated sheet, rehydrate from GET /game-state/load (same as refresh).
+             * Runs optional afterCharacterPersisted first (e.g. full ChatRoom load), then applies load payload here.
+             * @param {{ retainWizardFieldsIfPrefillIncomplete?: boolean }} [opts] — after regenerate, keep prior form picks when prefill leaves race/class as random.
+             */
+            async syncPersistedCharacterFromServer(opts = {}) {
+                const retainWizard = opts.retainWizardFieldsIfPrefillIncomplete === true;
+                const wizardSnap = retainWizard
+                    ? {
+                          characterRace: this.formData.characterRace,
+                          characterClass: this.formData.characterClass,
+                          subclass: this.formData.subclass,
+                          subrace: this.formData.subrace,
+                          characterLevel: this.formData.characterLevel,
+                          gender: this.formData.gender,
+                      }
+                    : null;
+                const gid = this.$store.state.gameId;
+                if (!gid || !this.$store.getters.isAuthenticated) {
+                    return false;
+                }
+                if (typeof this.afterCharacterPersisted === 'function') {
+                    try {
+                        await this.afterCharacterPersisted(gid);
+                    } catch (e) {
+                        // eslint-disable-next-line no-console
+                        console.warn('afterCharacterPersisted failed:', e);
+                    }
+                }
+                try {
+                    const { data } = await fetchGameStateLoad(gid);
+                    if (!data || String(data.gameId) !== String(gid)) {
+                        return false;
+                    }
+                    this.applyViewerRoleFromLoadPayload(data);
+                    if (!this.joinUiActive) {
+                        let notOwner = false;
+                        if (Object.prototype.hasOwnProperty.call(data, 'viewerIsGameOwner')) {
+                            notOwner = data.viewerIsGameOwner === false;
+                        } else {
+                            const uid = this.resolveViewerUserId();
+                            if (uid) {
+                                notOwner = data.ownerUserId != null && String(data.ownerUserId) !== String(uid);
+                            }
+                        }
+                        if (notOwner) {
+                            this.joinMode = true;
+                            this.persistJoinUiGameId(gid);
+                        }
+                    }
+                    this.$store.commit('setGameId', data.gameId);
+                    this.$store.commit('setGameSetup', data.gameSetup);
+                    const uid = this.resolveViewerUserId();
+                    const sheet = this.pickPlayerSheet(data.gameSetup && data.gameSetup.playerCharacters, uid);
+                    if (sheet && typeof sheet === 'object') {
+                        try {
+                            this.confirmSheetCharacter = JSON.parse(JSON.stringify(sheet));
+                        } catch (e) {
+                            this.confirmSheetCharacter = { ...sheet };
+                        }
+                        this.prefillFormFromPlayerCharacter(sheet, { skipName: true });
+                        if (retainWizard && wizardSnap) {
+                            this.restoreWizardFieldsIfIncompleteAfterPrefill(wizardSnap);
+                        }
+                        this.restoreWizardSelectionSession();
+                        this.applyCharacterNameFieldFromSheetAndSession(sheet);
+                    }
+                    return true;
+                } catch (e) {
+                    const st = e && e.response && e.response.status;
+                    if (st === 404 && this.isPartyJoinSetupContext()) {
+                        this.joinFlowError = this.$i18n.join_game_gone;
+                        await this.handleStaleOrMissingPartyGame(gid);
+                        return false;
+                    }
+                    if (st === 401) {
+                        return false;
+                    }
+                    return true;
+                }
+            },
             /** Stable id for playerCharacters / party logic (userId was sometimes null while user._id was set). */
             resolveViewerUserId() {
                 const st = this.$store.state;
@@ -779,26 +927,362 @@
                 }
                 return null;
             },
+            /** Display name on stored PC sheet (top-level or identity). */
+            displayNameFromPlayerSheet(sheet) {
+                if (!sheet || typeof sheet !== 'object') return '';
+                if (sheet.name != null && String(sheet.name).trim()) return String(sheet.name).trim();
+                const id = sheet.identity;
+                if (id && typeof id === 'object' && id.name != null && String(id.name).trim()) {
+                    return String(id.name).trim();
+                }
+                return '';
+            },
+            characterNameManualSessionKey() {
+                const gid = this.$store.state.gameId;
+                const uid = this.resolveViewerUserId();
+                if (!gid || !uid) return '';
+                return `dm_char_name_manual_${String(gid)}_${String(uid)}`;
+            },
+            persistCharacterNameManualSession() {
+                const k = this.characterNameManualSessionKey();
+                if (!k || typeof sessionStorage === 'undefined') return;
+                try {
+                    if (this.characterNameIsManual) {
+                        sessionStorage.setItem(k, '1');
+                    } else {
+                        sessionStorage.removeItem(k);
+                    }
+                } catch (e) {
+                    /* ignore */
+                }
+            },
+            readCharacterNameManualFromSession() {
+                const k = this.characterNameManualSessionKey();
+                if (!k || typeof sessionStorage === 'undefined') return false;
+                try {
+                    return sessionStorage.getItem(k) === '1';
+                } catch (e) {
+                    return false;
+                }
+            },
+            clearCharacterNameManualSession() {
+                const k = this.characterNameManualSessionKey();
+                if (!k || typeof sessionStorage === 'undefined') return;
+                try {
+                    sessionStorage.removeItem(k);
+                } catch (e) {
+                    /* ignore */
+                }
+            },
+            wizardSelectionSessionKey() {
+                const gid = this.$store.state.gameId;
+                const uid = this.resolveViewerUserId();
+                if (!gid || !uid) return '';
+                return `dm_wizard_picks_${String(gid)}_${String(uid)}`;
+            },
+            persistWizardSelectionSession() {
+                const k = this.wizardSelectionSessionKey();
+                if (!k || typeof sessionStorage === 'undefined') return;
+                try {
+                    const fd = this.formData || {};
+                    this.syncWizardRandomIntentFromForm();
+                    sessionStorage.setItem(
+                        k,
+                        JSON.stringify({
+                            characterRace: fd.characterRace,
+                            characterClass: fd.characterClass,
+                            subrace: fd.subrace,
+                            subclass: fd.subclass,
+                            characterLevel: fd.characterLevel,
+                            gender: fd.gender,
+                            randomIntent: this.wizardRandomIntent,
+                        })
+                    );
+                } catch (e) {
+                    /* ignore */
+                }
+            },
+            syncWizardRandomIntentFromForm() {
+                const isRandom = (v) => String(v == null ? '' : v).trim().toLowerCase() === 'random';
+                this.wizardRandomIntent.characterRace = isRandom(this.formData.characterRace);
+                this.wizardRandomIntent.characterClass = isRandom(this.formData.characterClass);
+                this.wizardRandomIntent.subrace = isRandom(this.formData.subrace);
+                this.wizardRandomIntent.subclass = isRandom(this.formData.subclass);
+            },
+            restoreWizardSelectionSession() {
+                const k = this.wizardSelectionSessionKey();
+                if (!k || typeof sessionStorage === 'undefined') return;
+                try {
+                    const raw = sessionStorage.getItem(k);
+                    if (!raw) return;
+                    const saved = JSON.parse(raw);
+                    if (!saved || typeof saved !== 'object') return;
+                    const fd = this.formData;
+                    if (saved.characterRace != null && String(saved.characterRace).trim()) {
+                        fd.characterRace = String(saved.characterRace).trim();
+                    }
+                    if (saved.characterClass != null && String(saved.characterClass).trim()) {
+                        fd.characterClass = String(saved.characterClass).trim();
+                    }
+                    if (saved.subrace != null && String(saved.subrace).trim()) {
+                        fd.subrace = String(saved.subrace).trim();
+                    }
+                    if (saved.subclass != null && String(saved.subclass).trim()) {
+                        fd.subclass = String(saved.subclass).trim();
+                    }
+                    if (saved.characterLevel != null && !Number.isNaN(Number(saved.characterLevel))) {
+                        fd.characterLevel = Math.min(20, Math.max(1, Number(saved.characterLevel)));
+                    }
+                    if (saved.gender === 'Male' || saved.gender === 'Female') {
+                        fd.gender = saved.gender;
+                    }
+                    if (saved.randomIntent && typeof saved.randomIntent === 'object') {
+                        this.wizardRandomIntent = {
+                            characterRace: saved.randomIntent.characterRace === true,
+                            characterClass: saved.randomIntent.characterClass === true,
+                            subrace: saved.randomIntent.subrace === true,
+                            subclass: saved.randomIntent.subclass === true,
+                        };
+                    } else {
+                        this.syncWizardRandomIntentFromForm();
+                    }
+                    if (this.wizardRandomIntent.characterRace) fd.characterRace = 'random';
+                    if (this.wizardRandomIntent.characterClass) fd.characterClass = 'random';
+                    if (this.wizardRandomIntent.subrace || this.wizardRandomIntent.characterRace) fd.subrace = 'random';
+                    if (this.wizardRandomIntent.subclass || this.wizardRandomIntent.characterClass) fd.subclass = 'random';
+                    this.characterFlowDebug('wizard.restore.session', this.characterFlowDebugFormSnapshot());
+                } catch (e) {
+                    /* ignore */
+                }
+            },
+            /**
+             * Autogenerated name → empty field (next generate runs preview again). Manually typed name → keep text from sheet.
+             * Uses sessionStorage so it survives SetupForm remount (e.g. lobby editor).
+             */
+            applyCharacterNameFieldFromSheetAndSession(sheet) {
+                if (!sheet || typeof sheet !== 'object') return;
+                if (this.characterNameIsManual || this.readCharacterNameManualFromSession()) {
+                    this.characterNameIsManual = true;
+                    const nm = this.displayNameFromPlayerSheet(sheet);
+                    if (nm) this.formData.characterName = nm;
+                } else {
+                    this.characterNameIsManual = false;
+                    this.formData.characterName = '';
+                }
+                this.persistCharacterNameManualSession();
+            },
+            /**
+             * Party lobby (inline SetupForm): with gameId set, `joinGameIdFromRoute` is truthy so we skip tryRestoreSetupFromServer
+             * on mount — the wizard would stay on random. Copy the saved PC from Vuex into the form before the user clicks Generate.
+             */
+            prefillInlineLobbyFormIfPossible() {
+                if (!this.lobbyInline || !this.$store.state.gameId) return;
+                const uid = this.resolveViewerUserId();
+                if (!uid) return;
+                const sheet = this.pickPlayerSheet(
+                    this.$store.state.gameSetup && this.$store.state.gameSetup.playerCharacters,
+                    uid
+                );
+                if (!sheet || typeof sheet !== 'object') return;
+                try {
+                    this.confirmSheetCharacter = JSON.parse(JSON.stringify(sheet));
+                } catch (e) {
+                    this.confirmSheetCharacter = { ...sheet };
+                }
+                this.prefillFormFromPlayerCharacter(sheet, { skipName: true });
+                this.applyRegenerateFallbackFromGameSetup();
+                this.restoreWizardSelectionSession();
+                this.applyCharacterNameFieldFromSheetAndSession(sheet);
+                this.emitLobbyInlineConfirmSheet();
+            },
+            onLobbyPlayerCharactersMaybePrefill() {
+                if (!this.lobbyInline || !this.$store.state.gameId) return;
+                const rr = this.formData.characterRace;
+                const cc = this.formData.characterClass;
+                const stillDefault = !rr || rr === 'random' || !cc || cc === 'random';
+                if (!stillDefault) return;
+                this.prefillInlineLobbyFormIfPossible();
+            },
+            characterFlowDebugEnabled() {
+                try {
+                    if (typeof window !== 'undefined' && window.__GMAI_DEBUG_CHARACTER__ === true) {
+                        return true;
+                    }
+                } catch (e) {
+                    /* ignore */
+                }
+                if (characterFlowDebugUrlOn()) {
+                    return true;
+                }
+                try {
+                    if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') {
+                        return true;
+                    }
+                } catch (e) {
+                    /* ignore */
+                }
+                try {
+                    return typeof localStorage !== 'undefined' && localStorage.getItem(GM_DEBUG_CHARACTER_FLOW_LS) === '1';
+                } catch (e) {
+                    return false;
+                }
+            },
+            /** One visible line when SetupForm mounts so you know client debug is (not) active — browser console, not server. */
+            logCharacterDebugBootstrap() {
+                const on = this.characterFlowDebugEnabled();
+                if (on) {
+                    try {
+                        if (sessionStorage.getItem(SESSION_DEBUG_ON_ACK_LS) === '1') return;
+                        sessionStorage.setItem(SESSION_DEBUG_ON_ACK_LS, '1');
+                    } catch (e) {
+                        /* ignore */
+                    }
+                    // Defer so DevTools stack points here less often when SetupForm remounts (e.g. lobby editor).
+                    setTimeout(() => {
+                        console.warn(
+                            '[GMAI] Debug personaje/regenerar ACTIVO. Filtra la consola por: GMAI character — esas líneas aparecen al pulsar Crear personaje o Regenerar (no al abrir el editor).'
+                        );
+                    }, 0);
+                    return;
+                }
+                try {
+                    if (sessionStorage.getItem(SESSION_DEBUG_HINT_LS) === '1') return;
+                    sessionStorage.setItem(SESSION_DEBUG_HINT_LS, '1');
+                } catch (e) {
+                    /* ignore */
+                }
+                console.warn(
+                    '[GMAI] Debug de personaje en consola del navegador está DESACTIVADO. Para activarlo: añade ?gmaiDebugCharacter=1 a la URL, o en consola ejecuta localStorage.setItem("gmDebugCharacterFlow","1") y recarga. (Los logs del servidor Go usan DM_DEBUG_CHARACTER_FLOW en la terminal del API.)'
+                );
+            },
+            /** @param {string} tag */
+            characterFlowDebug(tag, detail) {
+                if (!this.characterFlowDebugEnabled()) return;
+                const prefix = `[GMAI character:${tag}]`;
+                if (detail === undefined) {
+                    console.log(prefix);
+                } else {
+                    console.log(prefix, detail);
+                }
+            },
+            characterFlowDebugFormSnapshot() {
+                const fd = this.formData;
+                return {
+                    characterName: fd.characterName,
+                    characterNameIsManual: this.characterNameIsManual,
+                    characterRace: fd.characterRace,
+                    characterClass: fd.characterClass,
+                    characterLevel: fd.characterLevel,
+                    subclass: fd.subclass,
+                    subrace: fd.subrace,
+                    gender: fd.gender,
+                };
+            },
+            /** Minimal PC fields for logs (avoid dumping full sheet). */
+            characterFlowDebugPcShape(pc) {
+                if (!pc || typeof pc !== 'object') return null;
+                return {
+                    name: pc.name,
+                    race: pc.race,
+                    class: pc.class,
+                    characterClass: pc.characterClass,
+                    level: pc.level,
+                    subclass: pc.subclass,
+                    subclassId: pc.subclassId,
+                    subrace: pc.subrace,
+                    subraceId: pc.subraceId,
+                    gender: pc.gender,
+                };
+            },
             /** Map a saved sheet to setup form ids (invite flow always starts on the form, not confirm). */
-            prefillFormFromPlayerCharacter(pc) {
+            onCharacterNameInput() {
+                const t = String(this.formData.characterName || '').trim();
+                const randomWord = String(this.$i18n.random || '').trim().toLowerCase();
+                if (!t || t.toLowerCase() === randomWord) {
+                    this.characterNameIsManual = false;
+                    this.persistCharacterNameManualSession();
+                    return;
+                }
+                this.characterNameIsManual = true;
+                this.persistCharacterNameManualSession();
+            },
+            /** Collapse whitespace for label compare (sheet may use EN/ES display strings). */
+            collapseWs(s) {
+                return String(s || '')
+                    .trim()
+                    .toLowerCase()
+                    .replace(/\s+/g, ' ');
+            },
+            /** Map sheet race string (id or localized label) to catalog race id. */
+            resolveSetupRaceId(value) {
+                const raw = String(value == null ? '' : value).trim();
+                if (!raw) return '';
+                const low = raw.toLowerCase();
+                const races = this.$i18n.races || [];
+                for (const r of races) {
+                    if (!r || !r.id || r.id === 'random') continue;
+                    if (String(r.id).toLowerCase() === low) return r.id;
+                }
+                for (const r of races) {
+                    if (!r || !r.id || r.id === 'random') continue;
+                    const lab = r.label != null ? String(r.label).trim().toLowerCase() : '';
+                    if (lab && lab === low) return r.id;
+                }
+                const cl = this.collapseWs(raw);
+                for (const r of races) {
+                    if (!r || !r.label) continue;
+                    if (this.collapseWs(r.label) === cl) return r.id;
+                }
+                return '';
+            },
+            /** Map sheet class string to catalog class id. */
+            resolveSetupClassId(value) {
+                const raw = String(value == null ? '' : value).trim();
+                if (!raw) return '';
+                const low = raw.toLowerCase();
+                const classes = this.$i18n.classes || [];
+                for (const c of classes) {
+                    if (!c || !c.id || c.id === 'random') continue;
+                    if (String(c.id).toLowerCase() === low) return c.id;
+                }
+                for (const c of classes) {
+                    if (!c || !c.id || c.id === 'random') continue;
+                    const lab = c.label != null ? String(c.label).trim().toLowerCase() : '';
+                    if (lab && lab === low) return c.id;
+                }
+                const cl = this.collapseWs(raw);
+                for (const c of classes) {
+                    if (!c || !c.label) continue;
+                    if (this.collapseWs(c.label) === cl) return c.id;
+                }
+                return '';
+            },
+            /**
+             * @param {object} pc
+             * @param {{ skipName?: boolean }} [opts] — skipName: do not overwrite characterName (e.g. regenerate: keep manual name or clear for new roll separately).
+             */
+            prefillFormFromPlayerCharacter(pc, opts) {
                 if (!pc || typeof pc !== 'object') return;
+                const skipName = opts && opts.skipName === true;
                 const nm = pc.name != null && String(pc.name).trim();
-                if (nm) this.formData.characterName = String(pc.name).trim();
+                if (!skipName && nm) {
+                    const next = String(pc.name).trim();
+                    const prev = String(this.formData.characterName || '').trim();
+                    this.formData.characterName = next;
+                    if (!(this.characterNameIsManual && prev === next)) {
+                        this.characterNameIsManual = false;
+                    }
+                }
                 if (pc.level != null && !Number.isNaN(Number(pc.level))) {
                     const lv = Math.min(20, Math.max(1, Number(pc.level)));
                     this.formData.characterLevel = lv;
                 }
-                const raceRaw = typeof pc.race === 'string' ? pc.race.toLowerCase().trim() : '';
-                if (raceRaw && (this.$i18n.races || []).some((r) => r.id === raceRaw)) {
-                    this.formData.characterRace = raceRaw;
-                }
-                const classRaw =
-                    (typeof pc.class === 'string' && pc.class.toLowerCase().trim()) ||
-                    (typeof pc.characterClass === 'string' && pc.characterClass.toLowerCase().trim()) ||
-                    '';
-                if (classRaw && (this.$i18n.classes || []).some((c) => c.id === classRaw)) {
-                    this.formData.characterClass = classRaw;
-                }
+                const raceRaw = pc.race;
+                const raceResolved = this.resolveSetupRaceId(raceRaw);
+                if (raceResolved) this.formData.characterRace = raceResolved;
+                const classSrc = pc.class != null ? pc.class : pc.characterClass;
+                const classResolved = this.resolveSetupClassId(classSrc);
+                if (classResolved) this.formData.characterClass = classResolved;
                 const g = pc.gender;
                 if (g === 'Male' || g === 'Female') {
                     this.formData.gender = g;
@@ -807,27 +1291,114 @@
                     if (gl.startsWith('f')) this.formData.gender = 'Female';
                     else if (gl.startsWith('m')) this.formData.gender = 'Male';
                 }
-                const subRaw =
-                    (typeof pc.subclass === 'string' && pc.subclass.toLowerCase().trim()) ||
-                    (typeof pc.subclassId === 'string' && pc.subclassId.toLowerCase().trim()) ||
-                    '';
-                if (subRaw) {
-                    const subs = this.getAvailableSubclassesForClass(this.formData.characterClass, this.formData.characterLevel);
-                    if (subs.some((s) => s.id === subRaw)) this.formData.subclass = subRaw;
+                const subs = this.getAvailableSubclassesForClass(this.formData.characterClass, this.formData.characterLevel);
+                let subPick = '';
+                if (typeof pc.subclassId === 'string' && pc.subclassId.trim()) {
+                    const cand = pc.subclassId.trim().toLowerCase().replace(/-/g, '_');
+                    if (subs.some((s) => s.id === cand)) subPick = cand;
                 }
-                const subraceRaw =
-                    (typeof pc.subrace === 'string' && pc.subrace.toLowerCase().trim()) ||
-                    (typeof pc.subraceId === 'string' && pc.subraceId.toLowerCase().trim()) ||
-                    '';
-                if (subraceRaw) {
-                    const norm = subraceRaw.replace(/-/g, '_').replace(/\s+/g, '_');
-                    const srs = this.getAvailableSubracesForRace(this.formData.characterRace);
-                    const match = srs.find((s) => s.id === norm || s.id === subraceRaw);
-                    if (match) this.formData.subrace = match.id;
+                if (!subPick && typeof pc.subclass === 'string' && pc.subclass.trim()) {
+                    const low = pc.subclass.trim().toLowerCase();
+                    const byId = subs.find((s) => s.id === low || s.id === low.replace(/\s+/g, '_'));
+                    if (byId) subPick = byId.id;
+                    else {
+                        const byLab = subs.find((s) => s.label && String(s.label).trim().toLowerCase() === low);
+                        if (byLab) subPick = byLab.id;
+                        else {
+                            const cl = this.collapseWs(pc.subclass);
+                            const byLab2 = subs.find((s) => s.label && this.collapseWs(s.label) === cl);
+                            if (byLab2) subPick = byLab2.id;
+                        }
+                    }
                 }
+                if (subPick) this.formData.subclass = subPick;
+                const srs = this.getAvailableSubracesForRace(this.formData.characterRace);
+                let srPick = '';
+                if (typeof pc.subraceId === 'string' && pc.subraceId.trim()) {
+                    const cand = pc.subraceId.trim().toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
+                    const match = srs.find((s) => s.id === cand || s.id === pc.subraceId.trim().toLowerCase());
+                    if (match) srPick = match.id;
+                }
+                if (!srPick && typeof pc.subrace === 'string' && pc.subrace.trim()) {
+                    const low = pc.subrace.trim().toLowerCase();
+                    const norm = low.replace(/-/g, '_').replace(/\s+/g, '_');
+                    const byId = srs.find((s) => s.id === norm || s.id === low);
+                    if (byId) srPick = byId.id;
+                    else {
+                        const byLab = srs.find((s) => s.label && String(s.label).trim().toLowerCase() === low);
+                        if (byLab) srPick = byLab.id;
+                        else {
+                            const cl = this.collapseWs(pc.subrace);
+                            const byLab2 = srs.find((s) => s.label && this.collapseWs(s.label) === cl);
+                            if (byLab2) srPick = byLab2.id;
+                        }
+                    }
+                }
+                if (srPick) this.formData.subrace = srPick;
+                this.characterFlowDebug('prefill.done', {
+                    skipName,
+                    pcRaceRaw: raceRaw,
+                    pcClassSrc: classSrc,
+                    resolvedRaceId: raceResolved || null,
+                    resolvedClassId: classResolved || null,
+                    subPick: subPick || null,
+                    srPick: srPick || null,
+                    form: this.characterFlowDebugFormSnapshot(),
+                });
+            },
+            /** If sheet prefill missed ids, reuse last merged wizard fields from Vuex (regenerate only). */
+            applyRegenerateFallbackFromGameSetup() {
+                const gs = this.$store.state.gameSetup;
+                if (!gs || typeof gs !== 'object') {
+                    this.characterFlowDebug('regenerate.fallback', { skipped: true, reason: 'no gameSetup in store' });
+                    return;
+                }
+                const before = this.characterFlowDebugFormSnapshot();
+                const fd = this.formData;
+                const validRace = (id) => id && id !== 'random' && (this.$i18n.races || []).some((r) => r.id === id);
+                const validClass = (id) => id && id !== 'random' && (this.$i18n.classes || []).some((c) => c.id === id);
+                const explicitRandom = (v) => String(v == null ? '' : v).trim().toLowerCase() === 'random';
+                const raceMissing = fd.characterRace == null || String(fd.characterRace).trim() === '';
+                if (raceMissing || (!explicitRandom(fd.characterRace) && !validRace(fd.characterRace))) {
+                    const g = gs.characterRace != null ? gs.characterRace : gs.race;
+                    const rid = this.resolveSetupRaceId(g);
+                    if (rid) fd.characterRace = rid;
+                }
+                const classMissing = fd.characterClass == null || String(fd.characterClass).trim() === '';
+                if (classMissing || (!explicitRandom(fd.characterClass) && !validClass(fd.characterClass))) {
+                    const g = gs.characterClass != null ? gs.characterClass : gs.class;
+                    const cid = this.resolveSetupClassId(g);
+                    if (cid) fd.characterClass = cid;
+                }
+                const subclassMissing = fd.subclass == null || String(fd.subclass).trim() === '';
+                if (subclassMissing) {
+                    const g = gs.subclass;
+                    if (g && String(g).trim() && String(g).trim() !== 'random') fd.subclass = String(g).trim();
+                }
+                const subraceMissing = fd.subrace == null || String(fd.subrace).trim() === '';
+                if (subraceMissing) {
+                    const g = gs.subrace;
+                    if (g && String(g).trim() && String(g).trim() !== 'random') fd.subrace = String(g).trim();
+                }
+                if (gs.gender === 'Male' || gs.gender === 'Female') fd.gender = gs.gender;
+                this.characterFlowDebug('regenerate.fallback', {
+                    before,
+                    after: this.characterFlowDebugFormSnapshot(),
+                    gameSetupFields: {
+                        characterRace: gs.characterRace,
+                        race: gs.race,
+                        characterClass: gs.characterClass,
+                        class: gs.class,
+                        subclass: gs.subclass,
+                        subrace: gs.subrace,
+                        characterLevel: gs.characterLevel,
+                        gender: gs.gender,
+                    },
+                });
             },
             /** Header "New game" while already on /setup: store resets but local phase/sheet must clear too. */
             resetWizardFromHeaderNew() {
+                this.clearCharacterNameManualSession();
                 this.setupPhase = 'form';
                 this.joinMode = false;
                 this.setupViewerIsGameOwner = null;
@@ -840,8 +1411,8 @@
                 this.progressMessage = '';
                 this.isStarting = false;
                 this.setupBusyAction = null;
+                this.characterNameIsManual = false;
                 this.formData = {
-                    gameSystem: 'Dungeons and Dragons 5th Edition',
                     characterName: '',
                     characterClass: 'random',
                     characterRace: 'random',
@@ -853,8 +1424,8 @@
                 this.clearSetupSessionGameId();
             },
             resetJoinWizardFormDefaults() {
+                this.characterNameIsManual = false;
                 this.formData = {
-                    gameSystem: 'Dungeons and Dragons 5th Edition',
                     characterName: '',
                     characterClass: 'random',
                     characterRace: 'random',
@@ -944,6 +1515,9 @@
                     this.$store.state.gameSetup &&
                     typeof this.$store.state.gameSetup === 'object'
                 ) {
+                    if (this.lobbyInline) {
+                        this.prefillInlineLobbyFormIfPossible();
+                    }
                     return;
                 }
                 this.joinInitBusy = true;
@@ -969,6 +1543,9 @@
                     this.resetJoinWizardFormDefaults();
                     this.$store.commit('setGameSetup', gs);
                     this.tryPersistSetupSessionGameId();
+                    if (this.lobbyInline) {
+                        this.prefillInlineLobbyFormIfPossible();
+                    }
                     if (Object.prototype.hasOwnProperty.call(data, 'viewerIsGameOwner') && data.viewerIsGameOwner === true) {
                         this.joinMode = false;
                         this.clearJoinUiGameId();
@@ -1123,7 +1700,8 @@
                             this.confirmSheetCharacter = null;
                             this.setupPhase = 'form';
                             this.characterPreviewKey = 0;
-                            this.prefillFormFromPlayerCharacter(ctx.myPc);
+                            this.prefillFormFromPlayerCharacter(ctx.myPc, { skipName: true });
+                            this.applyCharacterNameFieldFromSheetAndSession(ctx.myPc);
                             this.$store.commit('setGameSetup', gs);
                             return;
                         }
@@ -1171,10 +1749,8 @@
                     this.joinMode = false;
                     this.clearJoinUiGameId();
                     this.$store.commit('setGameSetup', { ...gs, language: this.$store.state.language });
-                    if (sheet.name != null && String(sheet.name).trim()) this.formData.characterName = String(sheet.name).trim();
-                    if (sheet.level != null && !Number.isNaN(Number(sheet.level))) {
-                        this.formData.characterLevel = Number(sheet.level);
-                    }
+                    this.prefillFormFromPlayerCharacter(sheet, { skipName: true });
+                    this.applyCharacterNameFieldFromSheetAndSession(sheet);
                     this.setupPhase = 'confirm_character';
                     await this.$nextTick();
                     this.characterPreviewKey += 1;
@@ -1189,10 +1765,13 @@
                 }
             },
             /**
-             * Persist generated/regenerated PC to Vuex, then release lobby wizard hold so ChatRoom matches
-             * “refresh with saved sheet”: embedded sheet + roster only (no duplicate SetupForm confirm panel).
+             * Optimistic persist of generated/regenerated PC to Vuex; caller should run
+             * syncPersistedCharacterFromServer() next so GET /game-state/load matches a full refresh.
+             * @param {object} playerCharacter
+             * @param {{ skipLobbyHoldRelease?: boolean }} [options] — when true, do not emit lobby-inline-wizard-hold false (e.g. party lobby + late join to running game: keep confirm UI with “Join”).
              */
-            commitGameSetupWithCharacter(playerCharacter) {
+            commitGameSetupWithCharacter(playerCharacter, options) {
+                const skipLobbyHoldRelease = options && options.skipLobbyHoldRelease === true;
                 let pc = playerCharacter;
                 try {
                     pc = JSON.parse(JSON.stringify(playerCharacter));
@@ -1215,7 +1794,7 @@
                 }
                 this.$store.commit('setGameSetup', base);
                 this.tryPersistSetupSessionGameId();
-                if (this.lobbyInline) {
+                if (this.lobbyInline && !skipLobbyHoldRelease) {
                     this.$emit('lobby-inline-wizard-hold', false);
                 }
             },
@@ -1232,9 +1811,21 @@
                 }
                 this.formData.subclass = 'random';
                 this.formData.subrace = 'random';
+                this.syncWizardRandomIntentFromForm();
+                this.persistWizardSelectionSession();
             },
             onClassChange() {
                 this.formData.subclass = 'random';
+                this.syncWizardRandomIntentFromForm();
+                this.persistWizardSelectionSession();
+            },
+            onSubraceChange() {
+                this.syncWizardRandomIntentFromForm();
+                this.persistWizardSelectionSession();
+            },
+            onSubclassChange() {
+                this.syncWizardRandomIntentFromForm();
+                this.persistWizardSelectionSession();
             },
             onLevelChange() {
                 const subs = this.getAvailableSubclassesForClass(this.formData.characterClass, this.formData.characterLevel);
@@ -1242,6 +1833,7 @@
                 if (this.formData.subclass && this.formData.subclass !== 'random' && !ids.has(this.formData.subclass)) {
                     this.formData.subclass = 'random';
                 }
+                this.persistWizardSelectionSession();
             },
             // Choose a random race id (excluding 'random' id)
             chooseRandomRace() {
@@ -1397,23 +1989,45 @@
 
         async generatePlayerCharacter(gameId = null) {
             const gid = gameId != null && String(gameId).trim() !== '' ? String(gameId).trim() : '';
-            const gameSetupPayload = {
+            this.syncWizardRandomIntentFromForm();
+            const buildGameSetupPayload = () => ({
                 name: this.normalizedNameForCharacterApi(),
                 gender: this.formData.gender,
-                class: this.formData.characterClass,
-                race: this.formData.characterRace,
+                class: this.wizardRandomIntent.characterClass ? 'random' : this.formData.characterClass,
+                race: this.wizardRandomIntent.characterRace ? 'random' : this.formData.characterRace,
                 level: this.formData.characterLevel,
-                subclass: this.subclassForCharacterApi(),
-                subrace: this.subraceForCharacterApi(),
+                subclass:
+                    this.wizardRandomIntent.subclass || this.wizardRandomIntent.characterClass
+                        ? undefined
+                        : this.subclassForCharacterApi(),
+                subrace:
+                    this.wizardRandomIntent.subrace || this.wizardRandomIntent.characterRace
+                        ? undefined
+                        : this.subraceForCharacterApi(),
                 background: this.formData.characterBackground,
                 language: this.$store.state.language,
-            };
-            const raceId = this.formData.characterRace;
+                randomIntent: {
+                    characterRace: this.wizardRandomIntent.characterRace === true,
+                    characterClass: this.wizardRandomIntent.characterClass === true,
+                    subrace: this.wizardRandomIntent.subrace === true,
+                    subclass: this.wizardRandomIntent.subclass === true,
+                },
+            });
+            let gameSetupPayload = buildGameSetupPayload();
+            this.characterFlowDebug('generate.start', {
+                gameId: gid || null,
+                form: this.characterFlowDebugFormSnapshot(),
+                gameSetupPayload,
+            });
             const existingNameRaw = String(this.formData.characterName || '').trim();
             const randomWord = String(this.$i18n.random || '').trim().toLowerCase();
             const nameFieldEmptyOrRandom =
                 !existingNameRaw || existingNameRaw.toLowerCase() === randomWord;
-            if (raceId && raceId !== 'random' && nameFieldEmptyOrRandom) {
+            if (!nameFieldEmptyOrRandom) {
+                this.characterNameIsManual = true;
+                this.persistCharacterNameManualSession();
+            }
+            {
                 try {
                     const previewBody = {
                         gameSetup: gameSetupPayload,
@@ -1424,18 +2038,55 @@
                     } else if (!this.isPartyJoinSetupContext()) {
                         previewBody.newParty = true;
                     }
+                    this.characterFlowDebug('generate.preview.request', previewBody);
                     const prev = await axios.post('/api/game-session/preview-character-name', previewBody, {
                         timeout: 20000,
                     });
                     const n = prev.data && prev.data.name != null && String(prev.data.name).trim();
-                    if (n) {
+                    this.characterFlowDebug('generate.preview.response', {
+                        status: prev.status,
+                        name: n ? String(prev.data.name).trim() : null,
+                        rawKeys: prev.data && typeof prev.data === 'object' ? Object.keys(prev.data) : null,
+                    });
+                    const resolved =
+                        prev.data && prev.data.resolvedGameSetup && typeof prev.data.resolvedGameSetup === 'object'
+                            ? prev.data.resolvedGameSetup
+                            : null;
+                    if (resolved) {
+                        const rr = this.resolveSetupRaceId(resolved.race);
+                        const cc = this.resolveSetupClassId(resolved.class);
+                        if (rr) this.formData.characterRace = rr;
+                        if (cc) this.formData.characterClass = cc;
+                        const sr = resolved.subrace != null ? String(resolved.subrace).trim() : '';
+                        const sc = resolved.subclass != null ? String(resolved.subclass).trim() : '';
+                        if (sr) this.formData.subrace = sr;
+                        if (sc) this.formData.subclass = sc;
+                        this.characterFlowDebug('generate.preview.resolvedSetup', {
+                            resolvedGameSetup: resolved,
+                            form: this.characterFlowDebugFormSnapshot(),
+                        });
+                    }
+                    if (n && nameFieldEmptyOrRandom) {
                         this.formData.characterName = String(prev.data.name).trim();
+                        this.characterNameIsManual = false;
+                        this.persistCharacterNameManualSession();
                         await this.$nextTick();
                     }
                 } catch (prevErr) {
-                    /* optional: generation still runs; server will preassign if enabled */
+                    const ax = prevErr && prevErr.response;
+                    this.characterFlowDebug('generate.preview.error', {
+                        message: prevErr && prevErr.message,
+                        status: ax && ax.status,
+                        data:
+                            ax && ax.data != null
+                                ? typeof ax.data === 'string'
+                                    ? String(ax.data).slice(0, 800)
+                                    : JSON.stringify(ax.data).slice(0, 800)
+                                : null,
+                    });
                 }
             }
+            gameSetupPayload = buildGameSetupPayload();
             const body = {
                 gameSetup: gameSetupPayload,
                 language: this.$store.state.language,
@@ -1449,13 +2100,28 @@
             if (preName) {
                 body.preassignedDisplayName = preName;
             }
+            this.characterFlowDebug('generate.post', {
+                bodyKeys: Object.keys(body),
+                gameSetup: gameSetupPayload,
+                preassignedDisplayName: body.preassignedDisplayName || null,
+            });
             const response = await axios.post('/api/game-session/generate-character', body, { timeout: 600000 });
+            this.characterFlowDebug('generate.response.ok', {
+                hasPlayerCharacter: !!(response.data && response.data.playerCharacter),
+                returnedName:
+                    response.data &&
+                    response.data.playerCharacter &&
+                    response.data.playerCharacter.name != null
+                        ? String(response.data.playerCharacter.name)
+                        : null,
+            });
             return response.data;
         },
 
         async submitForm() {
             if (this.setupPhase === 'confirm_character') return;
-            this.resolveRandomSelections();
+            this.syncWizardRandomIntentFromForm();
+            this.persistWizardSelectionSession();
             this.isStarting = true;
             this.progressMessage = '';
             this.recoverSetupGameIdFromSession();
@@ -1485,6 +2151,8 @@
                 delete mergedSetup.generatedCharacter;
             }
             this.$store.commit('setGameSetup', mergedSetup);
+            this.persistWizardSelectionSession();
+            this.persistWizardSelectionSession();
 
             try {
                 const charData = await this.generatePlayerCharacter(this.$store.state.gameId);
@@ -1492,13 +2160,40 @@
                     if (charData.gameId) {
                         this.$store.commit('setGameId', String(charData.gameId));
                     }
-                    this.commitGameSetupWithCharacter(charData.playerCharacter);
-                    if (!(await this.syncJoinUiFromServerIfNeeded())) {
+                    const keepLobbyWizardForLateJoinPlaying =
+                        this.lobbyInline && this.partyLateJoinInviteePlaying;
+                    this.commitGameSetupWithCharacter(charData.playerCharacter, {
+                        skipLobbyHoldRelease: keepLobbyWizardForLateJoinPlaying,
+                    });
+                    if (!(await this.syncPersistedCharacterFromServer())) {
                         this.isStarting = false;
                         return;
                     }
                     await this.$nextTick();
                     this.characterPreviewKey += 1;
+
+                    // Party lobby (normal): same view as refresh — embedded sheet + roster, no “Review your character” step.
+                    if (this.lobbyInline && !this.partyLateJoinInviteePlaying) {
+                        this.setupPhase = 'form';
+                        this.progressMessage = '';
+                        this.$emit('lobby-inline-after-character-saved');
+                    } else {
+                        this.setupPhase = 'confirm_character';
+                        if (this.lobbyInline) {
+                            this.progressMessage = '';
+                            if (this.partyLateJoinInviteePlaying) {
+                                this.$emit('lobby-inline-wizard-hold', true);
+                            }
+                        } else if (this.partyLateJoinInviteePlaying) {
+                            this.progressMessage = this.$i18n.character_ready_join_party_playing;
+                        } else if (this.usePartyRoomConfirmUi) {
+                            this.progressMessage = this.$i18n.character_ready_party_room;
+                        } else if (this.joinUiActive) {
+                            this.progressMessage = this.$i18n.character_ready_confirm_join;
+                        } else {
+                            this.progressMessage = this.$i18n.character_ready_confirm;
+                        }
+                    }
                 } else {
                     throw new Error('No playerCharacter in response');
                 }
@@ -1522,19 +2217,6 @@
                 return;
             }
 
-            this.setupPhase = 'confirm_character';
-            /* Inline lobby: confirm-hint already explains next steps; avoid duplicating in .progress-message. */
-            if (this.lobbyInline) {
-                this.progressMessage = '';
-            } else if (this.partyLateJoinInviteePlaying) {
-                this.progressMessage = this.$i18n.character_ready_join_party_playing;
-            } else if (this.usePartyRoomConfirmUi) {
-                this.progressMessage = this.$i18n.character_ready_party_room;
-            } else if (this.joinUiActive) {
-                this.progressMessage = this.$i18n.character_ready_confirm_join;
-            } else {
-                this.progressMessage = this.$i18n.character_ready_confirm;
-            }
             this.isStarting = false;
         },
 
@@ -1552,36 +2234,121 @@
         },
 
         async regenerateCharacter() {
-            this.isStarting = true;
-            this.setupBusyAction = 'regenerate';
-            this.progressMessage = '';
+            this.characterFlowDebug('regenerate.enter', {
+                gameId: this.$store.state.gameId,
+                setupPhase: this.setupPhase,
+                hasConfirmSheetCharacter: !!(
+                    this.confirmSheetCharacter && typeof this.confirmSheetCharacter === 'object'
+                ),
+            });
+            // Preserve explicit "random" choices even if prefill/fallback temporarily replaces form ids.
+            const gs = (this.$store.state && this.$store.state.gameSetup) || {};
+            const isRandomId = (v) => String(v == null ? '' : v).trim().toLowerCase() === 'random';
+            const preserveRandom = {
+                characterRace:
+                    isRandomId(this.formData.characterRace) ||
+                    isRandomId(gs.characterRace) ||
+                    isRandomId(gs.race),
+                characterClass:
+                    isRandomId(this.formData.characterClass) ||
+                    isRandomId(gs.characterClass) ||
+                    isRandomId(gs.class),
+                subclass: isRandomId(this.formData.subclass) || isRandomId(gs.subclass),
+                subrace: isRandomId(this.formData.subrace) || isRandomId(gs.subrace),
+            };
+            this.characterFlowDebug('regenerate.preserveRandom', preserveRandom);
+            this.syncWizardRandomIntentFromForm();
+            this.persistWizardSelectionSession();
             this.recoverSetupGameIdFromSession();
             if (!this.$store.state.gameId) {
+                this.characterFlowDebug('regenerate.abort', { reason: 'missing gameId' });
                 this.progressMessage = this.isPartyJoinSetupContext()
                     ? this.$i18n.join_missing_game_id
                     : this.$i18n.character_regenerate_needs_game;
-                this.isStarting = false;
-                this.setupBusyAction = null;
                 setTimeout(() => {
                     this.progressMessage = '';
                 }, 6500);
                 return;
             }
+            // Regenerate must use current wizard/store picks as source of truth.
+            // Do not prefill from previous sheet here, otherwise random choices get concretized.
+            this.characterFlowDebug('regenerate.sheet', { skipped: true, reason: 'use current wizard values' });
+            if (preserveRandom.characterRace) this.formData.characterRace = 'random';
+            if (preserveRandom.characterClass) this.formData.characterClass = 'random';
+            if (preserveRandom.subclass || preserveRandom.characterClass) this.formData.subclass = 'random';
+            if (preserveRandom.subrace || preserveRandom.characterRace) this.formData.subrace = 'random';
+            // New name from preview/server unless the player typed this one.
+            if (!this.characterNameIsManual) {
+                this.formData.characterName = '';
+            }
+            this.characterFlowDebug('regenerate.afterNameClear', this.characterFlowDebugFormSnapshot());
+            const syncJoinOk = await this.syncJoinUiFromServerIfNeeded();
+            if (!syncJoinOk) {
+                return;
+            }
+            const mergedSetup = {
+                ...this.$store.state.gameSetup,
+                ...this.formData,
+                language: this.$store.state.language,
+            };
+            if (this.joinUiActive) {
+                delete mergedSetup.generatedCharacter;
+            }
+            this.$store.commit('setGameSetup', mergedSetup);
+
+            // Show “Crea tu personaje” with the same build (race/class/level/…) while the new sheet generates.
+            if (this.setupPhase === 'confirm_character' && !this.partyLateJoinInviteePlaying) {
+                this.setupPhase = 'form';
+                await this.$nextTick();
+            }
+
+            this.isStarting = true;
+            this.setupBusyAction = 'regenerate';
+            this.progressMessage = '';
+
             try {
                 const charData = await this.generatePlayerCharacter(this.$store.state.gameId);
                 if (charData && charData.playerCharacter) {
                     if (charData.gameId) {
                         this.$store.commit('setGameId', String(charData.gameId));
                     }
-                    this.commitGameSetupWithCharacter(charData.playerCharacter);
-                    if (!(await this.syncJoinUiFromServerIfNeeded())) {
-                        this.isStarting = false;
-                        this.setupBusyAction = null;
+                    const keepLobbyWizardForLateJoinPlaying =
+                        this.lobbyInline && this.partyLateJoinInviteePlaying;
+                    this.commitGameSetupWithCharacter(charData.playerCharacter, {
+                        skipLobbyHoldRelease: keepLobbyWizardForLateJoinPlaying,
+                    });
+                    if (
+                        !(await this.syncPersistedCharacterFromServer({
+                            retainWizardFieldsIfPrefillIncomplete: true,
+                        }))
+                    ) {
                         return;
                     }
                     await this.$nextTick();
                     this.characterPreviewKey += 1;
-                    this.progressMessage = '';
+
+                    if (this.lobbyInline && !this.partyLateJoinInviteePlaying) {
+                        this.setupPhase = 'form';
+                        this.progressMessage = '';
+                        this.$emit('lobby-inline-after-character-saved');
+                    } else {
+                        this.setupPhase = 'confirm_character';
+                        if (this.lobbyInline) {
+                            this.progressMessage = '';
+                            if (this.partyLateJoinInviteePlaying) {
+                                this.$emit('lobby-inline-wizard-hold', true);
+                            }
+                        } else if (this.partyLateJoinInviteePlaying) {
+                            this.progressMessage = this.$i18n.character_ready_join_party_playing;
+                        } else if (this.usePartyRoomConfirmUi) {
+                            this.progressMessage = this.$i18n.character_ready_party_room;
+                        } else if (this.joinUiActive) {
+                            this.progressMessage = this.$i18n.character_ready_confirm_join;
+                        } else {
+                            this.progressMessage = this.$i18n.character_ready_confirm;
+                        }
+                    }
+                    this.emitLobbyInlineConfirmSheet();
                 } else {
                     throw new Error('No playerCharacter in response');
                 }

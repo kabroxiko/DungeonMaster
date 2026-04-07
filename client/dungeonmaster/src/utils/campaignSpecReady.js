@@ -1,5 +1,5 @@
 /**
- * Same rules as server/campaignSpecReady.js — keep in sync.
+ * Same rules as `go/internal/campaignspec` (HasSubstantiveCampaignSpec) — keep in sync.
  * @param {unknown} spec
  * @returns {boolean}
  */

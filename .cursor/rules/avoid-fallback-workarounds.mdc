@@ -16,7 +16,7 @@ Policy
   2) observable telemetry persisted to the GameState (e.g., `llmCallError`, `llmCallStartedAt`, `llmCallCompletedAt`).
 
 How to apply
-- Apply to backend code that interacts with LLMs or persists game state (examples: `server/openai-api.js`, `server/routes/*.js`, `server/routes/gameState.js`).
+- Apply to backend code that interacts with LLMs or persists game state (examples: `go/internal/llm/`, `go/internal/gamesession/`, `go/internal/httpserver/`, `go/internal/persist/`).
 - When adding a fallback, require:
   - A short rationale in code comments and the PR description.
   - Persisted diagnostic fields (error message, timestamps) to GameState.

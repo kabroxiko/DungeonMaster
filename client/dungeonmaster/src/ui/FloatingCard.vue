@@ -15,8 +15,8 @@
           <h2 :id="titleId" class="ui-heading char-sheet-name">{{ character.name }}</h2>
           <p class="floating-sub char-sheet-lineage">
             <span class="char-sheet-lineage-main">{{ displayRace }}<template v-if="displaySubrace"> · {{ displaySubrace }}</template> · {{ displayClass }}</span>
-            <template v-if="character.subclass">
-              <span class="char-sheet-subclass"> · {{ character.subclass }}</span>
+            <template v-if="displaySubclass">
+              <span class="char-sheet-subclass"> · {{ displaySubclass }}</span>
             </template>
             <template v-if="character.level">
               <span class="char-sheet-level"> — {{ $t('level_prefix') }}{{ character.level }}</span>
@@ -363,13 +363,17 @@ export default {
       return this.localizeSheetField(this.character.race, (this.$i18n.races || []));
     },
     displayClass() {
-      return this.localizeSheetField(this.character.class, (this.$i18n.classes || []));
+      const raw =
+        this.character.characterClass != null && String(this.character.characterClass).trim()
+          ? this.character.characterClass
+          : this.character.class;
+      return this.localizeSheetField(raw, (this.$i18n.classes || []));
     },
     displaySubrace() {
       const raw =
-        this.character.subrace != null && String(this.character.subrace).trim()
-          ? this.character.subrace
-          : this.character.subraceId;
+        this.character.subraceId != null && String(this.character.subraceId).trim()
+          ? this.character.subraceId
+          : this.character.subrace;
       if (raw == null || raw === '') return '';
       const labels = (this.$i18n && this.$i18n.subrace_labels) || {};
       const key = String(raw)
@@ -378,7 +382,22 @@ export default {
         .replace(/-/g, '_')
         .replace(/\s+/g, '_');
       if (labels[key]) return labels[key];
-      return String(raw).trim();
+      return String(raw)
+        .trim()
+        .replace(/\*+$/u, '');
+    },
+    displaySubclass() {
+      const raw =
+        this.character.subclassId != null && String(this.character.subclassId).trim()
+          ? this.character.subclassId
+          : this.character.subclass;
+      if (raw == null || raw === '') return '';
+      const s = String(raw).trim();
+      if (s.toLowerCase() === 'random') return '';
+      const labels = (this.$i18n && this.$i18n.subclass_labels) || {};
+      const keyUnderscore = s.toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
+      if (labels[keyUnderscore]) return labels[keyUnderscore];
+      return s.replace(/\*+$/u, '').trim();
     },
     /** Normalized armor rows for display (strings or { name, ac_bonus, base_ac, ac } from server). */
     armorRows() {
@@ -598,7 +617,7 @@ export default {
       handler(newVal, oldVal) {
         if (!oldVal || !newVal) return;
         const sig = (c) =>
-          [c.name, c.class, c.level, c.subclass, c.subrace, c.subraceId]
+          [c.name, c.class, c.characterClass, c.level, c.subclass, c.subclassId, c.subrace, c.subraceId]
             .map((x) => String(x == null ? '' : x))
             .join('\0');
         if (sig(newVal) !== sig(oldVal)) {
