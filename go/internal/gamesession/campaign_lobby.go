@@ -242,10 +242,19 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 	}
 	var userPrompt string
 	if tpl != "" {
-		userPrompt, _ = mustache.Render(tpl, map[string]interface{}{
+		data := map[string]interface{}{
 			"campaignConcept": conceptText,
 			"language":        language,
-		})
+		}
+		// When the campaign was built on a generated world, hand the keyLocations stage the real regions so it
+		// places its locations inside them instead of inventing a competing map.
+		if stage == "keyLocations" {
+			if regions := vellarisRegionOptions(ctx, d, gameID); len(regions) > 0 {
+				data["hasVellarisRegions"] = true
+				data["vellarisRegions"] = regions
+			}
+		}
+		userPrompt, _ = mustache.Render(tpl, data)
 	} else {
 		if stage == "factions" {
 			userPrompt = fmt.Sprintf("Based on this campaignConcept: %s\nReturn ONLY YAML: factions (list of objects)...", conceptText)
@@ -618,4 +627,3 @@ func errString(err error) string {
 	}
 	return err.Error()
 }
-

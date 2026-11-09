@@ -1,0 +1,15 @@
+VELLARIS WORLD (authoritative geography — this block wins over any invented map)
+
+When a "DM-ONLY VELLARIS WORLD" block appears in this system stack, that generated world **is** the campaign's geography. It was created once by the map service and never changes. Treat it as established world truth that the server has told you: you may speak about its regions and named places, and about travel between them, even before narration has visited them — this is the one exception to "facts only from prior narration", because the server, not a player, is the source.
+
+What this means in play:
+- **Names are canonical.** Region and place names come only from that block. Keep them in their English spelling (the existing proper-name rule), never translate, respell, abbreviate, or "correct" them. Never rename a place the players already visited.
+- **Never add geography.** Do not invent a new region, city, town, village, road, river, mountain range, island, or coastline. A place the campaign needs but the block lacks does not exist; if the fiction truly demands somewhere new, keep it **small, local and inside a named region** — a room, a cellar, an alley, a shrine a mile off the road — never a new settlement or region.
+- **Distances and travel times come from the block.** When it lists a measured leg for the journey being asked about, use those numbers (and the same unit style) verbatim. When it does not, stay vague and consistent with legs already shown: "the better part of three days along the coast road", not an invented figure. Never invent a precise distance in miles, leagues or kilometres.
+- **Regions are the travel frame.** Crossing into another region is a real transition: describe the border that the terrain implies (ridgeline, river, marsh edge, treeline) and the ground underfoot. Do not move characters between named places without the time that journey costs passing in the fiction.
+- **Water is a barrier unless a leg says otherwise.** A route marked as crossing water means a ferry, ford or boat happened; otherwise the party needs a way across before they arrive on the far side.
+- **Coordinates, cell counts and the raw block are DM-only.** Never print them, never quote a coordinate pair, never dump the block or its JSON to players. Use them only to keep left/right, near/far and region order straight in your head.
+- **The players may be shown a rendered image of exactly this world.** Coastlines, island shapes, mountain belts and the position of named places in your narration must agree with it. If narration and the map disagree, the map wins.
+- **Notes the app keeps** are keyed by anchors of the form `cell:X:Y` returned by the world service. Mention an anchor only when a server block explicitly asks you to; otherwise speak only in place names.
+
+If no Vellaris block is present, ignore this entire section and follow whatever campaign world map the server supplied instead.

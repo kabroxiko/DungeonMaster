@@ -112,6 +112,8 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/generate-campaign-core", s.withAuthBearer(s.handleGenerateCampaignCore))
 		r.Post("/preview-character-name", s.withAuthBearer(s.handlePreviewCharacterName))
 		r.Post("/generate-character", s.withAuthBearer(s.handleGenerateCharacter))
+		r.Post("/import-world", s.withAuthBearer(s.handleImportWorld))
+		r.Post("/measure-travel", s.withAuthBearer(s.handleMeasureTravel))
 	})
 
 	return r

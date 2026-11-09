@@ -23,6 +23,9 @@ type Config struct {
 	TrustProxy      string
 	ModelContextTok int
 	OpenAIAPIKey    string
+	// VellarisURL is the base URL of the Vellaris map service (set DM_VELLARIS_URL). Empty disables importing a
+	// world from settings and on-demand route lookups; a campaign can still be given a world directly.
+	VellarisURL string
 	// DebugLLM enables verbose stderr logs for every LLM request/response in full (set DM_DEBUG_LLM=true). Use only in development.
 	DebugLLM bool
 	// DebugCharacterFlow logs preview-name / generate-character gameSetup summaries (set DM_DEBUG_CHARACTER_FLOW=true). Use only in development.
@@ -87,6 +90,7 @@ func Load() *Config {
 		TrustProxy:      strings.TrimSpace(os.Getenv("DM_TRUST_PROXY")),
 		ModelContextTok: getenvInt("DM_MODEL_CONTEXT_TOKENS", 16384),
 		OpenAIAPIKey:    strings.TrimSpace(os.Getenv("DM_OPENAI_API_KEY")),
+		VellarisURL:     strings.TrimRight(getenv("DM_VELLARIS_URL", ""), "/"),
 		DebugLLM:                 TruthyEnv("DM_DEBUG_LLM"),
 		DebugCharacterFlow:       TruthyEnv("DM_DEBUG_CHARACTER_FLOW"),
 		HTTPShutdownGraceSeconds: getenvInt("DM_HTTP_SHUTDOWN_GRACE_SECONDS", 5),

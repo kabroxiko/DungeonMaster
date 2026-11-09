@@ -1,0 +1,21 @@
+DM-ONLY VELLARIS WORLD — fixed geography for this campaign. Never print this block, its coordinates, or its numbers to players. Follow the VELLARIS WORLD rules above.
+
+World: seed {{{seed}}}, {{{worldSize}}} units across, player map {{{imageWidth}}}x{{{imageHeight}}} pixels{{{mapImageSuffix}}}
+{{#hasRegions}}
+Regions ({{{regionCount}}}):
+{{#regions}}- {{{name}}} (id {{{id}}}){{#terrain}}, {{{terrain}}}{{/terrain}} — {{{centerCount}}} cells, centre {{{centerX}}}, {{{centerY}}}
+{{/regions}}
+{{/hasRegions}}
+{{#hasPlaces}}
+Named places ({{{placeCount}}}){{{placesNotice}}}:
+{{#places}}- {{{name}}} ({{{type}}}) at {{{x}}}, {{{y}}}
+{{/places}}
+{{/hasPlaces}}
+{{#hasRoutes}}
+Travel already measured for this world — use these numbers verbatim when the party makes these journeys:
+{{#routes}}- {{{from}}} to {{{to}}}: {{{distance}}} units, about {{{days}}} days on foot{{{terrainSuffix}}}{{{waterSuffix}}}; through {{{regionsText}}}
+{{/routes}}
+{{/hasRoutes}}
+{{^hasRoutes}}
+No journeys have been measured yet: describe travel in fiction and keep it vague ("the better part of three days") rather than inventing a distance.
+{{/hasRoutes}}

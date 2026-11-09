@@ -116,7 +116,11 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	}
 	if gs != nil {
 		if spec, ok := gs["campaignSpec"].(map[string]interface{}); ok && spec != nil {
-			if wm := renderWorldMapInject(spec); wm != "" {
+			// An imported Vellaris world replaces the campaign's invented topology rather than sitting next
+			// to it: two competing geographies in one prompt is exactly what makes the DM drift on location.
+			if vw := renderVellarisWorldInject(spec); vw != "" {
+				consolidated = vw + "\n\n" + consolidated
+			} else if wm := renderWorldMapInject(spec); wm != "" {
 				consolidated = wm + "\n\n" + consolidated
 			}
 			inj := promptmgr.LoadPrompt("templates/dm/inject_explore.txt")

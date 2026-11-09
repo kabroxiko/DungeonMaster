@@ -789,3 +789,21 @@ func (s *Server) handleGameStateWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+func (s *Server) handleImportWorld(w http.ResponseWriter, r *http.Request, uid string) {
+	var body map[string]interface{}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	st, out := gamesession.HandleImportVellarisWorld(r.Context(), s.GS, uid, body)
+	writeJSON(w, st, localizeIfCoded(r, out))
+}
+
+func (s *Server) handleMeasureTravel(w http.ResponseWriter, r *http.Request, uid string) {
+	var body map[string]interface{}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	st, out := gamesession.HandleVellarisRoute(r.Context(), s.GS, uid, body)
+	writeJSON(w, st, localizeIfCoded(r, out))
+}
