@@ -292,6 +292,30 @@ func TestReconcileDirectiveNamesRewritesOldPlaceNames(t *testing.T) {
 	}
 }
 
+// The download has to look like the map service's own answer so the file can be posted straight back to import-world.
+func TestBuildWorldJSONMatchesTheMapServiceAnswer(t *testing.T) {
+	spec := map[string]interface{}{
+		"vellarisWorld": map[string]interface{}{
+			"regions": []interface{}{map[string]interface{}{"id": "0", "name": "Cae"}},
+			"places":  []interface{}{map[string]interface{}{"name": "Aldea de Dius", "type": "City"}},
+		},
+		"vellarisSettings": map[string]interface{}{"randomSeed": 1.0, "language": "es"},
+	}
+	got := buildWorldJSON(spec)
+	if got == nil || got["success"] != true {
+		t.Fatalf("unexpected payload: %v", got)
+	}
+	if got["world"] == nil || got["settings"] == nil {
+		t.Fatalf("world and settings must both be present: %v", got)
+	}
+	if buildWorldJSON(map[string]interface{}{}) != nil {
+		t.Fatal("a game with no world has nothing to download")
+	}
+	if buildWorldJSON(nil) != nil {
+		t.Fatal("nil spec must not produce a payload")
+	}
+}
+
 func TestCampaignWorldPromptDataIsEmptyWithoutAWorld(t *testing.T) {
 	data := campaignWorldTemplateData(nil)
 	if data["hasVellarisWorld"] != false {

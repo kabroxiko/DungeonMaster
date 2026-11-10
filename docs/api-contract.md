@@ -25,6 +25,7 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 | GET | `/events/:gameId` | Bearer **or** `?access_token=` | SSE |
 | GET | `/load/:gameId` | Bearer | Full state (redacted) |
 | GET | `/map/:gameId` | Bearer **or** `?access_token=` | Rendered map image (`image/jpeg`) |
+| GET | `/map-json/:gameId` | Bearer, owner only | World JSON download (`{ success, world, settings }`, same shape as `POST /api/world`) |
 | PATCH | `/map-visibility` | Bearer, owner only | `{ gameId, visible }` — show/hide the map for every player |
 | GET | `/debug/:gameId/prompts` | Bearer | Debug fields |
 | POST | `/create-party` | Bearer | 201 + lobby `gameSetup` |

@@ -62,6 +62,53 @@ func LoadWorldMapImage(ctx context.Context, d *Deps, gameID string) (contentType
 	return contentType, row.Data, nil
 }
 
+// WorldJSONFor returns the game's map JSON, in the same shape POST /api/world answers so the download can be fed
+// straight back into import-world.
+//
+// Only the table owner may take it: the document carries every coordinate and named place of the world, which is DM
+// material, not something a player's browser should be able to fetch.
+func WorldJSONFor(ctx context.Context, d *Deps, uid, gameID string) (payload map[string]interface{}, status int, code, problem string) {
+	gid := strings.TrimSpace(gameID)
+	if gid == "" {
+		return nil, 400, "GAME_ID_REQUIRED", "gameId required"
+	}
+	if d == nil || d.Coll == nil {
+		return nil, 500, "DB_ERROR", "database is not available"
+	}
+	doc, err := gameaccess.AssertGameMember(ctx, d.Coll, uid, gid)
+	if err != nil {
+		st, body := accessErrHTTP(err)
+		message, _ := body["error"].(string)
+		code, _ := body["code"].(string)
+		return nil, st, code, message
+	}
+	if owner := gameaccess.EffectiveGameOwnerIDStr(doc); owner != "" && !strings.EqualFold(owner, strings.TrimSpace(uid)) {
+		return nil, 403, "NOT_OWNER_MAP_JSON", "Only the table owner can download the map"
+	}
+	spec, _ := doc["campaignSpec"].(map[string]interface{})
+	payload = buildWorldJSON(spec)
+	if payload == nil {
+		return nil, 404, "WORLD_JSON_MISSING", "This game has no generated world to download"
+	}
+	return payload, 200, "", ""
+}
+
+// buildWorldJSON puts a stored campaign's world into the map service's answer shape.
+func buildWorldJSON(spec map[string]interface{}) map[string]interface{} {
+	world := mapFrom(spec, "vellarisWorld")
+	if world == nil {
+		return nil
+	}
+	payload := map[string]interface{}{
+		"success": true,
+		"world":   world,
+	}
+	if settings := mapFrom(spec, "vellarisSettings"); settings != nil {
+		payload["settings"] = settings
+	}
+	return payload
+}
+
 // HandleSetMapVisibility shows or hides the physical map for every player at the table.
 //
 // Only the table owner may change it: the map is the DM's screen, and a guest pulling it open or closed mid-scene

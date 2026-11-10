@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/deckofdmthings/gmai/internal/campaignspec"
 	"github.com/deckofdmthings/gmai/internal/config"
 	"github.com/deckofdmthings/gmai/internal/draftparty"
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
@@ -83,6 +82,20 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		language = "English"
 	}
 
+	// The party plays on one map. The first character generated for a game creates the world, and every later
+	// character waits for that world instead of creating another one, so a sheet's homeland is a place the players
+	// can point at on the map they are looking at.
+	persistGameID := ""
+	if gameID != nil {
+		persistGameID = *gameID
+	} else {
+		persistGameID = AllocateNewPartyGameID()
+	}
+	world, worldStatus, worldCode, worldProblem := campaignWorldForCharacter(ctx, d, persistGameID, uidOID, body, language)
+	if worldProblem != "" {
+		return worldStatus, map[string]interface{}{"error": worldProblem, "code": worldCode}
+	}
+
 	setupForPrompt := map[string]interface{}{}
 	for k, v := range gsIn {
 		setupForPrompt[k] = v
@@ -93,17 +106,10 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		campaignSpec, _ = gameRow["campaignSpec"].(map[string]interface{})
 		encounterState, _ = gameRow["encounterState"].(map[string]interface{})
 		if cs, ok := gameRow["campaignSpec"].(map[string]interface{}); ok && cs != nil {
-			wm := map[string]interface{}(nil)
-			if raw, ok := cs["worldMap"].(map[string]interface{}); ok && raw != nil {
-				wm = campaignspec.NormalizeWorldMap(raw)
-			}
 			ecw := map[string]interface{}{
 				"title": cs["title"], "campaignConcept": cs["campaignConcept"],
 				"majorConflicts": cs["majorConflicts"], "toneAndStyle": cs["toneAndStyle"],
 				"factions": cs["factions"], "majorNPCs": cs["majorNPCs"], "keyLocations": cs["keyLocations"],
-			}
-			if wm != nil {
-				ecw["worldMap"] = wm
 			}
 			setupForPrompt["existingCampaignWorld"] = ecw
 		}
@@ -171,6 +177,10 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		sys = append(sys, map[string]string{"role": "system", "content": g})
 	}
 	sys = append(sys, map[string]string{"role": "system", "content": scope})
+	// The map the table plays on: the sheet's homeland and every place it names come from here.
+	if worldBlock := characterWorldSystemBlock(world, 12); worldBlock != "" {
+		sys = append(sys, map[string]string{"role": "system", "content": worldBlock})
+	}
 	langFile := "rules/language_english_character.txt"
 	if strings.HasPrefix(strings.ToLower(language), "span") {
 		langFile = "rules/language_spanish_character.txt"
@@ -270,12 +280,6 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 			_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": *gameID}, bson.M{"$set": bson.M{"rawModelOutput": trunc200k(aiMessage)}}, options.Update().SetUpsert(true))
 		}
 		return 422, map[string]interface{}{"error": errStr, "code": "INVALID_PLAYER_CHARACTER"}
-	}
-	persistGameID := ""
-	if gameID != nil {
-		persistGameID = *gameID
-	} else {
-		persistGameID = AllocateNewPartyGameID()
 	}
 	if err := persistGeneratedCharacter(ctx, d.Coll, hub, persistGameID, userID, uidOID, normalized, language); err != nil {
 		return 500, map[string]interface{}{

@@ -15,6 +15,13 @@ var dmOnlyKeys = map[string]struct{}{
 	"vellarisSettings": {},
 }
 
+// mapMarkerKeys describe the rendered map the table is shown, not the campaign written on it. They stay in the client
+// view (the map control needs them) but never count as campaign content.
+var mapMarkerKeys = map[string]struct{}{
+	"mapImage":      {},
+	"mapImageError": {},
+}
+
 // RedactCampaignSpecForClient removes DM-only keys.
 func RedactCampaignSpecForClient(spec map[string]interface{}) map[string]interface{} {
 	if spec == nil {
@@ -31,12 +38,19 @@ func RedactCampaignSpecForClient(spec map[string]interface{}) map[string]interfa
 }
 
 // HasSubstantiveCampaignSpec mirrors campaignSpecReady.js.
+//
+// The map a game is played on is not the campaign written on it. A character generated before the campaign stores the
+// rendered map (`mapImage`) and its failure reason (`mapImageError`) in campaignSpec, and those markers must not make a
+// game look like it already has a campaign: the lobby start would answer "already started" and never write one.
 func HasSubstantiveCampaignSpec(spec map[string]interface{}) bool {
 	if spec == nil {
 		return false
 	}
 	for k, v := range spec {
 		if _, skip := dmOnlyKeys[k]; skip {
+			continue
+		}
+		if _, skip := mapMarkerKeys[k]; skip {
 			continue
 		}
 		if v == nil {

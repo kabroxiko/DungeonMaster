@@ -47,27 +47,6 @@ a **territory**, not a key location: never return a region name here and never c
 you add is **type** and **significance**, not geography.
 
 {{/hasVellarisRegions}}
-{{^hasVellarisRegions}}
-worldMap:
-  regions:
-    - id: "r1"
-      name: "English region or march name"
-      terrain: "short tag (forest, hills, coast, …)"
-      neighborIds: ["r2", "r3"]
-    - id: "r2"
-      name: "..."
-      terrain: "..."
-      neighborIds: ["r1"]
-  siteLinks:
-    - locationName: "exact same string as one keyLocations[].name"
-      regionId: "r1"
-  startingRegionId: "r1"
-
-**worldMap (required in the same YAML document):** A small **graph** the server and DM AI use for travel and “where things are.” Rules:
-- **regions:** 4–12 items. Each **id** is a short stable token (e.g. `r1`, `north_marches`). **neighborIds** lists **adjacent** regions (overland travel); treat edges as **two-way** even if you list them on one side only. **name** is an **English** fantasy region name (not a real-world city).
-- **siteLinks:** For **each** key location you listed, include one row linking its **name** to the **regionId** where that site mainly sits.
-- **startingRegionId:** One **id** from **regions** where the implied campaign geography is centered (borders / travel hub is fine).
-{{/hasVellarisRegions}}
 
 Each keyLocations item must have:
 {{#hasVellarisPlaces}}
@@ -85,4 +64,5 @@ Each keyLocations item must have:
 - significance (1-2 sentences; use `|` for multiline if needed){{#hasVellarisPlaces}} — what happens at this inhabited
   place (a local problem, a power, a threat); it is not a ruin unless its own name says so{{/hasVellarisPlaces}}
 
-A bare YAML sequence of key-location mappings at the root is **not** enough — **worldMap** must appear as a sibling mapping under the same root as **keyLocations** (or under a single root mapping that includes both), unless the regions were supplied to you above.
+Return a single root mapping whose only key is **keyLocations** — a bare sequence at the root is **not** enough. Never
+emit a `worldMap` block, a region list or neighbours: the geography comes from the map service, not from you.

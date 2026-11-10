@@ -98,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 		// The map image is fetched by an <img> tag, which cannot send an Authorization header, so it accepts the same
 		// access_token query the SSE stream uses.
 		r.Get("/map/{gameId}", s.withAuthBearerOrQuery(s.handleWorldMapImage))
+		r.Get("/map-json/{gameId}", s.withAuthBearer(s.handleWorldMapJSON))
 		r.Patch("/map-visibility", s.withAuthBearer(s.handleMapVisibility))
 		r.Get("/debug/{gameId}/prompts", s.withAuthBearer(s.handleDebugPrompts))
 		r.Post("/create-party", s.withAuthBearer(s.handleCreateParty))

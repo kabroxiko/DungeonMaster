@@ -175,26 +175,6 @@ func TestNormalizeVellarisWorldAcceptsMongoDecodedArrays(t *testing.T) {
 	}
 }
 
-func TestNormalizeWorldMapAcceptsMongoDecodedArrays(t *testing.T) {
-	in := map[string]interface{}{
-		"regions": primitive.A{
-			map[string]interface{}{"id": "r1", "name": "North", "neighborIds": primitive.A{"r2"}},
-			map[string]interface{}{"id": "r2", "name": "South", "neighborIds": primitive.A{"r1"}},
-		},
-	}
-	norm := NormalizeWorldMap(in)
-	if norm == nil {
-		t.Fatal("a stored world map must normalize")
-	}
-	regions := neighborSliceAny(norm["regions"])
-	if len(regions) != 2 {
-		t.Fatalf("regions were lost, got %v", norm["regions"])
-	}
-	if nb := neighborSliceAny(regions[0].(map[string]interface{})["neighborIds"]); len(nb) != 1 || nb[0] != "r2" {
-		t.Fatalf("neighbours were lost, got %v", regions[0])
-	}
-}
-
 func TestPlaceKindNamesWhatTheMapTextIs(t *testing.T) {
 	cases := map[string]string{
 		"City":            "settlement",

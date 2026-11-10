@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -811,6 +812,22 @@ func (s *Server) handleWorldMapImage(w http.ResponseWriter, r *http.Request, uid
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
+}
+
+// handleWorldMapJSON serves the stored world as a JSON download for the table owner.
+func (s *Server) handleWorldMapJSON(w http.ResponseWriter, r *http.Request, uid string) {
+	gid := strings.TrimSpace(chi.URLParam(r, "gameId"))
+	payload, st, code, problem := gamesession.WorldJSONFor(r.Context(), s.GS, uid, gid)
+	if st != http.StatusOK {
+		writeJSONCoded(w, r, st, code, problem)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"map-%s.json\"", gid))
+	w.WriteHeader(http.StatusOK)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(payload)
 }
 
 // handleMapVisibility shows or hides the physical map for every player at the table.

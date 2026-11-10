@@ -117,19 +117,16 @@ func TestKeyLocationsStageUsesTheImportedRegionsWhenPresent(t *testing.T) {
 			t.Fatalf("imported-world variant is missing %q\n---\n%s", want, withWorld)
 		}
 	}
-	if strings.Contains(withWorld, "worldMap (required in the same YAML document)") {
-		t.Fatal("the invented-worldMap instruction should not survive when regions are supplied")
+	if strings.Contains(withWorld, "worldMap:") {
+		t.Fatal("the stage must never ask the model to write a region graph; the map service owns geography")
 	}
 
 	withoutWorld, err := mustache.Render(tpl, map[string]interface{}{"campaignConcept": "a war of salt and silver"})
 	if err != nil {
 		t.Fatalf("rendering without an imported world failed: %v", err)
 	}
-	if !strings.Contains(withoutWorld, "worldMap (required in the same YAML document)") {
-		t.Fatalf("the invented-worldMap path must be unchanged for campaigns with no imported world\n---\n%s", withoutWorld)
-	}
-	if strings.Contains(withoutWorld, "do not output a worldMap block") {
-		t.Fatal("the imported-world instruction leaked into campaigns without a world")
+	if strings.Contains(withoutWorld, "worldMap:") || strings.Contains(withoutWorld, "neighborIds") {
+		t.Fatalf("no variant may ask for an invented region graph\n---\n%s", withoutWorld)
 	}
 }
 
