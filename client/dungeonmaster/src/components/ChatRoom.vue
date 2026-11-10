@@ -430,6 +430,8 @@ export default {
                 inviteToastMessage: '',
                 inviteToastVariant: 'success',
                 inviteToastTimer: null,
+                /** The lobby start notice must not time out; it is hidden when the party phase leaves 'starting'. */
+                lobbyStartingNoticeSticky: false,
                 inviteLoading: false,
                 /** Poll load while server may still be finishing /generate (backup if SSE misses). */
                 pendingReplyPollTimer: null,
@@ -1045,7 +1047,9 @@ export default {
                 immediate: true,
                 handler(ph) {
                     if (ph === 'starting') {
-                        this.showInviteToast(this.$i18n.lobby_starting, 'success', 5600);
+                        /* start-party-adventure answers only once the opening scene is written, so this notice stays
+                         * up until the phase leaves 'starting' instead of timing out mid-wait. */
+                        this.showInviteToast(this.$i18n.lobby_starting, 'success', 0);
                         if (this.lobbyStartingPollTimer) clearInterval(this.lobbyStartingPollTimer);
                         this.lobbyStartingPollTimer = null;
                         /* SSE delivers game-state-updated; poll only if push is down (rare safety). */
@@ -1063,9 +1067,15 @@ export default {
                                 void this.syncFromServer();
                             }
                         }, lobbyPollMs);
-                    } else if (this.lobbyStartingPollTimer) {
-                        clearInterval(this.lobbyStartingPollTimer);
-                        this.lobbyStartingPollTimer = null;
+                    } else {
+                        if (this.lobbyStartingNoticeSticky) {
+                            this.lobbyStartingNoticeSticky = false;
+                            this.hideInviteToast();
+                        }
+                        if (this.lobbyStartingPollTimer) {
+                            clearInterval(this.lobbyStartingPollTimer);
+                            this.lobbyStartingPollTimer = null;
+                        }
                     }
                 },
             },
@@ -1785,6 +1795,10 @@ export default {
                     }
                 }
             },
+            /**
+             * Shows a toast. A positive duration hides it on its own; durationMs = 0 keeps it up until the next toast
+             * or hideInviteToast(), which is what the lobby start uses while the server is still writing the opening.
+             */
             showInviteToast(message, variant = 'success', durationMs = 3200) {
                 if (this.inviteToastTimer) {
                     clearTimeout(this.inviteToastTimer);
@@ -1793,11 +1807,20 @@ export default {
                 this.inviteToastMessage = message;
                 this.inviteToastVariant = variant;
                 this.inviteToastVisible = true;
+                this.lobbyStartingNoticeSticky = durationMs === 0;
+                if (durationMs === 0) return;
                 const ms = typeof durationMs === 'number' && durationMs > 0 ? durationMs : 3200;
                 this.inviteToastTimer = setTimeout(() => {
                     this.inviteToastVisible = false;
                     this.inviteToastTimer = null;
                 }, ms);
+            },
+            hideInviteToast() {
+                if (this.inviteToastTimer) {
+                    clearTimeout(this.inviteToastTimer);
+                    this.inviteToastTimer = null;
+                }
+                this.inviteToastVisible = false;
             },
             flushSessionChatToast() {
                 try {
