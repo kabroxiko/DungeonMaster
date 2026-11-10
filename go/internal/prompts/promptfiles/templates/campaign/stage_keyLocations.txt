@@ -24,7 +24,8 @@ as written — these are the towns, villages and strongholds the players can see
 {{/vellarisPlaces}}
 What follows a name is the map's own description of the ground around it (terrain, coast, river, lake, mountains,
 island). Make each location's **significance** fit that ground — a fishing coast, a river crossing, a mountain pass —
-and never contradict it.
+and never contradict it: a desert settlement has no river or harbour, so give it a well, a cistern or a caravan road
+instead.
 {{/hasVellarisPlaces}}
 
 Because the regions already exist, **do not output a worldMap block at all** — omit it entirely. Instead, tag each key location with the region it sits in:

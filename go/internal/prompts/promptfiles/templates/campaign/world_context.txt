@@ -22,10 +22,11 @@ Build the campaign on this map:
   need by the nearest named place and a local detail ("the shrine a mile outside the nearest town").
 - **Use each name as the kind it is.** A region is a territory: write "in the region of X", never "the city of X" or
   "the market of X". Only settlements have streets, gates, markets and docks. Lakes, rivers and mountains are landforms.
-- **Surroundings are part of the ground.** What follows a place's name is the map's own description of the terrain it
-  stands in, the terrain bordering it, and whether the coast, a river, a lake, mountains or an island are at hand. Let
-  that decide what a place can grow, mine, fish or trade and where a faction would sit; never describe a coastal place
-  as inland, or put woods around a place the map reports as open plains.
-- Do not invent a region, coastline or mountain range. A settlement the campaign needs but this block lacks does not
-  exist; keep anything new small and local, inside one of the named regions.
+- **Surroundings and terrain are the ground itself.** Every region names the terrain most of its land is, and every
+  place names the ground around it (terrain, bordering terrain, coast, river, lake, mountains, island). Let that decide
+  what a region can grow, mine, fish or trade and where a faction would sit. Terrain forbids features, it does not just
+  suggest them: a region or place reported as **desert** has no river, stream or woods, and an inland place has no
+  harbour — describe wells, cisterns, dry wadis or caravan roads instead. Never contradict the block.
+- Do not invent a region, river, coastline or mountain range. A settlement the campaign needs but this block lacks does
+  not exist; keep anything new small and local, inside one of the named regions.
 - Never rename, translate or respell a name from this block.

@@ -16,7 +16,7 @@ geography this character sheet may use.
   the terrain bordering it, and whether the coast, a river, a lake, mountains or an island are at hand. A character
   raised on the coast knows boats and tides; one from a river town knows floods and ferries; one from the mountains
   knows snow and thin air; one from an island has never walked to the next town. Use what the place reports and never
-  contradict it.
+  contradict it: a desert homeland has no river, woods or harbour, so give it wells, cisterns or caravan roads instead.
 - **If the story needs somewhere unnamed**, describe it relative to a named place — "a farmstead an hour outside
   <place>", "a shrine up the valley from <place>" — instead of inventing a proper name.
 - **Do not add geography.** No countries, coastlines, islands, roads or mountain ranges beyond the ones listed, and no
