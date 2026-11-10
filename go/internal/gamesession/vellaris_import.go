@@ -30,7 +30,7 @@ func HandleImportVellarisWorld(ctx context.Context, d *Deps, uid string, body ma
 		return st, payload
 	}
 
-	world, settings, problem := vellarisWorldFromRequest(ctx, d, body)
+	world, settings, problem := vellarisWorldFromRequest(ctx, d, body, resolveCampaignLanguage(ctx, d, gameID, strParam(body, "language")))
 	if problem != "" {
 		return 400, map[string]interface{}{"error": problem, "code": "VELLARIS_WORLD_MISSING"}
 	}
@@ -84,8 +84,9 @@ func HandleImportVellarisWorld(ctx context.Context, d *Deps, uid string, body ma
 // vellarisWorldFromRequest pulls a world out of the request, either as supplied or by generating it.
 //
 // Returns the world map, the settings to keep for later route lookups (may be nil), and a problem description
-// that is empty on success.
-func vellarisWorldFromRequest(ctx context.Context, d *Deps, body map[string]interface{}) (map[string]interface{}, map[string]interface{}, string) {
+// that is empty on success. language is the game's language: a world generated here is named in it, so the map the
+// players are shown speaks the same language as the campaign.
+func vellarisWorldFromRequest(ctx context.Context, d *Deps, body map[string]interface{}, language string) (map[string]interface{}, map[string]interface{}, string) {
 	if raw, ok := body["world"].(map[string]interface{}); ok && raw != nil {
 		// Accept the full POST /api/world answer as well as its inner "world" object, so a caller can forward
 		// what the map service returned without reshaping it.
@@ -107,6 +108,7 @@ func vellarisWorldFromRequest(ctx context.Context, d *Deps, body map[string]inte
 	if d == nil || d.Cfg == nil || strings.TrimSpace(d.Cfg.VellarisURL) == "" {
 		return nil, nil, "no map service is configured (set DM_VELLARIS_URL), so send the world directly"
 	}
+	settings = withCampaignLanguage(settings, language)
 
 	answer, err := vellaris.New(d.Cfg.VellarisURL).World(ctx, settings)
 	if err != nil {

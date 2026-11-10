@@ -8,24 +8,33 @@ import (
 
 // Config mirrors env.example in the repository root.
 type Config struct {
-	Port            string
-	BindHost        string
-	MongoURI        string
-	JWTSecret       string
-	FrontendURL     string
-	PublicURL       string
-	GoogleClientID  string
-	NodeEnv         string
-	OpenAIModel     string
-	UseLMStudio     bool
-	LMStudioURL     string
-	LMStudioModel   string
+	Port           string
+	BindHost       string
+	MongoURI       string
+	JWTSecret      string
+	FrontendURL    string
+	PublicURL      string
+	GoogleClientID string
+	NodeEnv        string
+	OpenAIModel    string
+	UseLMStudio    bool
+	LMStudioURL    string
+	LMStudioModel  string
+	// DeepSeek speaks the OpenAI chat-completions protocol, so DM_USE_DEEPSEEK only changes where calls go.
+	UseDeepSeek     bool
+	DeepSeekURL     string
+	DeepSeekModel   string
+	DeepSeekAPIKey  string
 	TrustProxy      string
 	ModelContextTok int
 	OpenAIAPIKey    string
 	// VellarisURL is the base URL of the Vellaris map service (set DM_VELLARIS_URL). Empty disables importing a
 	// world from settings and on-demand route lookups; a campaign can still be given a world directly.
 	VellarisURL string
+	// VellarisSettingsFile is the map settings document behind a campaign's generated world (set
+	// DM_VELLARIS_SETTINGS_FILE). The server copies the document and gives each campaign a fresh seed, so the file
+	// describes the kind of map (size, art pack, probabilities) rather than one fixed world.
+	VellarisSettingsFile string
 	// DebugLLM enables verbose stderr logs for every LLM request/response in full (set DM_DEBUG_LLM=true). Use only in development.
 	DebugLLM bool
 	// DebugCharacterFlow logs preview-name / generate-character gameSetup summaries (set DM_DEBUG_CHARACTER_FLOW=true). Use only in development.
@@ -74,23 +83,28 @@ func TruthyEnv(key string) bool {
 // Load reads process environment.
 func Load() *Config {
 	c := &Config{
-		Port:            getenv("PORT", "5001"),
-		BindHost:        strings.TrimSpace(os.Getenv("DM_BIND_HOST")),
-		MongoURI:        getenv("DM_MONGODB_URI", ""),
-		JWTSecret:       getenv("DM_JWT_SECRET", ""),
-		FrontendURL:     strings.TrimRight(getenv("DM_FRONTEND_URL", "http://localhost:8080"), "/"),
-		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("DM_PUBLIC_URL")), "/"),
-		GoogleClientID:  strings.TrimSpace(os.Getenv("DM_GOOGLE_CLIENT_ID")),
-		NodeEnv:         getenv("NODE_ENV", ""),
-		OpenAIModel:     getenv("DM_OPENAI_MODEL", "gpt-3.5-turbo"),
-		UseLMStudio:     TruthyEnv("DM_USE_LM_STUDIO"),
-		LMStudioURL:     getenv("DM_LM_STUDIO_URL", "http://localhost:1234"),
+		Port:           getenv("PORT", "5001"),
+		BindHost:       strings.TrimSpace(os.Getenv("DM_BIND_HOST")),
+		MongoURI:       getenv("DM_MONGODB_URI", ""),
+		JWTSecret:      getenv("DM_JWT_SECRET", ""),
+		FrontendURL:    strings.TrimRight(getenv("DM_FRONTEND_URL", "http://localhost:8080"), "/"),
+		PublicURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("DM_PUBLIC_URL")), "/"),
+		GoogleClientID: strings.TrimSpace(os.Getenv("DM_GOOGLE_CLIENT_ID")),
+		NodeEnv:        getenv("NODE_ENV", ""),
+		OpenAIModel:    getenv("DM_OPENAI_MODEL", "gpt-3.5-turbo"),
+		UseLMStudio:    TruthyEnv("DM_USE_LM_STUDIO"),
+		LMStudioURL:    getenv("DM_LM_STUDIO_URL", "http://localhost:1234"),
 		// Local LM Studio model id only — do not default to gpt-3.5-turbo (invalid on LM Studio). Set DM_LM_STUDIO_MODEL when DM_USE_LM_STUDIO=true.
-		LMStudioModel:   strings.TrimSpace(os.Getenv("DM_LM_STUDIO_MODEL")),
-		TrustProxy:      strings.TrimSpace(os.Getenv("DM_TRUST_PROXY")),
-		ModelContextTok: getenvInt("DM_MODEL_CONTEXT_TOKENS", 16384),
-		OpenAIAPIKey:    strings.TrimSpace(os.Getenv("DM_OPENAI_API_KEY")),
-		VellarisURL:     strings.TrimRight(getenv("DM_VELLARIS_URL", ""), "/"),
+		LMStudioModel:            strings.TrimSpace(os.Getenv("DM_LM_STUDIO_MODEL")),
+		UseDeepSeek:              TruthyEnv("DM_USE_DEEPSEEK"),
+		DeepSeekURL:              getenv("DM_DEEPSEEK_URL", "https://api.deepseek.com"),
+		DeepSeekModel:            strings.TrimSpace(os.Getenv("DM_DEEPSEEK_MODEL")),
+		DeepSeekAPIKey:           strings.TrimSpace(os.Getenv("DM_DEEPSEEK_API_KEY")),
+		TrustProxy:               strings.TrimSpace(os.Getenv("DM_TRUST_PROXY")),
+		ModelContextTok:          getenvInt("DM_MODEL_CONTEXT_TOKENS", 16384),
+		OpenAIAPIKey:             strings.TrimSpace(os.Getenv("DM_OPENAI_API_KEY")),
+		VellarisURL:              strings.TrimRight(getenv("DM_VELLARIS_URL", ""), "/"),
+		VellarisSettingsFile:     getenv("DM_VELLARIS_SETTINGS_FILE", "assets/world-settings.json"),
 		DebugLLM:                 TruthyEnv("DM_DEBUG_LLM"),
 		DebugCharacterFlow:       TruthyEnv("DM_DEBUG_CHARACTER_FLOW"),
 		HTTPShutdownGraceSeconds: getenvInt("DM_HTTP_SHUTDOWN_GRACE_SECONDS", 5),

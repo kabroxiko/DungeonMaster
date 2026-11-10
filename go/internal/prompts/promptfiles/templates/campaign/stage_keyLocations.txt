@@ -16,15 +16,35 @@ keyLocations:
 - id: "{{id}}" — {{name}}{{#terrain}} ({{terrain}}){{/terrain}}
 {{/vellarisRegions}}
 
+{{#hasVellarisPlaces}}
+The map already has these settlements. **Every key location must be one of them**, and the name must be copied exactly
+as written — these are the towns, villages and strongholds the players can see on their map:
+{{#vellarisPlaces}}
+- "{{name}}" ({{kind}})
+{{/vellarisPlaces}}
+{{/hasVellarisPlaces}}
+
 Because the regions already exist, **do not output a worldMap block at all** — omit it entirely. Instead, tag each key location with the region it sits in:
 
 keyLocations:
-  - name: "English fantasy place name"
+{{#hasVellarisPlaces}}
+  - name: "<one of the place names listed above, copied exactly>"
+{{/hasVellarisPlaces}}
+{{^hasVellarisPlaces}}
+  - name: "<a name for a place inside this world>"
+{{/hasVellarisPlaces}}
+{{#hasVellarisPlaces}}
+    type: "settlement"
+{{/hasVellarisPlaces}}
+{{^hasVellarisPlaces}}
     type: "settlement | ruin | temple | wilderness | ..."
+{{/hasVellarisPlaces}}
     significance: "1-2 sentences"
     regionId: "<one of the ids listed above>"
 
-Never invent a region, and never rename, translate or invent neighbours for the ones listed. The place **name** is new and local; the region it belongs to is fixed.
+Never invent a region or a place name, and never rename, translate or invent neighbours for the ones listed. A region is
+a **territory**, not a key location: never return a region name here and never call one a city or a market town. What
+you add is **type** and **significance**, not geography.
 
 {{/hasVellarisRegions}}
 {{^hasVellarisRegions}}
@@ -50,8 +70,19 @@ worldMap:
 {{/hasVellarisRegions}}
 
 Each keyLocations item must have:
+{{#hasVellarisPlaces}}
+- name (string) — **exactly one of the settlement names listed above**, copied character for character
+{{/hasVellarisPlaces}}
+{{^hasVellarisPlaces}}
 - name (string) — **English** fantasy place name (evocative or invented toponym; not real mundane city names), even when **type** / **significance** follow the **session language policy** (system message); vary geography and metaphor across locations
+{{/hasVellarisPlaces}}
+{{^hasVellarisPlaces}}
 - type (string) — short type label (settlement, ruin, temple, wilderness, …)
-- significance (1-2 sentences; use `|` for multiline if needed)
+{{/hasVellarisPlaces}}
+{{#hasVellarisPlaces}}
+- type (string) — always "settlement": the name you copy is a town, village or stronghold on the map
+{{/hasVellarisPlaces}}
+- significance (1-2 sentences; use `|` for multiline if needed){{#hasVellarisPlaces}} — what happens at this inhabited
+  place (a local problem, a power, a threat); it is not a ruin unless its own name says so{{/hasVellarisPlaces}}
 
 A bare YAML sequence of key-location mappings at the root is **not** enough — **worldMap** must appear as a sibling mapping under the same root as **keyLocations** (or under a single root mapping that includes both), unless the regions were supplied to you above.

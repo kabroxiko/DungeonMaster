@@ -22,10 +22,10 @@ import (
 
 // Server is the HTTP API (Node httpApp + routes).
 type Server struct {
-	Cfg  *config.Config
-	DB   *mongo.Database
-	Hub  *realtime.Hub
-	GS   *gamesession.Deps
+	Cfg *config.Config
+	DB  *mongo.Database
+	Hub *realtime.Hub
+	GS  *gamesession.Deps
 }
 
 func (s *Server) coll() *mongo.Collection {
@@ -95,6 +95,10 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/events/{gameId}", s.handleSSE)
 		r.Get("/ws/{gameId}", s.handleGameStateWS)
 		r.Get("/load/{gameId}", s.withAuthBearer(s.handleLoad))
+		// The map image is fetched by an <img> tag, which cannot send an Authorization header, so it accepts the same
+		// access_token query the SSE stream uses.
+		r.Get("/map/{gameId}", s.withAuthBearerOrQuery(s.handleWorldMapImage))
+		r.Patch("/map-visibility", s.withAuthBearer(s.handleMapVisibility))
 		r.Get("/debug/{gameId}/prompts", s.withAuthBearer(s.handleDebugPrompts))
 		r.Post("/create-party", s.withAuthBearer(s.handleCreateParty))
 		r.Post("/party-ready", s.withAuthBearer(s.handlePartyReady))
@@ -194,12 +198,12 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 	picture := fmt.Sprint(payload.Claims["picture"])
 
 	var u struct {
-		ID       primitive.ObjectID `bson:"_id"`
-		GoogleSub string            `bson:"googleSub"`
-		Email    string              `bson:"email"`
-		Name     string              `bson:"name"`
-		Picture  string              `bson:"picture"`
-		Nickname string              `bson:"nickname"`
+		ID        primitive.ObjectID `bson:"_id"`
+		GoogleSub string             `bson:"googleSub"`
+		Email     string             `bson:"email"`
+		Name      string             `bson:"name"`
+		Picture   string             `bson:"picture"`
+		Nickname  string             `bson:"nickname"`
 	}
 	err = s.users().FindOne(ctx, bson.M{"googleSub": sub}).Decode(&u)
 	if err == mongo.ErrNoDocuments {
@@ -241,8 +245,8 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"token": tok,
 		"user": map[string]interface{}{
-			"_id":       u.ID.Hex(),
-			"picture":   u.Picture,
+			"_id":      u.ID.Hex(),
+			"picture":  u.Picture,
 			"nickname": strings.TrimSpace(u.Nickname),
 		},
 	})

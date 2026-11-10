@@ -27,7 +27,7 @@ func CoerceCampaignStageToArray(stage string, parsed interface{}) []interface{} 
 		}
 		p = data
 	}
-	if arr, ok := p.([]interface{}); ok {
+	if arr := SliceValues(p); arr != nil {
 		return filterNonNil(arr)
 	}
 	m, ok := p.(map[string]interface{})
@@ -51,8 +51,8 @@ func CoerceCampaignStageToArray(stage string, parsed interface{}) []interface{} 
 	}
 	var objectArrays [][]interface{}
 	for _, v := range m {
-		arr, ok := v.([]interface{})
-		if !ok || len(arr) == 0 {
+		arr := SliceValues(v)
+		if len(arr) == 0 {
 			continue
 		}
 		if _, ok := arr[0].(map[string]interface{}); ok {
@@ -124,7 +124,7 @@ func asObjectArray(val interface{}) []interface{} {
 	if val == nil {
 		return nil
 	}
-	if arr, ok := val.([]interface{}); ok {
+	if arr := SliceValues(val); arr != nil {
 		return arr
 	}
 	m, ok := val.(map[string]interface{})

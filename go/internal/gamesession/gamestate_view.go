@@ -8,6 +8,7 @@ import (
 
 	"github.com/deckofdmthings/gmai/internal/campaignspec"
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
+	"github.com/deckofdmthings/gmai/internal/llm"
 	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/validate"
 )
@@ -97,15 +98,15 @@ func GameStateSummaryForMineList(o map[string]interface{}, viewerUserIDStr strin
 		createdAt = id.Timestamp().UTC().Format(time.RFC3339Nano)
 	}
 	return map[string]interface{}{
-		"gameId":          gameID,
-		"campaignTitle":   title,
-		"partyPhase":      ph,
-		"language":        lang,
-		"memberCount":     memberCount,
-		"messageCount":    msgCount,
-		"viewerIsOwner":   ownerStr == viewerUserIDStr,
-		"hasCampaign":     campaignspec.HasSubstantiveCampaignSpec(spec),
-		"createdAt":       createdAt,
+		"gameId":        gameID,
+		"campaignTitle": title,
+		"partyPhase":    ph,
+		"language":      lang,
+		"memberCount":   memberCount,
+		"messageCount":  msgCount,
+		"viewerIsOwner": ownerStr == viewerUserIDStr,
+		"hasCampaign":   campaignspec.HasSubstantiveCampaignSpec(spec),
+		"createdAt":     createdAt,
 	}
 }
 
@@ -134,7 +135,7 @@ func TakeCampaignFieldItems(field interface{}, n int) []interface{} {
 	if field == nil {
 		return nil
 	}
-	if arr, ok := field.([]interface{}); ok {
+	if arr := llm.SliceValues(field); arr != nil {
 		if len(arr) > n {
 			return arr[:n]
 		}

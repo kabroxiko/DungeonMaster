@@ -2,6 +2,7 @@ package campaignspec
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -14,7 +15,7 @@ func NormalizeWorldMap(in map[string]interface{}) map[string]interface{} {
 	if in == nil || len(in) == 0 {
 		return nil
 	}
-	regsRaw, _ := in["regions"].([]interface{})
+	regsRaw := neighborSliceAny(in["regions"])
 	if len(regsRaw) == 0 {
 		return nil
 	}
@@ -94,7 +95,7 @@ func NormalizeWorldMap(in map[string]interface{}) map[string]interface{} {
 		}
 		rm["neighborIds"] = clean
 	}
-	linksRaw, _ := in["siteLinks"].([]interface{})
+	linksRaw := neighborSliceAny(in["siteLinks"])
 	var siteLinks []interface{}
 	for _, raw := range linksRaw {
 		if len(siteLinks) >= worldMapMaxSiteLinks {
@@ -155,41 +156,36 @@ func neighborIDsList(v interface{}) []interface{} {
 		seen[s] = struct{}{}
 		out = append(out, s)
 	}
-	switch x := v.(type) {
-	case []interface{}:
-		for _, el := range x {
-			appendStr(stringFrom(el))
-			if len(out) >= 12 {
-				break
-			}
+	for _, el := range neighborSliceAny(v) {
+		appendStr(stringFrom(el))
+		if len(out) >= 12 {
+			break
 		}
-		return out
-	case []string:
-		for _, s := range x {
-			appendStr(s)
-			if len(out) >= 12 {
-				break
-			}
-		}
-		return out
-	default:
-		return nil
 	}
+	return out
 }
 
+// neighborSliceAny returns v as []interface{} for any slice type.
+//
+// MongoDB decodes arrays into primitive.A, which is a named slice type and therefore does not match a
+// `case []interface{}` type switch. Code that reads a stored campaign document must not assume the plain type: doing so
+// silently yields "no regions, no places", and the world block disappears from every prompt.
 func neighborSliceAny(v interface{}) []interface{} {
-	switch x := v.(type) {
-	case []interface{}:
-		return x
-	case []string:
-		out := make([]interface{}, len(x))
-		for i, s := range x {
-			out[i] = s
-		}
-		return out
-	default:
+	if v == nil {
 		return nil
 	}
+	if list, ok := v.([]interface{}); ok {
+		return list
+	}
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Slice {
+		return nil
+	}
+	out := make([]interface{}, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		out[i] = rv.Index(i).Interface()
+	}
+	return out
 }
 
 func stringFrom(v interface{}) string {

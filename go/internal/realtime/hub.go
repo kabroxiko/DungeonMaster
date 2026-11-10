@@ -150,10 +150,29 @@ func (h *Hub) NotifyGameStateUpdated(gameID string) {
 func (h *Hub) flushNotify(gid string) {
 	h.mu.Lock()
 	delete(h.debounce, gid)
-	payloadBytes, _ := json.Marshal(map[string]string{"type": "game-state-updated", "gameId": gid})
+	h.mu.Unlock()
+	h.broadcast(gid, map[string]interface{}{"type": "game-state-updated", "gameId": gid})
+}
+
+// NotifyWorldMapVisibility tells every client in a game that the physical map was shown or hidden.
+//
+// Unlike a game-state notification this is sent immediately and carries the value, because it is a direct action on
+// the shared screen: clients apply it without waiting for a state reload, which a busy client can skip.
+func (h *Hub) NotifyWorldMapVisibility(gameID string, visible bool) {
+	gid := trim(gameID)
+	if gid == "" {
+		return
+	}
+	h.broadcast(gid, map[string]interface{}{"type": "world-map-visibility", "gameId": gid, "visible": visible})
+}
+
+// broadcast writes one payload to every SSE and WebSocket client watching the game.
+func (h *Hub) broadcast(gid string, payloadMap map[string]interface{}) {
+	payloadBytes, _ := json.Marshal(payloadMap)
 	payload := string(payloadBytes)
 	line := "event: message\ndata: " + payload + "\n\n"
 
+	h.mu.Lock()
 	sseBuckets := h.sseByGame[gid]
 	var sseCopy []*sseClient
 	for c := range sseBuckets {

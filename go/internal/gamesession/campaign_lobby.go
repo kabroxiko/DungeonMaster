@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -31,6 +32,8 @@ type LobbyCampaignOutcome struct {
 	Raw      string
 	Detail   string
 	Combined map[string]interface{}
+	// MapImageWarning describes why the rendered map could not be stored; the campaign itself still succeeded.
+	MapImageWarning string
 }
 
 func normalizeCreativeSeed(raw map[string]interface{}) map[string]interface{} {
@@ -76,8 +79,8 @@ func normalizeCreativeSeed(raw map[string]interface{}) map[string]interface{} {
 		}
 	}
 	out := map[string]interface{}{
-		"titleMood":                       titleMood,
-		"preferAngles":                    prefer,
+		"titleMood":                         titleMood,
+		"preferAngles":                      prefer,
 		"avoidRepeatedFantasyTropesThisRun": avoid,
 	}
 	if namingNote != "" {
@@ -153,13 +156,11 @@ func persistCreativeSeedToGameState(ctx context.Context, coll *mongo.Collection,
 }
 
 func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, language, hostPremise string, persist bool) (ok bool, seed map[string]interface{}, raw string, code string) {
-	hostPremiseTrim := ""
-	if hostPremise != "" {
-		if len(hostPremise) > 2000 {
-			hostPremiseTrim = strings.TrimSpace(hostPremise)[:2000]
-		} else {
-			hostPremiseTrim = strings.TrimSpace(hostPremise)
-		}
+	hostPremiseTrim := strings.TrimSpace(hostPremise)
+	// Cap after trimming, on the value that is actually sliced: guarding on the untrimmed length panicked whenever
+	// whitespace made the trimmed text shorter than the cap.
+	if r := []rune(hostPremiseTrim); len(r) > 2000 {
+		hostPremiseTrim = string(r[:2000])
 	}
 	tpl := promptmgr.LoadPrompt("templates/campaign/stage_creativeSeed.txt")
 	if strings.TrimSpace(tpl) == "" {
@@ -177,19 +178,19 @@ func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, lan
 		map[string]interface{}{"role": "system", "content": consolidated},
 		map[string]interface{}{"role": "user", "content": userPrompt},
 	}
+	// Budgets here cover hidden reasoning tokens as well as the document itself: a reasoning model spends roughly
+	// 300-800 of them per stage, and the reply is cut off (finish_reason "length") if the total is too small.
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens": 550, "temperature": 0.95, "gameId": gameID,
+		"max_tokens": 2000, "temperature": 0.95, "gameId": gameID,
 	})
 	if err != nil || aiMessage == "" {
 		return false, nil, "", "CAMPAIGN_STAGE_CREATIVE_SEED_EMPTY"
 	}
 	parsedObj, ok := llm.ParseModelStructuredObject(aiMessage)
 	if !ok || parsedObj == nil {
-		if persist && gameID != "" {
-			_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-				"rawModelOutput": trunc200k(aiMessage),
-			}}, options.Update().SetUpsert(true))
-		}
+		// Keep the reply even when the caller did not ask for the seed to be stored: a parse failure is exactly
+		// when the text matters, and dropping it turns the error into an unanswerable "failed to parse".
+		persistStageFailureRaw(ctx, d, gameID, aiMessage)
 		return false, nil, aiMessage, "CAMPAIGN_STAGE_CREATIVE_SEED_PARSE"
 	}
 	rawSeed, _ := parsedObj["creativeSeed"].(map[string]interface{})
@@ -199,14 +200,21 @@ func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, lan
 		norm = normalizeCreativeSeed(rawSeed)
 	}
 	if !campaignspec.CreativeSeedIsUsable(norm) {
-		if persist && gameID != "" {
-			_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-				"rawModelOutput": trunc200k(aiMessage),
-			}}, options.Update().SetUpsert(true))
-		}
+		persistStageFailureRaw(ctx, d, gameID, aiMessage)
 		return false, nil, aiMessage, "CAMPAIGN_STAGE_CREATIVE_SEED_INVALID"
 	}
 	return true, norm, aiMessage, ""
+}
+
+// persistStageFailureRaw keeps the model reply that a campaign stage could not use, so the next failure can be
+// read instead of guessed at. Successes are persisted by their own paths; failures are always kept.
+func persistStageFailureRaw(ctx context.Context, d *Deps, gameID, raw string) {
+	if d == nil || d.Coll == nil || strings.TrimSpace(gameID) == "" || raw == "" {
+		return
+	}
+	_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
+		"rawModelOutput": trunc200k(raw),
+	}}, options.Update().SetUpsert(true))
 }
 
 func trunc200k(s string) string {
@@ -241,17 +249,24 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 		}
 	}
 	var userPrompt string
+	// Every stage is written on the campaign's map. Stages that name places (all of them can) are given the world's
+	// own vocabulary, so the story cannot drift onto an invented map while the players look at the real one.
+	world := vellarisPromptWorld(ctx, d, gameID)
 	if tpl != "" {
 		data := map[string]interface{}{
 			"campaignConcept": conceptText,
 			"language":        language,
 		}
-		// When the campaign was built on a generated world, hand the keyLocations stage the real regions so it
-		// places its locations inside them instead of inventing a competing map.
-		if stage == "keyLocations" {
-			if regions := vellarisRegionOptions(ctx, d, gameID); len(regions) > 0 {
+		if world != nil {
+			if regions, _ := world["regions"].([]interface{}); len(regions) > 0 {
 				data["hasVellarisRegions"] = true
 				data["vellarisRegions"] = regions
+			}
+			// Key locations are places the party travels to, so only settlements are candidates — a region is a
+			// territory and a lake is water.
+			if places := campaignspec.SettlementPlaces(world); len(places) > 0 {
+				data["hasVellarisPlaces"] = true
+				data["vellarisPlaces"] = places
 			}
 		}
 		userPrompt, _ = mustache.Render(tpl, data)
@@ -265,13 +280,21 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 		}
 	}
 	consolidated := promptmgr.ConsolidateSystemMessages(promptmgr.BuildCampaignStageSystemMsgs(language))
+	maxWorldPlaces := 12
+	if stage == "keyLocations" {
+		// The user message already carries the exact region and place lists.
+		maxWorldPlaces = -1
+	}
+	if block := campaignWorldSystemBlock(world, maxWorldPlaces); block != "" {
+		consolidated = block + "\n\n" + consolidated
+	}
 	msgs := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
 		map[string]interface{}{"role": "user", "content": userPrompt},
 	}
-	maxTok := 800
+	maxTok := 2000
 	if stage == "keyLocations" {
-		maxTok = 1400
+		maxTok = 3000
 	}
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
 		"max_tokens": maxTok, "temperature": 0.8, "gameId": gameID,
@@ -287,6 +310,15 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 		return false
 	}
 	coerced := llm.CoerceCampaignStageToArray(stage, data)
+	if stage == "keyLocations" && world != nil {
+		// The map owns place names. Anything the model invented or reused becomes a real map name here, so a
+		// location the players are told about is always a place they can point at.
+		aligned, renamed := campaignspec.AlignKeyLocationsToWorld(coerced, world)
+		if renamed > 0 {
+			log.Printf("keyLocations: replaced %d place name(s) missing from the map (gameId=%s)", renamed, gameID)
+		}
+		coerced = aligned
+	}
 	if stage == "majorNPCs" && len(coerced) > 0 {
 		coerced = validate.DedupeMajorNpcNamesBySuffix(coerced)
 	}
@@ -339,6 +371,7 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 	if len(locs) == 0 {
 		return false
 	}
+	world := campaignspec.NormalizeVellarisWorld(mapFrom(spec, "vellarisWorld"))
 	compact := map[string]interface{}{
 		"title":           spec["title"],
 		"campaignConcept": spec["campaignConcept"],
@@ -352,6 +385,10 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 		if norm := campaignspec.NormalizeWorldMap(wm); norm != nil {
 			compact["worldMap"] = norm
 		}
+	}
+	// The opening directive may only name places the players can find on their map.
+	if names := campaignspec.PlaceNames(world, 20); len(names) > 0 {
+		compact["mapPlaceNames"] = names
 	}
 	campaignContextJSON := "{}"
 	if b, err := json.Marshal(compact); err == nil {
@@ -373,14 +410,27 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 		return false
 	}
 	consolidated := promptmgr.ConsolidateSystemMessages(promptmgr.BuildCampaignStageSystemMsgs(language))
+	if block := campaignWorldSystemBlock(world, 12); block != "" {
+		consolidated = block + "\n\n" + consolidated
+	}
 	msgs := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
 		map[string]interface{}{"role": "user", "content": userPrompt},
 	}
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens": 900, "temperature": 0.92, "gameId": gameID,
+		"max_tokens": 3000, "temperature": 0.92, "gameId": gameID,
 	})
 	if err != nil || aiMessage == "" {
+		// Returning false silently is what made this stage impossible to diagnose: the reason reached neither the
+		// caller nor the database.
+		reason := errString(err)
+		if reason == "" {
+			reason = "the model returned no text"
+		}
+		log.Printf("opening scene frame stage failed: %s", reason)
+		_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
+			"lastStageError": "opening scene frame: " + trunc200k(reason),
+		}}, options.Update().SetUpsert(true))
 		return false
 	}
 	parsedObj, ok := llm.ParseModelStructuredObject(aiMessage)
@@ -403,10 +453,7 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 		}}, options.Update().SetUpsert(true))
 		return false
 	}
-	idStr := "campaign_opening"
-	if s, ok := frame["id"].(string); ok && strings.TrimSpace(s) != "" {
-		idStr = sanitizeOpeningFrameID(strings.TrimSpace(s)[:48])
-	}
+	idStr := openingFrameID(frame)
 	directive := strings.TrimSpace(fmt.Sprint(frame["directive"]))
 	if len(directive) > 4000 {
 		directive = directive[:4000]
@@ -420,6 +467,25 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 	}
 	_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
 	return true
+}
+
+// openingFrameID turns whatever the model put in "id" into a stable identifier.
+//
+// The id is model output, so it can be anything: missing, a number, or a short token. Any length is acceptable -
+// sanitizeOpeningFrameID caps it - which is why nothing here slices to a fixed width.
+func openingFrameID(frame map[string]interface{}) string {
+	if frame == nil {
+		return "campaign_opening"
+	}
+	s, ok := frame["id"]
+	if !ok || s == nil {
+		return "campaign_opening"
+	}
+	trimmed := strings.TrimSpace(fmt.Sprint(s))
+	if trimmed == "" || trimmed == "<nil>" {
+		return "campaign_opening"
+	}
+	return sanitizeOpeningFrameID(trimmed)
 }
 
 func sanitizeOpeningFrameID(s string) string {
@@ -459,6 +525,18 @@ func runStageWithTimeout(ctx context.Context, d time.Duration, fn func(context.C
 	defer cancel()
 	ch := make(chan bool, 1)
 	go func() {
+		// A panic in here would otherwise take the whole API down: Go cannot recover a panic in another goroutine
+		// from the caller. Model output reaches this code, so a bad slice or type assertion is a plausible stage
+		// failure - it must stay one, not become a process exit.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("campaign stage panicked: %v\n%s", r, debug.Stack())
+				select {
+				case ch <- false:
+				case <-cctx.Done():
+				}
+			}
+		}()
 		r := fn(cctx)
 		select {
 		case ch <- r:
@@ -474,7 +552,10 @@ func runStageWithTimeout(ctx context.Context, d time.Duration, fn func(context.C
 }
 
 // RunLobbyCampaignCoreWithStages mirrors server runLobbyCampaignCoreWithStages.
-func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, language, hostPremise, actingUserID string) LobbyCampaignOutcome {
+//
+// worldSettings is the map-settings document the lobby's campaign world should be generated from; an empty value falls
+// back to the server's configured settings file. A game that already carries a world ignores it.
+func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, language, hostPremise, actingUserID string, worldSettings map[string]interface{}) LobbyCampaignOutcome {
 	if _, err := gameaccess.AssertGameMember(ctx, d.Coll, actingUserID, gameID); err != nil {
 		st := 403
 		if err == gameaccess.ErrGameNotFound {
@@ -490,6 +571,20 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	if len(hostPremiseTrim) > 2000 {
 		hostPremiseTrim = hostPremiseTrim[:2000]
 	}
+
+	// The party's adventure is written on a world that already exists, so the map comes first and its image is
+	// rendered while the campaign text is being generated.
+	worldBody := map[string]interface{}{}
+	if worldSettings != nil {
+		worldBody["worldSettings"] = worldSettings
+	}
+	world, worldMapCh, st, code, problem := prepareCampaignWorld(ctx, d, gameID, worldBody, language)
+	if problem != "" {
+		return LobbyCampaignOutcome{OK: false, Status: st, Error: problem, Code: code}
+	}
+	worldContext := renderCampaignWorldContext(world.World)
+	worldData := campaignWorldTemplateData(world.World)
+	worldMapCtx := context.WithoutCancel(ctx)
 
 	seedRaceMs := resolveCreativeSeedRaceTimeout()
 	seedCtx, cancelSeed := context.WithTimeout(ctx, seedRaceMs)
@@ -541,7 +636,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}
 		creativeJSON = s
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON)
+	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON, worldContext, worldData)
 	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
 	userPromptRendered, err := mustache.Render(userTemplate, map[string]interface{}{
 		"sessionSummary":   "",
@@ -563,7 +658,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}}, options.Update().SetUpsert(true))
 	}
 	aiCore, err := llm.GenerateResponse(ctx, d.Cfg, outbound, map[string]interface{}{
-		"max_tokens": 1000, "temperature": 0.8, "gameId": gameID,
+		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID,
 	})
 	if err != nil || aiCore == "" {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "AI response empty", Code: "CAMPAIGN_CORE_EMPTY", Detail: errString(err)}
@@ -611,7 +706,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: err.Error(), Code: "CAMPAIGN_PIPELINE_EXCEPTION"}
 	}
 	_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
-	return LobbyCampaignOutcome{OK: true, Combined: combined}
+	return LobbyCampaignOutcome{OK: true, Combined: combined, MapImageWarning: finishCampaignWorldMapDownload(worldMapCtx, d, gameID, worldMapCh)}
 }
 
 func firstNonEmpty(a, b string) string {

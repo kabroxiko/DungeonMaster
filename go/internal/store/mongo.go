@@ -22,3 +22,11 @@ func GameStates(coll *mongo.Database) *mongo.Collection {
 func Users(coll *mongo.Database) *mongo.Collection {
 	return coll.Collection("users")
 }
+
+// WorldMaps holds the rendered map image for a game, keyed by gameId.
+//
+// It is a separate collection rather than a field on the GameState because the image is megabytes and GameState is
+// loaded on every DM turn; keeping them together would make every turn read the picture.
+func WorldMaps(coll *mongo.Database) *mongo.Collection {
+	return coll.Collection("gameworldmaps")
+}

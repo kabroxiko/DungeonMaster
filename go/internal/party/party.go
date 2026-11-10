@@ -66,8 +66,8 @@ func CanonicalMemberIDStrings(doc map[string]interface{}) []string {
 		if oid, ok := doc["ownerUserId"].(primitive.ObjectID); ok && !oid.IsZero() {
 			seen[oid.Hex()] = struct{}{}
 		}
-		if arr, ok := doc["memberUserIds"].(primitive.A); ok {
-			for _, x := range arr {
+		if arr, ok := doc["memberUserIds"]; ok {
+			for _, x := range ListValues(arr) {
 				if id, ok := x.(primitive.ObjectID); ok && !id.IsZero() {
 					seen[id.Hex()] = struct{}{}
 				}

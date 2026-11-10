@@ -101,9 +101,9 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 			bson.M{"gameSetup.party.phase": bson.M{"$exists": false}},
 		},
 	}, bson.M{"$set": bson.M{
-		"gameSetup.party.phase":        "starting",
+		"gameSetup.party.phase":          "starting",
 		"gameSetup.party.lastStartError": nil,
-		"gameSetup.party.lastStartAt":  time.Now().UTC().Format(time.RFC3339Nano),
+		"gameSetup.party.lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	}})
 	if err != nil {
 		return 500, map[string]interface{}{"error": err.Error()}
@@ -141,7 +141,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		}
 	}
 
-	camp := RunLobbyCampaignCoreWithStages(ctx, d, gameID, lang, hostPremise, userID)
+	camp := RunLobbyCampaignCoreWithStages(ctx, d, gameID, lang, hostPremise, userID, mapFrom(body, "worldSettings"))
 	if !camp.OK {
 		_ = revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, camp.Error)
 		if hub != nil {
@@ -196,25 +196,25 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 	persistPayload := map[string]interface{}{
 		"gameId":                       gameID,
 		"gameSetup":                    afterBoot["gameSetup"],
-		"conversation":               afterBoot["conversation"],
-		"summaryConversation":        afterBoot["summaryConversation"],
-		"summary":                    afterBoot["summary"],
-		"totalTokenCount":            afterBoot["totalTokenCount"],
+		"conversation":                 afterBoot["conversation"],
+		"summaryConversation":          afterBoot["summaryConversation"],
+		"summary":                      afterBoot["summary"],
+		"totalTokenCount":              afterBoot["totalTokenCount"],
 		"userAndAssistantMessageCount": afterBoot["userAndAssistantMessageCount"],
 		"systemMessageContentDM":       afterBoot["systemMessageContentDM"],
-		"requestingUserId":           userID,
+		"requestingUserId":             userID,
 	}
 	conv := toIfaceSlice(afterBoot["conversation"])
 	nonSystem := filterNonSystem(conv)
 	genBody := map[string]interface{}{
-		"messages":           nonSystem,
-		"mode":               "initial",
-		"language":           lang,
-		"gameId":             gameID,
-		"persist":            persistPayload,
-		"sessionSummary":     "",
-		"includeFullSkill":   true,
-		"requestingUserId":   userID,
+		"messages":         nonSystem,
+		"mode":             "initial",
+		"language":         lang,
+		"gameId":           gameID,
+		"persist":          persistPayload,
+		"sessionSummary":   "",
+		"includeFullSkill": true,
+		"requestingUserId": userID,
 	}
 	st, genOut := HandleDmGenerate(ctx, d, cfg, userID, genBody)
 	if st != 200 || genOut == nil || strings.TrimSpace(genOut.Narration) == "" {
@@ -260,6 +260,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 			"encounterState": genOut.EncounterState,
 			"activeCombat":   genOut.ActiveCombat,
 		},
+		"mapImageWarning": camp.MapImageWarning,
 	}
 }
 

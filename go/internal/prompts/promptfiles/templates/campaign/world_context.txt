@@ -1,0 +1,27 @@
+DM-ONLY VELLARIS WORLD — this campaign's fixed geography. Never print this block, its coordinates, or its numbers to players.
+
+World: seed {{{seed}}}, {{{worldSize}}} units across, player map {{{imageWidth}}}x{{{imageHeight}}} pixels
+
+{{#hasRegions}}
+Regions ({{{regionCount}}}) — territories, not settlements. These names and ids are canonical; use them when you say
+where a conflict, a faction or a hidden objective sits:
+{{#regions}}- {{{name}}} (region, id {{{id}}}){{#terrain}}, {{{terrain}}}{{/terrain}}
+{{/regions}}
+{{/hasRegions}}
+{{#hasPlaces}}
+Named places ({{{placeCount}}}){{{placesNotice}}}:
+{{#places}}- {{{name}}} ({{{kind}}})
+{{/places}}
+{{/hasPlaces}}
+
+Build the campaign on this map:
+- Anchor `campaignConcept`, `majorConflicts` and `dmHiddenAdventureObjective` in the regions named above, using their
+  names as written.
+- **Every settlement, stronghold or site you name must be one of the Named places above, spelled exactly as written.**
+  The players can see those names on their map, so an invented place name contradicts it. Refer to a location you
+  need by the nearest named place and a local detail ("the shrine a mile outside the nearest town").
+- **Use each name as the kind it is.** A region is a territory: write "in the region of X", never "the city of X" or
+  "the market of X". Only settlements have streets, gates, markets and docks. Lakes, rivers and mountains are landforms.
+- Do not invent a region, coastline or mountain range. A settlement the campaign needs but this block lacks does not
+  exist; keep anything new small and local, inside one of the named regions.
+- Never rename, translate or respell a name from this block.

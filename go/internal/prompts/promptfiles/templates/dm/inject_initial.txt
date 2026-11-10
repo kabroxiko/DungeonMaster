@@ -33,8 +33,23 @@ Key locations:
 - {{name}} ({{type}}): {{significance}}
 {{/keyLocations}}
 
+{{#hasMapPlaces}}
+Settlements named on the players' map — every settlement or site you name in this opening must be one of these, copied
+exactly. The kind in parentheses is what each name is: only settlements have streets, markets, gates and docks, and a
+region is a territory, never a city. A venue that is not on the map is described by kind and location, never given an
+invented proper name:
+{{#mapPlaces}}
+- {{name}} ({{kind}})
+{{/mapPlaces}}
+{{/hasMapPlaces}}
+
 Hidden adventure objective (DM-only — never read as a quest briefing to the player):
 {{dmHiddenAdventureObjective}}
+
+{{#openingDirective}}
+Mandatory opening frame (DM-only — the first scene must happen as this says; it is not player text):
+{{{openingDirective}}}
+{{/openingDirective}}
 
 Instructions for the model (campaign facts → inform prose; **never** paste raw lists; **structure** → follow **adventure-seed** block):
 - **Precedence (multi-player):** If a DM-only **party list** appears elsewhere in the stack, it does **not** override **`skills/adventure_seed.txt` First opening**: for the **first** assistant reply with **no** user messages, PC proper names from that list still **must not** appear in `narration` or NPC lines—second person / neutral plural only.

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/deckofdmthings/gmai/internal/validate"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // GameSetupLanguage returns language from gameSetup.
@@ -66,17 +67,37 @@ func AllMembersHaveValidSheets(doc map[string]interface{}) bool {
 	return true
 }
 
+// ListValues reads a BSON array whatever shape it arrived in.
+//
+// The driver hands back primitive.A when a document is decoded into a map, []interface{} when a document was
+// built in memory, and []string when the value came from a struct field. Asserting on []interface{} alone
+// silently yields nil for the most common case, which reads as "the list is empty" rather than as an error.
+func ListValues(v interface{}) []interface{} {
+	switch t := v.(type) {
+	case primitive.A:
+		return []interface{}(t)
+	case []interface{}:
+		return t
+	case []string:
+		out := make([]interface{}, len(t))
+		for i, s := range t {
+			out[i] = s
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 // AllMembersReady checks readyUserIds covers all members.
 func AllMembersReady(party map[string]interface{}, doc map[string]interface{}) bool {
 	ids := CanonicalMemberIDStrings(doc)
 	if len(ids) == 0 {
 		return false
 	}
-	readyRaw, _ := party["readyUserIds"].([]interface{})
 	ready := map[string]struct{}{}
-	for _, x := range readyRaw {
-		s := NormalizeUserIDString(x)
-		if s != "" {
+	for _, x := range ListValues(party["readyUserIds"]) {
+		if s := NormalizeUserIDString(x); s != "" {
 			ready[s] = struct{}{}
 		}
 	}

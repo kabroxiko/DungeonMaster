@@ -49,12 +49,12 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request, uid string) 
 	}
 	ctx := r.Context()
 	var gs struct {
-		ID              primitive.ObjectID   `bson:"_id"`
-		GameID          string               `bson:"gameId"`
-		OwnerUserID     primitive.ObjectID   `bson:"ownerUserId"`
-		MemberUserIDs   []primitive.ObjectID `bson:"memberUserIds"`
-		InviteToken     *string              `bson:"inviteToken"`
-		InviteTokenCreatedAt *time.Time      `bson:"inviteTokenCreatedAt"`
+		ID                   primitive.ObjectID   `bson:"_id"`
+		GameID               string               `bson:"gameId"`
+		OwnerUserID          primitive.ObjectID   `bson:"ownerUserId"`
+		MemberUserIDs        []primitive.ObjectID `bson:"memberUserIds"`
+		InviteToken          *string              `bson:"inviteToken"`
+		InviteTokenCreatedAt *time.Time           `bson:"inviteTokenCreatedAt"`
 	}
 	err := s.coll().FindOne(ctx, bson.M{"inviteToken": tok}).Decode(&gs)
 	if err == mongo.ErrNoDocuments {
@@ -80,8 +80,8 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request, uid string) 
 	}
 	each = append(each, oid)
 	res, err := s.coll().UpdateOne(ctx, bson.M{
-		"_id":         gs.ID,
-		"inviteToken": tok,
+		"_id":           gs.ID,
+		"inviteToken":   tok,
 		"memberUserIds": bson.M{"$nin": bson.A{oid}},
 	}, bson.M{
 		"$addToSet": bson.M{"memberUserIds": bson.M{"$each": each}},
@@ -136,9 +136,9 @@ func (s *Server) handleNickname(w http.ResponseWriter, r *http.Request, uid stri
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user": map[string]interface{}{
-			"_id":       uid,
-			"picture":   "",
-			"nickname":  n,
+			"_id":      uid,
+			"picture":  "",
+			"nickname": n,
 		},
 	})
 }
@@ -156,7 +156,10 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, uid string) {
 	}
 	err = s.users().FindOne(r.Context(), bson.M{"_id": oid}).Decode(&u)
 	if err == mongo.ErrNoDocuments {
-		writeJSONCoded(w, r, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+		// The token is signed correctly but names a user that no longer exists - a database reset does this.
+		// Answering 401 makes the client drop the token and sign in again; 404 left it holding a session it
+		// could never use, with every later call failing the same way.
+		writeJSONCoded(w, r, http.StatusUnauthorized, "AUTH_INVALID", "Invalid or expired session")
 		return
 	}
 	if err != nil {
@@ -165,9 +168,9 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, uid string) {
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user": map[string]interface{}{
-			"_id":       u.ID.Hex(),
-			"picture":   u.Picture,
-			"nickname":  strings.TrimSpace(u.Nickname),
+			"_id":      u.ID.Hex(),
+			"picture":  u.Picture,
+			"nickname": strings.TrimSpace(u.Nickname),
 		},
 	})
 }

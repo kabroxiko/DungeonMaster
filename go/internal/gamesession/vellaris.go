@@ -39,11 +39,10 @@ func renderVellarisWorldInject(spec map[string]interface{}) string {
 	return rules + "\n\n" + rendered
 }
 
-// vellarisRegionOptions loads the imported world's regions for the campaign generator, so that key locations are
-// placed inside geography that already exists on the players' map instead of a second, invented one.
-//
-// Returns nil when the game has no imported world, which keeps the generator's own worldMap path in charge.
-func vellarisRegionOptions(ctx context.Context, d *Deps, gameID string) []interface{} {
+// vellarisPromptWorld loads the game's imported world in the shape campaign prompts read (regions and places already
+// formatted and capped). Returns nil when the game has no imported world, which keeps the generator's own worldMap
+// path in charge.
+func vellarisPromptWorld(ctx context.Context, d *Deps, gameID string) map[string]interface{} {
 	if d == nil || d.Coll == nil || gameID == "" {
 		return nil
 	}
@@ -55,11 +54,5 @@ func vellarisRegionOptions(ctx context.Context, d *Deps, gameID string) []interf
 	if spec == nil {
 		return nil
 	}
-	raw, _ := spec["vellarisWorld"].(map[string]interface{})
-	world := campaignspec.NormalizeVellarisWorld(raw)
-	if world == nil {
-		return nil
-	}
-	regions, _ := world["regions"].([]interface{})
-	return regions
+	return campaignspec.NormalizeVellarisWorld(mapFrom(spec, "vellarisWorld"))
 }

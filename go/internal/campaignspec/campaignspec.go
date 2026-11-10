@@ -8,6 +8,11 @@ var dmOnlyKeys = map[string]struct{}{
 	"dmHiddenAdventureObjective": {},
 	"openingSceneFrame":          {},
 	"creativeSeed":               {},
+	// The generated world and the settings that render it are the DM's reference geography: they carry coordinates
+	// the players must never see, and a game that holds only them has no campaign yet. Keeping them out of the
+	// redacted view and out of the readiness check means the world can be stored before the campaign is written.
+	"vellarisWorld":    {},
+	"vellarisSettings": {},
 }
 
 // RedactCampaignSpecForClient removes DM-only keys.

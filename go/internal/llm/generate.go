@@ -69,16 +69,26 @@ func debugLogRequestMessages(cfg *config.Config, messages []interface{}) {
 	}
 }
 
-// GenerateResponse performs chat-completions against OpenAI or LM Studio.
+// GenerateResponse performs chat-completions against OpenAI, DeepSeek, or LM Studio.
 func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]interface{}, opts map[string]interface{}) (string, error) {
+	backend, err := resolveChatBackend(cfg)
+	if err != nil {
+		return "", err
+	}
 	model := strings.TrimSpace(pickStr(opts, "model", ""))
 	if model == "" {
-		if cfg.UseLMStudio {
+		switch backend.name {
+		case "lm_studio":
 			model = strings.TrimSpace(cfg.LMStudioModel)
 			if model == "" {
 				return "", fmt.Errorf("LM Studio is enabled (DM_USE_LM_STUDIO): set DM_LM_STUDIO_MODEL to a loaded model id exactly as shown in LM Studio (e.g. mistralai/mistral-nemo-instruct-2407@q4_k_m); OpenAI names like gpt-3.5-turbo are rejected by the local server")
 			}
-		} else {
+		case "deepseek":
+			model = strings.TrimSpace(cfg.DeepSeekModel)
+			if model == "" {
+				model = "deepseek-chat"
+			}
+		default:
 			model = strings.TrimSpace(cfg.OpenAIModel)
 			if model == "" {
 				model = "gpt-3.5-turbo"
@@ -103,30 +113,74 @@ func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]
 
 	gameID := pickStr(opts, "gameId", "")
 	debugLog(cfg, "call backend=%s model=%s max_tokens=%d temp=%g gameId=%q messages=%d",
-		map[bool]string{false: "openai", true: "lm_studio"}[cfg.UseLMStudio],
-		model, maxTok, temp, gameID, len(messages))
+		backend.name, model, maxTok, temp, gameID, len(messages))
 	debugLogRequestMessages(cfg, messages)
 
 	var out string
-	var err error
+	var err2 error
 	if cfg.UseLMStudio {
-		out, err = lmStudioChat(ctx, cfg, messages, model, maxTok, temp, opts)
+		out, err2 = lmStudioChat(ctx, cfg, messages, model, maxTok, temp, opts)
 	} else {
-		out, err = openAIChat(ctx, cfg, messages, model, maxTok, temp, opts)
+		out, err2 = openAICompatibleChat(ctx, backend, messages, model, maxTok, temp, opts)
 	}
-	if err != nil {
-		debugLog(cfg, "error: %v", err)
-		return "", err
+	if err2 != nil {
+		debugLog(cfg, "error: %v", err2)
+		return "", err2
 	}
 	debugLog(cfg, "ok gameId=%q out_len=%d", gameID, len(out))
 	debugLogLongLines(cfg, "llm-debug out|", out)
 	return out, nil
 }
 
-func openAIChat(ctx context.Context, cfg *config.Config, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}) (string, error) {
-	key := cfg.OpenAIAPIKey
+// chatBackend is the endpoint chat completions are sent to. OpenAI and DeepSeek speak the same protocol, so they
+// differ only in where the request goes, which key authorises it, and the name that appears in errors.
+type chatBackend struct {
+	name    string
+	baseURL string
+	apiKey  string
+	keyEnv  string
+}
+
+// resolveChatBackend picks the configured provider, and refuses ambiguous configuration rather than guessing which
+// of two enabled backends the operator meant.
+func resolveChatBackend(cfg *config.Config) (chatBackend, error) {
+	if cfg == nil {
+		return chatBackend{}, fmt.Errorf("no configuration")
+	}
+	if cfg.UseLMStudio && cfg.UseDeepSeek {
+		return chatBackend{}, fmt.Errorf("DM_USE_LM_STUDIO and DM_USE_DEEPSEEK are both set; enable only one of them")
+	}
+	switch {
+	case cfg.UseLMStudio:
+		base := strings.TrimRight(cfg.LMStudioURL, "/")
+		if base == "" {
+			base = "http://localhost:1234"
+		}
+		return chatBackend{name: "lm_studio", baseURL: base}, nil
+	case cfg.UseDeepSeek:
+		base := strings.TrimRight(cfg.DeepSeekURL, "/")
+		if base == "" {
+			base = "https://api.deepseek.com"
+		}
+		return chatBackend{name: "deepseek", baseURL: base, apiKey: cfg.DeepSeekAPIKey, keyEnv: "DM_DEEPSEEK_API_KEY"}, nil
+	default:
+		return chatBackend{name: "openai", baseURL: "https://api.openai.com", apiKey: cfg.OpenAIAPIKey, keyEnv: "DM_OPENAI_API_KEY"}, nil
+	}
+}
+
+// chatCompletionsURL accepts a base URL with or without the /v1 suffix, which providers document inconsistently.
+func chatCompletionsURL(baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/chat/completions"
+	}
+	return base + "/v1/chat/completions"
+}
+
+func openAICompatibleChat(ctx context.Context, backend chatBackend, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}) (string, error) {
+	key := backend.apiKey
 	if key == "" {
-		return "", fmt.Errorf("DM_OPENAI_API_KEY is not set")
+		return "", fmt.Errorf("%s is not set", backend.keyEnv)
 	}
 	body := map[string]interface{}{
 		"model":       model,
@@ -138,7 +192,7 @@ func openAIChat(ctx context.Context, cfg *config.Config, messages []interface{},
 		body["response_format"] = rf
 	}
 	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL(backend.baseURL), bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}
@@ -151,11 +205,12 @@ func openAIChat(ctx context.Context, cfg *config.Config, messages []interface{},
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("openai: %s: %s", resp.Status, string(raw))
+		return "", fmt.Errorf("%s: %s: %s", backend.name, resp.Status, string(raw))
 	}
 	var data struct {
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content interface{} `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -164,7 +219,12 @@ func openAIChat(ctx context.Context, cfg *config.Config, messages []interface{},
 		return "", err
 	}
 	if len(data.Choices) == 0 {
-		return "", fmt.Errorf("openai: empty choices")
+		return "", fmt.Errorf("%s: empty choices", backend.name)
+	}
+	// A reply that stopped on the token budget is half a document. Returning it makes the failure surface later as
+	// an unreadable parse, so say what actually happened instead.
+	if strings.EqualFold(data.Choices[0].FinishReason, "length") {
+		return "", fmt.Errorf("%s: reply hit max_tokens (%d) before finishing, so it was cut off; reasoning models spend part of that budget on hidden tokens, so raise max_tokens or use a model that does not reason", backend.name, maxTok)
 	}
 	out := normalizeAssistantContent(data.Choices[0].Message.Content)
 	if out != "" {

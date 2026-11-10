@@ -100,6 +100,8 @@ func normalizeVellarisRegions(raw interface{}) []interface{} {
 		regions = append(regions, map[string]interface{}{
 			"id":          id,
 			"name":        name,
+			"type":        "Region",
+			"kind":        "region",
 			"terrain":     stringFrom(m["terrain"]),
 			"centerCount": numText(m["centerCount"], 0),
 			"centerX":     numText(m["centerX"], 0),
@@ -110,6 +112,10 @@ func normalizeVellarisRegions(raw interface{}) []interface{} {
 }
 
 // normalizeVellarisPlaces returns the kept places plus the true total, so the prompt can say how much it is showing.
+//
+// Region labels and the map title are not places in the sense this list means: a region is a territory (it already has
+// its own entry with an id) and the title is the map's name. Listing them here is what let the model write "the market
+// of <region>", so they are left out; every remaining entry carries the kind it really is.
 func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 	list := neighborSliceAny(raw)
 	if len(list) == 0 {
@@ -134,16 +140,19 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 		if name == "" {
 			continue
 		}
+		typeName := stringFrom(m["type"])
+		if isNonPlaceType(typeName) {
+			continue
+		}
 		if _, dup := seen[name]; dup {
 			continue
 		}
 		seen[name] = struct{}{}
-		kind := stringFrom(m["type"])
-		rank, known := placeRank[strings.ToLower(kind)]
+		rank, known := placeRank[strings.ToLower(typeName)]
 		if !known {
 			rank = 3
 		}
-		places = append(places, place{name: name, kind: kind, x: numText(m["x"], 0), y: numText(m["y"], 0), rank: rank})
+		places = append(places, place{name: name, kind: typeName, x: numText(m["x"], 0), y: numText(m["y"], 0), rank: rank})
 	}
 	if len(places) == 0 {
 		return nil, 0
@@ -162,7 +171,13 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 	}
 	out := make([]interface{}, 0, len(places))
 	for _, p := range places {
-		out = append(out, map[string]interface{}{"name": p.name, "type": p.kind, "x": p.x, "y": p.y})
+		out = append(out, map[string]interface{}{
+			"name": p.name,
+			"type": p.kind,
+			"kind": PlaceKind(p.kind),
+			"x":    p.x,
+			"y":    p.y,
+		})
 	}
 	return out, total
 }
@@ -242,6 +257,228 @@ func terrainText(raw interface{}) string {
 		parts = append(parts, name)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// PlaceNames returns the world's named places in prompt order, capped at limit (0 means no limit).
+//
+// The list is the map's own vocabulary: anything a campaign names must come from here, so every consumer that writes
+// place names reads them through this function instead of reformatting the world document itself.
+func PlaceNames(world map[string]interface{}, limit int) []string {
+	list := neighborSliceAny(world["places"])
+	names := make([]string, 0, len(list))
+	seen := map[string]struct{}{}
+	for _, item := range list {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := stringFrom(m["name"])
+		if name == "" {
+			continue
+		}
+		key := normalizePlaceNameKey(name)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		names = append(names, name)
+		if limit > 0 && len(names) >= limit {
+			break
+		}
+	}
+	return names
+}
+
+// PlaceKind turns a Vellaris map-text type into the word a prompt uses for what the name actually is.
+//
+// Vellaris reports one settlement type ("City") and puts the structure in the name ("Aldea de X", "Castillo de Y"), so
+// the useful distinction for narration is settlement / region / lake / river / mountains.
+func PlaceKind(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "city", "capital", "town", "village":
+		return "settlement"
+	case "region":
+		return "region"
+	case "lake":
+		return "lake"
+	case "river":
+		return "river"
+	case "mountain_range", "other_mountains":
+		return "mountains"
+	case "title":
+		return "map title"
+	case "":
+		return "place"
+	default:
+		return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(raw)), "_", " ")
+	}
+}
+
+// IsSettlementPlaceType reports whether a map-text type names a settlement (a built-up place with streets and markets).
+func IsSettlementPlaceType(raw string) bool {
+	return PlaceKind(raw) == "settlement"
+}
+
+// isNonPlaceType reports whether the map text is not a place: the map title, or a region label (regions are delivered
+// separately, with ids).
+func isNonPlaceType(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "title", "region":
+		return true
+	default:
+		return false
+	}
+}
+
+// SettlementPlaces returns the world's settlement entries (name, type and kind), in the order the prompt should list
+// them. These are the only places a key location may be named after: a region is a territory and a lake is water, so
+// neither can be a town with a market.
+func SettlementPlaces(world map[string]interface{}) []interface{} {
+	out := make([]interface{}, 0)
+	for _, item := range neighborSliceAny(world["places"]) {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		if !IsSettlementPlaceType(stringFrom(m["type"])) {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// SettlementNames returns the names of the world's settlements, capped at limit (0 means no limit).
+func SettlementNames(world map[string]interface{}, limit int) []string {
+	names := make([]string, 0)
+	for _, item := range SettlementPlaces(world) {
+		m, _ := item.(map[string]interface{})
+		name := stringFrom(m["name"])
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+		if limit > 0 && len(names) >= limit {
+			break
+		}
+	}
+	return names
+}
+
+// AlignKeyLocationsToWorld makes every key location carry a name that exists on the players' map.
+//
+// The map owns place names, not the model: a location that renames a place the players can see would make narration
+// and map disagree. A name the map already has is kept (with the map's spelling); an invented or repeated name takes
+// the next unused map name, so the model's type and significance survive; a location left with no name is dropped
+// rather than invented. Region references to regions that do not exist are removed the same way.
+//
+// Only settlements are candidates: a key location is a place the party goes to, so it cannot be named after a region or
+// a lake. Worlds with no settlement at all fall back to every named place. When a settlement name is assigned, the
+// location's type becomes "settlement" so it cannot describe a village as a ruin.
+//
+// Returns the aligned locations and how many names were replaced. With no map places the input comes back unchanged.
+func AlignKeyLocationsToWorld(locations []interface{}, world map[string]interface{}) ([]interface{}, int) {
+	if len(locations) == 0 || world == nil {
+		return locations, 0
+	}
+	canonical := SettlementNames(world, 0)
+	settlementsOnly := len(canonical) > 0
+	if !settlementsOnly {
+		canonical = PlaceNames(world, 0)
+	}
+	if len(canonical) == 0 {
+		return locations, 0
+	}
+	byKey := make(map[string]string, len(canonical))
+	for _, name := range canonical {
+		byKey[normalizePlaceNameKey(name)] = name
+	}
+	validRegions := map[string]struct{}{}
+	for _, item := range neighborSliceAny(world["regions"]) {
+		m, _ := item.(map[string]interface{})
+		if id := stringFrom(m["id"]); id != "" {
+			validRegions[id] = struct{}{}
+		}
+	}
+
+	used := map[string]struct{}{}
+	type entry struct {
+		source map[string]interface{}
+		name   string // empty when the model's name is not on the map
+		usable bool
+	}
+	entries := make([]entry, len(locations))
+
+	// First pass: keep the names the model got right, in output order, first occurrence winning. A later duplicate
+	// must not steal the name from the location that named the place first.
+	for i, raw := range locations {
+		m, ok := raw.(map[string]interface{})
+		if !ok || m == nil {
+			continue
+		}
+		e := entry{source: m, usable: true}
+		if key := normalizePlaceNameKey(stringFrom(m["name"])); key != "" {
+			if name, known := byKey[key]; known {
+				if _, taken := used[key]; !taken {
+					used[key] = struct{}{}
+					e.name = name
+				}
+			}
+		}
+		entries[i] = e
+	}
+
+	// Second pass: locations the map does not know take the next unused map name, so the model's type and
+	// significance survive under a name the players can actually find.
+	next := 0
+	renamed := 0
+	aligned := make([]interface{}, 0, len(locations))
+	for _, e := range entries {
+		if !e.usable {
+			continue
+		}
+		name := e.name
+		if name == "" {
+			for next < len(canonical) {
+				candidate := canonical[next]
+				next++
+				key := normalizePlaceNameKey(candidate)
+				if _, taken := used[key]; taken {
+					continue
+				}
+				used[key] = struct{}{}
+				name = candidate
+				break
+			}
+			renamed++
+			if name == "" {
+				// The map has no names left; a made-up name is the one thing this must not produce.
+				continue
+			}
+		}
+		item := make(map[string]interface{}, len(e.source))
+		for k, v := range e.source {
+			item[k] = v
+		}
+		item["name"] = name
+		if settlementsOnly {
+			// The name is a village, town or stronghold on the map; calling it a ruin or a wilderness would be a
+			// different mistake in the other direction. What the place is comes from the map, not the model.
+			item["type"] = "settlement"
+		}
+		if regionID := stringFrom(item["regionId"]); regionID != "" {
+			if _, valid := validRegions[regionID]; !valid {
+				delete(item, "regionId")
+			}
+		}
+		aligned = append(aligned, item)
+	}
+	return aligned, renamed
+}
+
+// normalizePlaceNameKey compares names the way a reader does: case and runs of whitespace do not make a new place.
+func normalizePlaceNameKey(name string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), " "))
 }
 
 // joinNames accepts either plain strings or objects carrying a "name", which is how regions are reported back.

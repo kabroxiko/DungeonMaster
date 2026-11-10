@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,13 +28,13 @@ import (
 
 // HandleDmGenerateResult is the JSON body for 200 responses.
 type HandleDmGenerateResult struct {
-	Narration        string                 `json:"narration"`
-	EncounterState   interface{}            `json:"encounterState"`
-	ActiveCombat     bool                   `json:"activeCombat"`
-	Coinage          map[string]interface{} `json:"coinage,omitempty"`
-	Error            string                 `json:"error,omitempty"`
-	Code             string                 `json:"code,omitempty"`
-	RawPreview       string                 `json:"rawPreview,omitempty"`
+	Narration      string                 `json:"narration"`
+	EncounterState interface{}            `json:"encounterState"`
+	ActiveCombat   bool                   `json:"activeCombat"`
+	Coinage        map[string]interface{} `json:"coinage,omitempty"`
+	Error          string                 `json:"error,omitempty"`
+	Code           string                 `json:"code,omitempty"`
+	RawPreview     string                 `json:"rawPreview,omitempty"`
 }
 
 // HandleDmGenerate mirrors Express handleDmGenerate (core path: exploration + persist).
@@ -114,6 +117,16 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	if e := promptmgr.LoadPrompt("templates/dm/player_response_envelope.txt"); e != "" {
 		consolidated = e + "\n\n" + consolidated
 	}
+	// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs and
+	// key locations, with location names reconciled against the players' map. Prepended before the world block so the
+	// authoritative geography still reads first.
+	if mode == "initial" && gs != nil {
+		if spec, ok := gs["campaignSpec"].(map[string]interface{}); ok && spec != nil {
+			if inj := renderInitialCampaignInject(spec); inj != "" {
+				consolidated = inj + "\n\n" + consolidated
+			}
+		}
+	}
 	if gs != nil {
 		if spec, ok := gs["campaignSpec"].(map[string]interface{}); ok && spec != nil {
 			// An imported Vellaris world replaces the campaign's invented topology rather than sitting next
@@ -164,9 +177,9 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	}
 
 	raw, err := llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens":    budget,
-		"temperature":   0.8,
-		"gameId":        gameID,
+		"max_tokens":      budget,
+		"temperature":     0.8,
+		"gameId":          gameID,
 		"response_format": map[string]interface{}{"type": "json_object"},
 	})
 	if err != nil {
@@ -194,9 +207,9 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	if persistPayload != nil && str(persistPayload["gameId"]) == gameID {
 		rid := requestingUserID
 		merged := persist.MergePersistWithAssistantReply(persistPayload, map[string]interface{}{
-			"narration":        env.Narration,
-			"encounterState":   env.EncounterState,
-			"coinage":          env.Coinage,
+			"narration":      env.Narration,
+			"encounterState": env.EncounterState,
+			"coinage":        env.Coinage,
 		}, false, rid)
 		if merged != nil {
 			_, err := persist.PersistGameStateFromBody(ctx, d.Coll, d.Hub, merged, userID, true)
@@ -330,10 +343,10 @@ func renderPCBlock(gs map[string]interface{}, language, requestingUserID string)
 		return ""
 	}
 	data := map[string]interface{}{
-		"language":                  language,
+		"language":                   language,
 		"playerCharacterDisplayName": pc.DisplayNameFromCharacterSheet(sheet),
-		"playerCharacterJson":       trunc(jsonStr(sheet), 120000),
-		"priorEncounterStateJson":   "{}",
+		"playerCharacterJson":        trunc(jsonStr(sheet), 120000),
+		"priorEncounterStateJson":    "{}",
 	}
 	s, err := mustache.Render(tpl, data)
 	if err != nil {
@@ -376,9 +389,106 @@ func dmHiddenObjective(spec map[string]interface{}) string {
 	return "Not set in campaign core: infer one coherent arc from campaignConcept and majorConflicts."
 }
 
+// renderInitialCampaignInject renders the stored campaign for the opening turn.
+//
+// Without it the opening model only saw the world and the character sheet, so it invented its own story instead of
+// playing the campaign that was generated. Key location names are reconciled against the players' map here as well,
+// which also repairs campaigns whose locations were written before place-name alignment existed.
+func renderInitialCampaignInject(spec map[string]interface{}) string {
+	if spec == nil {
+		return ""
+	}
+	tpl := promptmgr.LoadPrompt("templates/dm/inject_initial.txt")
+	if tpl == "" {
+		return ""
+	}
+	storedKeyLocations := llm.CoerceCampaignStageToArray("keyLocations", spec["keyLocations"])
+	keyLocations := storedKeyLocations
+	world := campaignspec.NormalizeVellarisWorld(mapFrom(spec, "vellarisWorld"))
+	if world != nil {
+		aligned, renamed := campaignspec.AlignKeyLocationsToWorld(keyLocations, world)
+		if renamed > 0 {
+			log.Printf("initial inject: reconciled %d key location name(s) with the campaign map", renamed)
+		}
+		keyLocations = aligned
+	}
+	mapPlaces := make([]interface{}, 0, 20)
+	for _, item := range llm.SliceValues(world["places"]) {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name, _ := m["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		mapPlaces = append(mapPlaces, map[string]interface{}{
+			"name": name,
+			"kind": campaignspec.PlaceKind(fmt.Sprint(m["type"])),
+		})
+		if len(mapPlaces) >= 20 {
+			break
+		}
+	}
+	data := map[string]interface{}{
+		"campaignTitle":              strings.TrimSpace(fmt.Sprint(spec["title"])),
+		"campaignConcept":            strings.TrimSpace(fmt.Sprint(spec["campaignConcept"])),
+		"campaignToneAndStyle":       strings.TrimSpace(fmt.Sprint(spec["toneAndStyle"])),
+		"factions":                   sliceFirst(llm.CoerceCampaignStageToArray("factions", spec["factions"]), 6),
+		"majorConflicts":             TakeCampaignFieldItems(spec["majorConflicts"], 6),
+		"majorNPCs":                  sliceFirst(llm.CoerceCampaignStageToArray("majorNPCs", spec["majorNPCs"]), 6),
+		"keyLocations":               sliceFirst(keyLocations, 8),
+		"dmHiddenAdventureObjective": dmHiddenObjective(spec),
+		"hasMapPlaces":               len(mapPlaces) > 0,
+		"mapPlaces":                  mapPlaces,
+	}
+	if _, directive, ok := campaignspec.ResolveOpeningMandateFromCampaign(spec); ok {
+		// The frame is a mandatory instruction for the first scene; names it took from the old key locations are
+		// rewritten to the map names that replaced them.
+		data["openingDirective"] = reconcileDirectiveNames(directive, storedKeyLocations, keyLocations)
+	}
+	rendered, err := mustache.Render(tpl, data)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(rendered)
+}
+
 func jsonStr(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// reconcileDirectiveNames rewrites names from the stored key locations to the map names that replaced them.
+//
+// An opening frame is generated once and kept. For a campaign written before place-name alignment, its directive can
+// still send the DM to an invented place, which would put the opening back off the map.
+func reconcileDirectiveNames(directive string, stored, aligned []interface{}) string {
+	text := strings.TrimSpace(directive)
+	if text == "" {
+		return text
+	}
+	pairs := make([][2]string, 0, len(stored))
+	for i := 0; i < len(stored) && i < len(aligned); i++ {
+		from, _ := stored[i].(map[string]interface{})
+		to, _ := aligned[i].(map[string]interface{})
+		if from == nil || to == nil {
+			continue
+		}
+		oldName := strings.TrimSpace(fmt.Sprint(from["name"]))
+		newName := strings.TrimSpace(fmt.Sprint(to["name"]))
+		if oldName == "" || newName == "" || strings.EqualFold(oldName, newName) {
+			continue
+		}
+		pairs = append(pairs, [2]string{oldName, newName})
+	}
+	// Longest first, so "Old Keep Gate" is replaced before "Old Keep".
+	sort.SliceStable(pairs, func(i, j int) bool { return len(pairs[i][0]) > len(pairs[j][0]) })
+	for _, pair := range pairs {
+		re := regexp.MustCompile(`(?i)` + regexp.QuoteMeta(pair[0]))
+		text = re.ReplaceAllStringFunc(text, func(string) string { return pair[1] })
+	}
+	return text
 }
 
 func trunc(s string, n int) string {
@@ -440,7 +550,7 @@ func markLlmCompleted(ctx context.Context, coll *mongo.Collection, gameID, raw s
 		return nil
 	}
 	_, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-		"rawModelOutput":    trunc(raw, 200000),
+		"rawModelOutput":     trunc(raw, 200000),
 		"llmCallCompletedAt": time.Now().UTC().Format(time.RFC3339Nano),
 	}}, upsert())
 	return err

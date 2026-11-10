@@ -276,11 +276,11 @@ func (s *Server) handleDebugPrompts(w http.ResponseWriter, r *http.Request, uid 
 		return
 	}
 	debug := map[string]interface{}{
-		"rawModelRequest":  doc["rawModelRequest"],
-		"rawModelOutput":   doc["rawModelOutput"],
-		"systemCore":       doc["systemCore"],
-		"campaignSpec":     doc["campaignSpec"],
-		"gameSetup":        doc["gameSetup"],
+		"rawModelRequest": doc["rawModelRequest"],
+		"rawModelOutput":  doc["rawModelOutput"],
+		"systemCore":      doc["systemCore"],
+		"campaignSpec":    doc["campaignSpec"],
+		"gameSetup":       doc["gameSetup"],
 		"diagnostics": map[string]interface{}{
 			"llmCallEnteredAt":       doc["llmCallEnteredAt"],
 			"llmCallStartedAt":       doc["llmCallStartedAt"],
@@ -318,8 +318,8 @@ func (s *Server) handleCreateParty(w http.ResponseWriter, r *http.Request, uid s
 		"ownerUserId":                  oid,
 		"memberUserIds":                bson.A{oid},
 		"gameSetup":                    gameSetup,
-		"conversation":               bson.A{},
-		"summaryConversation":        bson.A{},
+		"conversation":                 bson.A{},
+		"summaryConversation":          bson.A{},
 		"summary":                      "",
 		"totalTokenCount":              0,
 		"userAndAssistantMessageCount": 0,
@@ -382,8 +382,7 @@ func (s *Server) handlePartyReady(w http.ResponseWriter, r *http.Request, uid st
 		return
 	}
 	p := party.GetParty(toMap(doc["gameSetup"]))
-	rawReady, _ := p["readyUserIds"].([]interface{})
-	readyUserIds := party.NormalizeReadyUserIDsArray(rawReady)
+	readyUserIds := party.NormalizeReadyUserIDsArray(party.ListValues(p["readyUserIds"]))
 	if ready {
 		found := false
 		for _, x := range readyUserIds {
@@ -790,6 +789,40 @@ func (s *Server) handleGameStateWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleWorldMapImage streams the rendered map players are shown. The image belongs to one game and never changes,
+// so it is cached privately per browser rather than served again on every open.
+func (s *Server) handleWorldMapImage(w http.ResponseWriter, r *http.Request, uid string) {
+	gid := strings.TrimSpace(chi.URLParam(r, "gameId"))
+	if gid == "" {
+		writeJSONCoded(w, r, http.StatusBadRequest, "GAME_ID_REQUIRED", "gameId required")
+		return
+	}
+	if _, err := gameaccess.AssertGameMember(r.Context(), s.coll(), uid, gid); err != nil {
+		sendAccessError(w, r, err)
+		return
+	}
+	contentType, data, err := gamesession.LoadWorldMapImage(r.Context(), s.GS, gid)
+	if err != nil {
+		writeJSONCoded(w, r, http.StatusNotFound, "WORLD_MAP_IMAGE_MISSING", "This game has no rendered map")
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// handleMapVisibility shows or hides the physical map for every player at the table.
+func (s *Server) handleMapVisibility(w http.ResponseWriter, r *http.Request, uid string) {
+	var body map[string]interface{}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	st, out := gamesession.HandleSetMapVisibility(r.Context(), s.GS, uid, body)
+	writeJSON(w, st, localizeIfCoded(r, out))
+}
+
 func (s *Server) handleImportWorld(w http.ResponseWriter, r *http.Request, uid string) {
 	var body map[string]interface{}
 	if !readJSON(w, r, &body) {
@@ -798,7 +831,6 @@ func (s *Server) handleImportWorld(w http.ResponseWriter, r *http.Request, uid s
 	st, out := gamesession.HandleImportVellarisWorld(r.Context(), s.GS, uid, body)
 	writeJSON(w, st, localizeIfCoded(r, out))
 }
-
 func (s *Server) handleMeasureTravel(w http.ResponseWriter, r *http.Request, uid string) {
 	var body map[string]interface{}
 	if !readJSON(w, r, &body) {

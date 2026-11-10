@@ -152,24 +152,41 @@
         <header class="chat-room__header">
             <!-- Intentionally no "sync / Sincronizar" control — reload the browser to pull latest state. -->
             <div
-                v-if="campaignTitle || canShareInviteLink"
+                v-if="campaignTitle || canShareInviteLink || showMapToggle"
                 class="campaign-heading-row"
                 :class="{ 'campaign-heading-row--no-title': !campaignTitle }"
             >
                 <h2 v-if="campaignTitle" class="campaign-heading">{{ campaignTitle }}</h2>
-                <button
-                    v-if="canShareInviteLink"
-                    type="button"
-                    class="app-banner__tool chat-room__invite-tool"
-                    :disabled="inviteLoading"
-                    :aria-busy="inviteLoading"
-                    :title="$i18n.invite_players"
-                    :aria-label="$i18n.invite_players"
-                    @click="copyInviteLink"
-                >
-                    <span class="visually-hidden">{{ $i18n.invite_players }}</span>
-                    <FontAwesomeIcon :icon="faUserPlus" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
-                </button>
+                <div v-if="showMapToggle || canShareInviteLink" class="campaign-heading-row__tools">
+                    <button
+                        v-if="showMapToggle"
+                        type="button"
+                        class="app-banner__tool chat-room__map-tool"
+                        :class="{ 'chat-room__map-tool--on': mapVisible }"
+                        :disabled="mapToggleBusy"
+                        :aria-busy="mapToggleBusy"
+                        :aria-pressed="mapVisible ? 'true' : 'false'"
+                        :title="mapVisible ? $i18n.map_hide : $i18n.map_show"
+                        :aria-label="mapVisible ? $i18n.map_hide : $i18n.map_show"
+                        @click="toggleMapVisibility"
+                    >
+                        <span class="visually-hidden">{{ mapVisible ? $i18n.map_hide : $i18n.map_show }}</span>
+                        <FontAwesomeIcon :icon="faMap" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
+                    </button>
+                    <button
+                        v-if="canShareInviteLink"
+                        type="button"
+                        class="app-banner__tool chat-room__invite-tool"
+                        :disabled="inviteLoading"
+                        :aria-busy="inviteLoading"
+                        :title="$i18n.invite_players"
+                        :aria-label="$i18n.invite_players"
+                        @click="copyInviteLink"
+                    >
+                        <span class="visually-hidden">{{ $i18n.invite_players }}</span>
+                        <FontAwesomeIcon :icon="faUserPlus" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
+                    </button>
+                </div>
             </div>
             <div v-if="partyRosterRows.length > 1" class="party-roster" role="status" :aria-label="$i18n.party_heading">
                 <div class="party-roster__head">
@@ -207,6 +224,9 @@
                     <li v-for="(line, idx) in worldMapRegionLines" :key="'wm' + idx">{{ line }}</li>
                 </ul>
                 <p v-else-if="!viewerIsGameOwner" class="chat-room__world-map-empty">{{ $i18n.world_map_none }}</p>
+                <p v-if="viewerIsGameOwner && mapImageError" class="chat-room__world-map-empty">
+                    {{ $i18n.map_render_failed }} {{ mapImageError }}
+                </p>
             </details>
         </header>
         <!-- floating card handled globally -->
@@ -241,6 +261,78 @@
     <FloatingCard v-if="playerCharacter" :character="playerCharacter" :hp-snapshot="playerHitPoints" :defaultOpen="false" />
     </div>
     <Teleport to="body">
+        <div
+            v-if="mapVisible && mapImageSrc"
+            class="world-map-modal__backdrop"
+            role="presentation"
+            @click.self="closeMapModal"
+        >
+            <div
+                class="world-map-modal ui-panel"
+                role="dialog"
+                aria-modal="true"
+                :aria-label="$i18n.map_overlay_title"
+            >
+                <button
+                    v-if="isGameOwner"
+                    type="button"
+                    class="world-map-modal__close"
+                    :disabled="mapToggleBusy"
+                    :aria-label="$i18n.map_close"
+                    :title="$i18n.map_close"
+                    @click="closeMapModal"
+                >
+                    <FontAwesomeIcon :icon="faXmark" aria-hidden="true" />
+                </button>
+                <div
+                    ref="mapStage"
+                    class="world-map-modal__stage"
+                    :class="{ 'world-map-modal__stage--dragging': mapDragging }"
+                    @wheel.prevent="onMapWheel"
+                    @pointerdown="onMapPointerDown"
+                    @pointermove="onMapPointerMove"
+                    @pointerup="onMapPointerUp"
+                    @pointercancel="onMapPointerUp"
+                    @dblclick="resetMapView"
+                >
+                    <img
+                        class="world-map-modal__image"
+                        :src="mapImageSrc"
+                        :alt="$i18n.map_overlay_title"
+                        :style="mapImageStyle"
+                        draggable="false"
+                        @load="mapImageFailed = false"
+                        @error="mapImageFailed = true"
+                    />
+                    <p v-if="mapImageFailed" class="world-map-modal__error">{{ $i18n.map_unavailable }}</p>
+                </div>
+                <div class="world-map-modal__tools">
+                    <button
+                        type="button"
+                        class="world-map-modal__tool"
+                        :aria-label="$i18n.map_zoom_out"
+                        :title="$i18n.map_zoom_out"
+                        @click="zoomMap(1 / 1.25)"
+                    >−</button>
+                    <button
+                        type="button"
+                        class="world-map-modal__tool"
+                        :aria-label="$i18n.map_zoom_in"
+                        :title="$i18n.map_zoom_in"
+                        @click="zoomMap(1.25)"
+                    >+</button>
+                    <button
+                        type="button"
+                        class="world-map-modal__tool"
+                        :aria-label="$i18n.map_reset_view"
+                        :title="$i18n.map_reset_view"
+                        @click="resetMapView"
+                    >⟲</button>
+                </div>
+            </div>
+        </div>
+    </Teleport>
+    <Teleport to="body">
         <Transition name="invite-toast">
             <div
                 v-if="inviteToastVisible"
@@ -268,6 +360,8 @@ import { fetchGameStateLoad } from '@/utils/fetchGameStateLoad.js';
 import { SESSION_CHAT_TOAST } from '@/setupSession.js';
 import { buildProceduralWorldMap } from '@/utils/worldMapProcedural.js';
 import { faUserPlus } from '@fortawesome/free-solid-svg-icons/faUserPlus';
+import { faMap } from '@fortawesome/free-solid-svg-icons/faMap';
+import { faXmark } from '@fortawesome/free-solid-svg-icons/faXmark';
 import { faCircleCheck } from '@fortawesome/free-solid-svg-icons/faCircleCheck';
 import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons/faHourglassHalf';
 
@@ -303,6 +397,8 @@ export default {
         data() {
             return {
                 faUserPlus,
+                faMap,
+                faXmark,
                 faCircleCheck,
                 faHourglassHalf,
                 // summaryPrompt removed from client; server composes summary instruction
@@ -326,6 +422,23 @@ export default {
                 /** campaignSpec.worldMap — shown in chat header; host can regenerate procedurally. */
                 campaignWorldMap: null,
                 campaignKeyLocations: [],
+                /** campaignSpec.mapImage — marker that this game has a rendered map players can be shown. */
+                campaignMapImage: null,
+                /** campaignSpec.mapImageError — why the rendered map could not be stored, for the host only. */
+                mapImageError: '',
+                /** gameSetup.mapVisible — set by the host, read by every player, so the table sees one screen. */
+                mapVisible: false,
+                mapToggleBusy: false,
+                mapImageFailed: false,
+                /** Map modal viewport: translate in stage pixels, scale from 1 (fit) to 8. */
+                mapZoom: 1,
+                mapPanX: 0,
+                mapPanY: 0,
+                mapDragging: false,
+                mapDragStartX: 0,
+                mapDragStartY: 0,
+                mapDragOriginX: 0,
+                mapDragOriginY: 0,
                 worldMapSaveBusy: false,
                 gameOwnerUserId: null,
                 /** From GET /game-state/load — host vs member for invite UI. */
@@ -629,6 +742,25 @@ export default {
                 const regs = this.campaignWorldMap && this.campaignWorldMap.regions;
                 if (Array.isArray(regs) && regs.length > 0) return true;
                 return this.viewerIsGameOwner === true;
+            },
+            /** Only the table owner may show or hide the map, and only a game with a rendered map has one to show. */
+            showMapToggle() {
+                return this.isGameOwner && Boolean(this.campaignMapImage) && !this.isPartyLobby;
+            },
+            /** An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does. */
+            mapImageSrc() {
+                const gid = this.$store.state.gameId != null ? String(this.$store.state.gameId).trim() : '';
+                const token = this.$store.state.authToken ? String(this.$store.state.authToken).trim() : '';
+                if (!gid || !token || !this.campaignMapImage) return '';
+                const version = this.campaignMapImage.updatedAt ? String(this.campaignMapImage.updatedAt) : '';
+                const query = `access_token=${encodeURIComponent(token)}${version ? `&v=${encodeURIComponent(version)}` : ''}`;
+                return `${resolveApiBaseURL()}/api/game-state/map/${encodeURIComponent(gid)}?${query}`;
+            },
+            /** Pan and zoom share one transform, so dragging stays smooth at any scale. */
+            mapImageStyle() {
+                return {
+                    transform: `translate(${this.mapPanX}px, ${this.mapPanY}px) scale(${this.mapZoom})`,
+                };
             },
             worldMapRegionLines() {
                 const wm = this.campaignWorldMap;
@@ -971,6 +1103,10 @@ export default {
             },
             gameSessionBroadcastActive() {
                 this.$nextTick(() => this.maybeStartGameStateEventSource());
+            },
+            /** Every open starts at the fitted view; the host's choice is the shared flag, not a view state. */
+            mapVisible(visible) {
+                if (visible) this.resetMapView();
             },
             'messages.length'(n, o) {
                 if (n === 0) return;
@@ -1339,6 +1475,13 @@ export default {
                     } catch (err) {
                         return;
                     }
+                    // The host's map toggle is applied from the event itself: it must reach every player even when
+                    // this client is busy sending or is inside the post-load cooldown that skips a full reload.
+                    if (o && o.type === 'world-map-visibility' && String(o.gameId || '') === routeId) {
+                        this.mapVisible = o.visible === true;
+                        if (!this.mapVisible) this.mapImageFailed = false;
+                        return;
+                    }
                     if (!o || o.type !== 'game-state-updated') return;
                     if (String(o.gameId || '') !== routeId) return;
                     if (this.syncBusy || this.isSending) return;
@@ -1543,6 +1686,106 @@ export default {
                 this.$store.commit('setGameSetup', gs);
                 if (this.localPlayerCharacter) {
                     this.localPlayerCharacter = { ...this.localPlayerCharacter, coinage: cur };
+                }
+            },
+            /**
+             * Show or hide the physical map for everyone at the table. The server is the source of truth: it stores
+             * the flag on gameSetup and notifies every client, so each player's screen follows the host's choice.
+             */
+            async toggleMapVisibility() {
+                if (!this.isGameOwner || this.mapToggleBusy) return;
+                const gid = this.$store.state.gameId != null ? String(this.$store.state.gameId).trim() : '';
+                if (!gid) return;
+                const next = !this.mapVisible;
+                this.mapToggleBusy = true;
+                try {
+                    const { data } = await axios.patch('/api/game-state/map-visibility', { gameId: gid, visible: next });
+                    this.mapVisible = Boolean(data && data.mapVisible);
+                    if (!this.mapVisible) this.mapImageFailed = false;
+                } catch (e) {
+                    const payload = e && e.response && e.response.data;
+                    const msg = (payload && (payload.error || payload.code)) || this.$i18n.map_toggle_failed;
+                    this.showInviteToast(msg, 'error');
+                } finally {
+                    this.mapToggleBusy = false;
+                }
+            },
+            /** The modal's X means "take the shared map down", so it goes through the same owner-only toggle. */
+            closeMapModal() {
+                if (!this.isGameOwner || this.mapToggleBusy) return;
+                this.resetMapView();
+                if (this.mapVisible) this.toggleMapVisibility();
+            },
+            resetMapView() {
+                this.mapZoom = 1;
+                this.mapPanX = 0;
+                this.mapPanY = 0;
+                this.mapDragging = false;
+            },
+            /** Zoom about the centre of the viewport, for the +/− controls. */
+            zoomMap(factor) {
+                const stage = this.$refs.mapStage;
+                if (!stage) {
+                    this.mapZoom = Math.min(8, Math.max(1, this.mapZoom * factor));
+                    return;
+                }
+                const rect = stage.getBoundingClientRect();
+                this.zoomMapAt(factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+            },
+            /** Zoom about a point, so the map grows under the cursor instead of drifting away from it. */
+            zoomMapAt(factor, clientX, clientY) {
+                const stage = this.$refs.mapStage;
+                const oldZoom = this.mapZoom;
+                const newZoom = Math.min(8, Math.max(1, oldZoom * factor));
+                if (!stage || newZoom === oldZoom) return;
+                const rect = stage.getBoundingClientRect();
+                const pointX = clientX - (rect.left + rect.width / 2);
+                const pointY = clientY - (rect.top + rect.height / 2);
+                if (newZoom === 1) {
+                    this.mapPanX = 0;
+                    this.mapPanY = 0;
+                    this.mapZoom = 1;
+                    return;
+                }
+                const ratio = newZoom / oldZoom;
+                this.mapPanX = pointX - (pointX - this.mapPanX) * ratio;
+                this.mapPanY = pointY - (pointY - this.mapPanY) * ratio;
+                this.mapZoom = newZoom;
+            },
+            onMapWheel(event) {
+                this.zoomMapAt(event.deltaY < 0 ? 1.15 : 1 / 1.15, event.clientX, event.clientY);
+            },
+            onMapPointerDown(event) {
+                if (event.button != null && event.button !== 0) return;
+                this.mapDragging = true;
+                this.mapDragStartX = event.clientX;
+                this.mapDragStartY = event.clientY;
+                this.mapDragOriginX = this.mapPanX;
+                this.mapDragOriginY = this.mapPanY;
+                const stage = event.currentTarget;
+                if (stage && stage.setPointerCapture) {
+                    try {
+                        stage.setPointerCapture(event.pointerId);
+                    } catch (e) {
+                        /* pointer capture is an optimisation; dragging still works without it */
+                    }
+                }
+            },
+            onMapPointerMove(event) {
+                if (!this.mapDragging) return;
+                this.mapPanX = this.mapDragOriginX + (event.clientX - this.mapDragStartX);
+                this.mapPanY = this.mapDragOriginY + (event.clientY - this.mapDragStartY);
+            },
+            onMapPointerUp(event) {
+                if (!this.mapDragging) return;
+                this.mapDragging = false;
+                const stage = event.currentTarget;
+                if (stage && stage.releasePointerCapture) {
+                    try {
+                        stage.releasePointerCapture(event.pointerId);
+                    } catch (e) {
+                        /* the pointer may already have been released */
+                    }
                 }
             },
             showInviteToast(message, variant = 'success', durationMs = 3200) {
@@ -2118,6 +2361,13 @@ export default {
                     this.campaignKeyLocations = spec && Array.isArray(spec.keyLocations) ? spec.keyLocations : [];
                     this.campaignWorldMap =
                         spec && spec.worldMap && typeof spec.worldMap === 'object' ? spec.worldMap : null;
+                    // The map marker and its visibility flag come from the server so every client agrees on both.
+                    this.campaignMapImage =
+                        spec && spec.mapImage && typeof spec.mapImage === 'object' ? spec.mapImage : null;
+                    this.mapImageError =
+                        spec && typeof spec.mapImageError === 'string' ? spec.mapImageError : '';
+                    this.mapVisible = Boolean(gameState.gameSetup && gameState.gameSetup.mapVisible);
+                    if (!this.mapVisible) this.mapImageFailed = false;
 
                     const uid = this.myUserIdStr;
                     const sheetForMe = uid ? this.pickPlayerCharacterFromStore(uid) : null;
@@ -2407,8 +2657,16 @@ export default {
     min-width: 0;
   }
 
-  .campaign-heading-row .chat-room__invite-tool {
+  .campaign-heading-row__tools {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
     margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .campaign-heading-row .chat-room__invite-tool {
+    margin-left: 0;
     flex-shrink: 0;
   }
 
@@ -2416,15 +2674,147 @@ export default {
     margin-left: 0;
   }
 
-  .chat-room__invite-tool {
+  .chat-room__invite-tool,
+  .chat-room__map-tool {
     width: 36px;
     height: 36px;
     border-radius: 9px;
   }
 
-  .chat-room__invite-tool:disabled {
+  .chat-room__invite-tool:disabled,
+  .chat-room__map-tool:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+
+  .chat-room__map-tool--on {
+    background: rgba(212, 180, 106, 0.28);
+    color: #f7e8bd;
+    box-shadow: inset 0 0 0 1px rgba(212, 180, 106, 0.55);
+  }
+
+  /* The physical map is a modal for every player while the host has it open; drag to pan, wheel or +/− to zoom. */
+  .world-map-modal__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    background: rgba(6, 5, 4, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .world-map-modal {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(96vw, 1400px);
+    height: min(92vh, 900px);
+    padding: 0;
+    overflow: hidden;
+    border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+  }
+
+  .world-map-modal__close {
+    position: absolute;
+    top: 0.55rem;
+    right: 0.6rem;
+    z-index: 2;
+    width: 2.35rem;
+    height: 2.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: rgba(20, 18, 14, 0.68);
+    color: var(--gm-text, #e8e4dc);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .world-map-modal__close:hover {
+    background: rgba(20, 18, 14, 0.92);
+  }
+
+  .world-map-modal__close:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .world-map-modal__stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #0b0906;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .world-map-modal__stage--dragging {
+    cursor: grabbing;
+  }
+
+  .world-map-modal__image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    transform-origin: center center;
+    user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+  }
+
+  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__image {
+    transition: transform 0.08s ease-out;
+  }
+
+  .world-map-modal__tools {
+    position: absolute;
+    left: 50%;
+    bottom: 0.7rem;
+    z-index: 2;
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.3rem;
+    border-radius: 10px;
+    background: rgba(20, 18, 14, 0.72);
+    transform: translateX(-50%);
+  }
+
+  .world-map-modal__tool {
+    width: 2.2rem;
+    height: 2.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--gm-text, #e8e4dc);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .world-map-modal__tool:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .world-map-modal__error {
+    position: absolute;
+    color: #ffc9c0;
+    margin: 0;
   }
 
   .campaign-heading {

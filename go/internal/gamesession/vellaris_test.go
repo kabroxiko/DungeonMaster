@@ -133,6 +133,43 @@ func TestKeyLocationsStageUsesTheImportedRegionsWhenPresent(t *testing.T) {
 	}
 }
 
+// The key locations stage must choose among the map's own place names: a settlement the players are told about has to
+// be a place they can point at on their map.
+func TestKeyLocationsStageOffersTheMapPlaceNames(t *testing.T) {
+	tpl := promptmgr.LoadPrompt("templates/campaign/stage_keyLocations.txt")
+	if tpl == "" {
+		t.Fatal("keyLocations stage template is missing")
+	}
+	rendered, err := mustache.Render(tpl, map[string]interface{}{
+		"campaignConcept":    "a war of salt and silver",
+		"hasVellarisRegions": true,
+		"vellarisRegions": []interface{}{
+			map[string]interface{}{"id": "7", "name": "Venetzaddana", "terrain": "hills"},
+		},
+		"hasVellarisPlaces": true,
+		"vellarisPlaces": []interface{}{
+			map[string]interface{}{"name": "Azureenci", "type": "City", "kind": "settlement"},
+			map[string]interface{}{"name": "Aditarie", "type": "City", "kind": "settlement"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("rendering with map places failed: %v", err)
+	}
+	for _, want := range []string{
+		`"Azureenci" (settlement)`,
+		`"Aditarie" (settlement)`,
+		"copied exactly",
+		"Never invent a region or a place name",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("place list variant is missing %q\n---\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "evocative or invented toponym") {
+		t.Fatal("the model must not be told to invent place names when the map supplies them")
+	}
+}
+
 func TestVellarisWorldFromRequestAcceptsTheServiceAnswer(t *testing.T) {
 	// This is the shape POST /api/world returns, forwarded as-is — the whole point of accepting both forms.
 	envelope := map[string]interface{}{
@@ -145,7 +182,7 @@ func TestVellarisWorldFromRequestAcceptsTheServiceAnswer(t *testing.T) {
 		"settings": map[string]interface{}{"randomSeed": 1827671559.0},
 	}
 
-	world, settings, problem := vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"world": envelope})
+	world, settings, problem := vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"world": envelope}, "English")
 	if problem != "" {
 		t.Fatalf("unexpected problem: %s", problem)
 	}
@@ -164,7 +201,7 @@ func TestVellarisWorldFromRequestAcceptsABareWorld(t *testing.T) {
 	world := map[string]interface{}{
 		"regions": []interface{}{map[string]interface{}{"name": "Suste"}},
 	}
-	got, settings, problem := vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"world": world})
+	got, settings, problem := vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"world": world}, "English")
 	if problem != "" || got == nil {
 		t.Fatalf("a bare world should be accepted, problem=%q", problem)
 	}
@@ -174,7 +211,7 @@ func TestVellarisWorldFromRequestAcceptsABareWorld(t *testing.T) {
 }
 
 func TestVellarisWorldFromRequestExplainsWhatIsMissing(t *testing.T) {
-	_, _, problem := vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"gameId": "g1"})
+	_, _, problem := vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"gameId": "g1"}, "English")
 	if problem == "" {
 		t.Fatal("expected an explanation when neither a world nor settings are sent")
 	}
@@ -183,7 +220,7 @@ func TestVellarisWorldFromRequestExplainsWhatIsMissing(t *testing.T) {
 	}
 
 	// Settings without a configured service is a distinct, actionable failure.
-	_, _, problem = vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"settings": map[string]interface{}{}})
+	_, _, problem = vellarisWorldFromRequest(context.Background(), nil, map[string]interface{}{"settings": map[string]interface{}{}}, "English")
 	if !strings.Contains(problem, "DM_VELLARIS_URL") {
 		t.Fatalf("expected the missing setting to be named, got %q", problem)
 	}

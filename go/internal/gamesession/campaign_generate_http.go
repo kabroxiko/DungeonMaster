@@ -143,10 +143,6 @@ func accessErrHTTP(err error) (int, map[string]interface{}) {
 
 // HandleGenerateCampaign mirrors POST /api/game-session/generate-campaign.
 func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[string]interface{}, queryGameID string) (int, interface{}) {
-	language := strParam(body, "language")
-	if language == "" {
-		language = "English"
-	}
 	hostPremise := strParam(body, "hostPremise")
 	gameID := strParam(body, "gameId")
 	if gameID == "" {
@@ -158,11 +154,23 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 			return st, payload
 		}
 	}
+	// The map is named in the game's language, and so is the campaign written on it.
+	language := resolveCampaignLanguage(ctx, d, gameID, strParam(body, "language"))
 
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
 		return 500, map[string]interface{}{"error": "Server misconfiguration: templates/campaign/generator.txt is required"}
 	}
+
+	// The campaign is written on a world that already exists, so the map comes first. Its image is rendered from the
+	// same settings at the same time.
+	world, worldMapCh, st, code, problem := prepareCampaignWorld(ctx, d, gameID, body, language)
+	if problem != "" {
+		return st, map[string]interface{}{"error": problem, "code": code}
+	}
+	worldContext := renderCampaignWorldContext(world.World)
+	worldData := campaignWorldTemplateData(world.World)
+	worldMapCtx := context.WithoutCancel(ctx)
 
 	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, hostPremise)
 	if !ok {
@@ -197,7 +205,7 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	if err != nil {
 		return 500, map[string]interface{}{"error": "Failed rendering campaign generator prompt"}
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON)
+	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON, worldContext, worldData)
 	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
 	campaignOutbound := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
@@ -244,8 +252,14 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 		}
 	}
 
+	mapWarning := finishCampaignWorldMapDownload(worldMapCtx, d, gameIDPersist, worldMapCh)
+
 	if parsedObj != nil {
-		return 200, campaignspec.RedactCampaignSpecForClient(parsedObj)
+		out := campaignspec.RedactCampaignSpecForClient(parsedObj)
+		if mapWarning != "" {
+			out["mapImageWarning"] = mapWarning
+		}
+		return 200, out
 	}
 	return 200, aiMessage
 }
@@ -253,10 +267,6 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 // HandleGenerateCampaignCore mirrors POST /api/game-session/generate-campaign-core.
 func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body map[string]interface{}) (int, interface{}) {
 	gameID := strParam(body, "gameId")
-	language := strParam(body, "language")
-	if language == "" {
-		language = "English"
-	}
 	hostPremise := strParam(body, "hostPremise")
 	waitForStages := boolParam(body, "waitForStages", true)
 
@@ -266,11 +276,23 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 			return st, payload
 		}
 	}
+	// The map is named in the game's language, and so is the campaign written on it.
+	language := resolveCampaignLanguage(ctx, d, gameID, strParam(body, "language"))
 
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
 		return 500, map[string]interface{}{"error": "Server misconfiguration: templates/campaign/generator.txt is required"}
 	}
+
+	// The campaign is written on a world that already exists, so the map comes first. Its image is rendered from the
+	// same settings at the same time.
+	world, worldMapCh, st, code, problem := prepareCampaignWorld(ctx, d, gameID, body, language)
+	if problem != "" {
+		return st, map[string]interface{}{"error": problem, "code": code}
+	}
+	worldContext := renderCampaignWorldContext(world.World)
+	worldData := campaignWorldTemplateData(world.World)
+	worldMapCtx := context.WithoutCancel(ctx)
 
 	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, hostPremise)
 	if !ok {
@@ -296,7 +318,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		}
 		creativeJSON = s
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON)
+	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON, worldContext, worldData)
 	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
 	userPromptRendered, err := mustache.Render(userTemplate, map[string]interface{}{
 		"sessionSummary":   "",
@@ -320,7 +342,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	}
 
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": coreOutbound}, map[string]interface{}{
-		"max_tokens": 1000, "temperature": 0.8, "gameId": gameID,
+		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID,
 	})
 	if err != nil || aiMessage == "" {
 		return 500, map[string]interface{}{"error": "AI response empty"}
@@ -380,7 +402,12 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 			}
 		}
 		_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
-		return 200, campaignspec.RedactCampaignSpecForClient(combined)
+		mapWarning := finishCampaignWorldMapDownload(worldMapCtx, d, gameID, worldMapCh)
+		out := campaignspec.RedactCampaignSpecForClient(combined)
+		if mapWarning != "" {
+			out["mapImageWarning"] = mapWarning
+		}
+		return 200, out
 	}
 
 	if gameID != "" {
@@ -416,5 +443,10 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		}()
 	}
 
-	return 200, campaignspec.RedactCampaignSpecForClient(parsedObj)
+	mapWarning := finishCampaignWorldMapDownload(worldMapCtx, d, gameID, worldMapCh)
+	out := campaignspec.RedactCampaignSpecForClient(parsedObj)
+	if mapWarning != "" {
+		out["mapImageWarning"] = mapWarning
+	}
+	return 200, out
 }

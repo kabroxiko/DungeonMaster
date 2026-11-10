@@ -85,7 +85,11 @@ func BuildCampaignStageSystemMsgs(language string) []map[string]string {
 }
 
 // BuildCampaignCoreSystemMsgs mirrors buildCampaignCoreSystemMsgs(language, creativeSeedJson).
-func BuildCampaignCoreSystemMsgs(language, creativeSeedJSON string) []map[string]string {
+//
+// worldContext is the rendered DM-ONLY block for the world the campaign is built on, and worldData is the Mustache
+// data the generator's build context needs to list that world's regions. Both are empty for a campaign that has no
+// generated world, which keeps the generator's own geography in charge.
+func BuildCampaignCoreSystemMsgs(language, creativeSeedJSON, worldContext string, worldData map[string]interface{}) []map[string]string {
 	buildContext, _ := LoadCampaignGeneratorParts()
 	seedSlice := "{}"
 	if strings.TrimSpace(creativeSeedJSON) != "" {
@@ -98,8 +102,19 @@ func BuildCampaignCoreSystemMsgs(language, creativeSeedJSON string) []map[string
 	if g := LoadPrompt("rules/no_prefatory_guard.txt"); g != "" {
 		out = append(out, map[string]string{"role": "system", "content": g})
 	}
+	if block := strings.TrimSpace(worldContext); block != "" {
+		rules := LoadPrompt("rules/vellaris_world.txt")
+		if rules != "" {
+			block = rules + "\n\n" + block
+		}
+		out = append(out, map[string]string{"role": "system", "content": block})
+	}
 	if strings.TrimSpace(buildContext) != "" {
-		rendered, err := mustache.Render(buildContext, map[string]interface{}{"creativeSeedJson": seedSlice})
+		data := map[string]interface{}{"creativeSeedJson": seedSlice}
+		for k, v := range worldData {
+			data[k] = v
+		}
+		rendered, err := mustache.Render(buildContext, data)
 		if err != nil {
 			rendered = buildContext
 		}

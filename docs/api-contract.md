@@ -24,6 +24,8 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 | POST | `/append-player-message` | Bearer | Party round + broadcast |
 | GET | `/events/:gameId` | Bearer **or** `?access_token=` | SSE |
 | GET | `/load/:gameId` | Bearer | Full state (redacted) |
+| GET | `/map/:gameId` | Bearer **or** `?access_token=` | Rendered map image (`image/jpeg`) |
+| PATCH | `/map-visibility` | Bearer, owner only | `{ gameId, visible }` — show/hide the map for every player |
 | GET | `/debug/:gameId/prompts` | Bearer | Debug fields |
 | POST | `/create-party` | Bearer | 201 + lobby `gameSetup` |
 | POST | `/party-ready` | Bearer | |
@@ -43,6 +45,29 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 | POST | `/start-party-adventure` | Bearer |
 | POST | `/bootstrap-session` | Bearer |
 | POST | `/create-invite` | Bearer |
+| POST | `/import-world` | Bearer |
+| POST | `/measure-travel` | Bearer |
+
+### Campaign generation and the map
+
+`generate-campaign`, `generate-campaign-core` and `start-party-adventure` resolve the campaign's world **before**
+generating any text:
+
+1. A game that already carries `campaignSpec.vellarisWorld` reuses it.
+2. Otherwise the map service (`DM_VELLARIS_URL`) is asked once (`POST /api/world`) with map settings from the
+   request's `worldSettings` or from `DM_VELLARIS_SETTINGS_FILE`. Request settings keep their seed; settings read
+   from the file are given a fresh seed per campaign.
+3. The world is stored on the game, then campaign text is generated from it (regions feed the generator prompt).
+4. In parallel, `POST /api/world/map` renders the player-facing map image, which is stored for
+   `GET /api/game-state/map/:gameId`.
+
+A failed world step fails the campaign (a campaign is never written without its map). A failed image render does not:
+the campaign still succeeds and the response carries `mapImageWarning`, with `campaignSpec.mapImageError` on the game.
+
+`gameSetup.mapVisible` is the shared show/hide flag the host toggles through `PATCH /api/game-state/map-visibility`;
+every client reads it from `/load` and from SSE push. The push payload
+`{ type: "world-map-visibility", gameId, visible }` is delivered immediately (not debounced) and carries the value, so
+every client at the table applies the host's choice without waiting for a state reload.
 
 ## WebSocket
 
