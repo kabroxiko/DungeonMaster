@@ -77,22 +77,9 @@ func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]
 	}
 	model := strings.TrimSpace(pickStr(opts, "model", ""))
 	if model == "" {
-		switch backend.name {
-		case "lm_studio":
-			model = strings.TrimSpace(cfg.LMStudioModel)
-			if model == "" {
-				return "", fmt.Errorf("LM Studio is enabled (DM_USE_LM_STUDIO): set DM_LM_STUDIO_MODEL to a loaded model id exactly as shown in LM Studio (e.g. mistralai/mistral-nemo-instruct-2407@q4_k_m); OpenAI names like gpt-3.5-turbo are rejected by the local server")
-			}
-		case "deepseek":
-			model = strings.TrimSpace(cfg.DeepSeekModel)
-			if model == "" {
-				model = "deepseek-chat"
-			}
-		default:
-			model = strings.TrimSpace(cfg.OpenAIModel)
-			if model == "" {
-				model = "gpt-3.5-turbo"
-			}
+		model, err = defaultModelFor(cfg, backend)
+		if err != nil {
+			return "", err
 		}
 	}
 	messages, _ := input["messages"].([]interface{})
@@ -118,7 +105,7 @@ func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]
 
 	var out string
 	var err2 error
-	if cfg.UseLMStudio {
+	if backend.name == lmStudioBackendName {
 		out, err2 = lmStudioChat(ctx, cfg, messages, model, maxTok, temp, opts)
 	} else {
 		out, err2 = openAICompatibleChat(ctx, backend, messages, model, maxTok, temp, opts)
@@ -141,31 +128,74 @@ type chatBackend struct {
 	keyEnv  string
 }
 
-// resolveChatBackend picks the configured provider, and refuses ambiguous configuration rather than guessing which
-// of two enabled backends the operator meant.
+const (
+	lmStudioBackendName = "lm_studio"
+	deepSeekBackendName = "deepseek"
+	openAIBackendName   = "openai"
+)
+
+// resolveChatBackend picks the provider named by DM_AI_PROVIDER. It is one name, so there is no combination to guess
+// between; an unknown name is an error rather than a silent fallback to a provider the operator did not choose.
 func resolveChatBackend(cfg *config.Config) (chatBackend, error) {
 	if cfg == nil {
 		return chatBackend{}, fmt.Errorf("no configuration")
 	}
-	if cfg.UseLMStudio && cfg.UseDeepSeek {
-		return chatBackend{}, fmt.Errorf("DM_USE_LM_STUDIO and DM_USE_DEEPSEEK are both set; enable only one of them")
-	}
-	switch {
-	case cfg.UseLMStudio:
+	switch config.NormalizeAIProvider(cfg.AIProvider) {
+	case config.ProviderLMStudio:
 		base := strings.TrimRight(cfg.LMStudioURL, "/")
 		if base == "" {
 			base = "http://localhost:1234"
 		}
-		return chatBackend{name: "lm_studio", baseURL: base}, nil
-	case cfg.UseDeepSeek:
+		return chatBackend{name: lmStudioBackendName, baseURL: base}, nil
+	case config.ProviderDeepSeek:
 		base := strings.TrimRight(cfg.DeepSeekURL, "/")
 		if base == "" {
 			base = "https://api.deepseek.com"
 		}
-		return chatBackend{name: "deepseek", baseURL: base, apiKey: cfg.DeepSeekAPIKey, keyEnv: "DM_DEEPSEEK_API_KEY"}, nil
+		return chatBackend{name: deepSeekBackendName, baseURL: base, apiKey: cfg.DeepSeekAPIKey, keyEnv: "DM_DEEPSEEK_API_KEY"}, nil
+	case config.ProviderOpenAI:
+		return chatBackend{name: openAIBackendName, baseURL: "https://api.openai.com", apiKey: cfg.OpenAIAPIKey, keyEnv: "DM_OPENAI_API_KEY"}, nil
 	default:
-		return chatBackend{name: "openai", baseURL: "https://api.openai.com", apiKey: cfg.OpenAIAPIKey, keyEnv: "DM_OPENAI_API_KEY"}, nil
+		return chatBackend{}, fmt.Errorf("unknown DM_AI_PROVIDER %q: use %s", cfg.AIProvider, strings.Join(config.AIProviderOptions, ", "))
 	}
+}
+
+// defaultModelFor returns the model a backend runs when a call does not name one.
+func defaultModelFor(cfg *config.Config, backend chatBackend) (string, error) {
+	switch backend.name {
+	case lmStudioBackendName:
+		model := strings.TrimSpace(cfg.LMStudioModel)
+		if model == "" {
+			return "", fmt.Errorf("DM_AI_PROVIDER=lmstudio needs DM_LM_STUDIO_MODEL set to a loaded model id exactly as shown in LM Studio (e.g. mistralai/mistral-nemo-instruct-2407@q4_k_m); OpenAI names like gpt-3.5-turbo are rejected by the local server")
+		}
+		return model, nil
+	case deepSeekBackendName:
+		model := strings.TrimSpace(cfg.DeepSeekModel)
+		if model == "" {
+			model = "deepseek-chat"
+		}
+		return model, nil
+	default:
+		model := strings.TrimSpace(cfg.OpenAIModel)
+		if model == "" {
+			model = "gpt-3.5-turbo"
+		}
+		return model, nil
+	}
+}
+
+// BackendFor reports the provider, endpoint and model this configuration resolves to. Startup logs it, and it makes a
+// misconfigured DM_AI_PROVIDER or missing model id fail at boot instead of on the first player action.
+func BackendFor(cfg *config.Config) (name, baseURL, model string, err error) {
+	backend, err := resolveChatBackend(cfg)
+	if err != nil {
+		return "", "", "", err
+	}
+	model, err = defaultModelFor(cfg, backend)
+	if err != nil {
+		return backend.name, backend.baseURL, "", err
+	}
+	return backend.name, backend.baseURL, model, nil
 }
 
 // chatCompletionsURL accepts a base URL with or without the /v1 suffix, which providers document inconsistently.

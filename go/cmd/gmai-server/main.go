@@ -19,6 +19,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/config"
 	"github.com/deckofdmthings/gmai/internal/gamesession"
 	"github.com/deckofdmthings/gmai/internal/httpserver"
+	"github.com/deckofdmthings/gmai/internal/llm"
 	"github.com/deckofdmthings/gmai/internal/realtime"
 	"github.com/deckofdmthings/gmai/internal/store"
 )
@@ -102,6 +103,13 @@ func main() {
 	if cfg.MongoURI == "" {
 		log.Fatal("DM_MONGODB_URI is required (set in the environment or copy env.example to .env in the repository root)")
 	}
+	// Say which AI backend this process will use, and refuse to start when the selector is wrong: a misconfigured
+	// provider should not look like a broken model on a player's first request.
+	provider, providerURL, providerModel, err := llm.BackendFor(cfg)
+	if err != nil {
+		log.Fatalf("AI provider: %v", err)
+	}
+	log.Printf("AI provider: %s at %s, model %s (DM_AI_PROVIDER)", provider, providerURL, providerModel)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	client, err := store.Dial(ctx, cfg.MongoURI)

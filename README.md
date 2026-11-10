@@ -66,14 +66,20 @@ For proper functioning of the application, you must set up the following environ
   1. Create an API key at [platform.deepseek.com](https://platform.deepseek.com/).
   2. In your `.env` file:
      ```bash
-     DM_USE_DEEPSEEK=true
+     DM_AI_PROVIDER=deepseek
      DM_DEEPSEEK_API_KEY=sk-...
      # optional, these are the defaults:
      DM_DEEPSEEK_MODEL=deepseek-chat
      DM_DEEPSEEK_URL=https://api.deepseek.com
      ```
-  3. Leave `DM_USE_LM_STUDIO` off. Enabling both at once is refused with an explicit error rather than one silently winning.
+  3. Restart the server: `.env` is read once at startup, and the log line `AI provider: deepseek at …` confirms which backend this process uses.
 - **Notes**: use a plain chat model (`deepseek-chat`). Reasoning models (`deepseek-reasoner`, `deepseek-flash`) spend the output budget on hidden reasoning tokens — a 550-token stage can come back with ~130 tokens of actual reply, truncated mid-document, which then fails to parse. `DM_MODEL_CONTEXT_TOKENS` defaults to 16384; raise it (e.g. `65536`) to use more of DeepSeek's window.
+
+#### Choosing the AI provider
+
+- **Purpose**: one selector, `DM_AI_PROVIDER`, instead of a boolean per provider.
+- **Values**: `openai` (default when unset), `deepseek`, `lmstudio`. An unknown value stops the server at boot with the list of accepted names, rather than quietly using a different provider.
+- **Why not flags**: `DM_USE_LM_STUDIO` and `DM_USE_DEEPSEEK` could both be on at once, and the server then had to refuse or guess. A single name cannot be ambiguous, and the startup log states the provider, its endpoint and the model.
 
 #### Google Sign-In and session JWT (required for play)
 

@@ -49,7 +49,7 @@ func generate(t *testing.T, cfg *config.Config, opts map[string]interface{}) (st
 
 func TestDeepSeekUsesItsOwnEndpointModelAndKey(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL, DeepSeekAPIKey: "sk-deepseek", DeepSeekModel: "deepseek-reasoner"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "sk-deepseek", DeepSeekModel: "deepseek-reasoner"}
 
 	out, err := generate(t, cfg, nil)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestDeepSeekUsesItsOwnEndpointModelAndKey(t *testing.T) {
 
 func TestDeepSeekDefaultsToChatModel(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
 
 	if _, err := generate(t, cfg, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -83,7 +83,7 @@ func TestDeepSeekDefaultsToChatModel(t *testing.T) {
 
 func TestDeepSeekToleratesABaseURLThatAlreadyEndsInV1(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL + "/v1", DeepSeekAPIKey: "k"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL + "/v1", DeepSeekAPIKey: "k"}
 
 	if _, err := generate(t, cfg, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -95,7 +95,7 @@ func TestDeepSeekToleratesABaseURLThatAlreadyEndsInV1(t *testing.T) {
 
 func TestDeepSeekKeepsJSONModeForTheDMEnvelope(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
 
 	// dm.go asks for json_object; DeepSeek supports it, so dropping it would let the model wrap its reply in prose.
 	opts := map[string]interface{}{"response_format": map[string]interface{}{"type": "json_object"}}
@@ -109,7 +109,7 @@ func TestDeepSeekKeepsJSONModeForTheDMEnvelope(t *testing.T) {
 }
 
 func TestDeepSeekReportsItsOwnMissingKey(t *testing.T) {
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: "http://127.0.0.1:1", DeepSeekAPIKey: ""}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: "http://127.0.0.1:1", DeepSeekAPIKey: ""}
 
 	_, err := generate(t, cfg, nil)
 	if err == nil {
@@ -127,7 +127,7 @@ func TestDeepSeekSurfacesProviderErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL, DeepSeekAPIKey: "bad"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "bad"}
 	_, err := generate(t, cfg, nil)
 	if err == nil {
 		t.Fatal("expected an error for a rejected key")
@@ -137,15 +137,17 @@ func TestDeepSeekSurfacesProviderErrors(t *testing.T) {
 	}
 }
 
-func TestEnablingTwoHostedBackendsIsRejected(t *testing.T) {
-	cfg := &config.Config{UseLMStudio: true, UseDeepSeek: true, DeepSeekAPIKey: "k"}
+// One selector cannot enable two providers at once, so the only configuration error left to report is a name the
+// server does not serve. It must fail loudly rather than fall back to a provider nobody asked for.
+func TestUnknownProviderIsRejectedByName(t *testing.T) {
+	cfg := &config.Config{AIProvider: "gemini"}
 
 	_, err := generate(t, cfg, nil)
 	if err == nil {
-		t.Fatal("expected an error when two backends are enabled at once")
+		t.Fatal("expected an error for a provider the server does not serve")
 	}
-	if !strings.Contains(err.Error(), "DM_USE_LM_STUDIO") || !strings.Contains(err.Error(), "DM_USE_DEEPSEEK") {
-		t.Fatalf("the error should name both settings, got %v", err)
+	if !strings.Contains(err.Error(), "DM_AI_PROVIDER") || !strings.Contains(err.Error(), "deepseek") {
+		t.Fatalf("the error should name the setting and the accepted values, got %v", err)
 	}
 }
 
@@ -158,7 +160,7 @@ func TestProviderDefaultsAreUnchanged(t *testing.T) {
 		t.Fatalf("OpenAI remains the default backend, got %+v", openai)
 	}
 
-	deepseek, err := resolveChatBackend(&config.Config{UseDeepSeek: true})
+	deepseek, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderDeepSeek})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -166,7 +168,7 @@ func TestProviderDefaultsAreUnchanged(t *testing.T) {
 		t.Fatalf("unexpected DeepSeek defaults: %+v", deepseek)
 	}
 
-	local, err := resolveChatBackend(&config.Config{UseLMStudio: true})
+	local, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderLMStudio})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

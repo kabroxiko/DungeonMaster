@@ -6,6 +6,36 @@ import (
 	"strings"
 )
 
+// Chat-completions providers an AI call can be sent to. The provider is chosen once, by name, in DM_AI_PROVIDER.
+const (
+	// ProviderOpenAI is the hosted OpenAI API and the default when DM_AI_PROVIDER is unset.
+	ProviderOpenAI = "openai"
+	// ProviderDeepSeek is DeepSeek's hosted, OpenAI-compatible API.
+	ProviderDeepSeek = "deepseek"
+	// ProviderLMStudio is a local LM Studio server, also OpenAI-compatible.
+	ProviderLMStudio = "lmstudio"
+)
+
+// AIProviderOptions lists the accepted DM_AI_PROVIDER values, for error messages and docs.
+var AIProviderOptions = []string{ProviderOpenAI, ProviderDeepSeek, ProviderLMStudio}
+
+// NormalizeAIProvider lowercases and trims a provider name and folds the spellings of LM Studio (lm-studio,
+// lm_studio, lm studio) into ProviderLMStudio. An unknown value comes back trimmed and lowercased, so the backend
+// resolver can name it back to the operator instead of silently falling back to a provider nobody asked for.
+func NormalizeAIProvider(raw string) string {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	v = strings.NewReplacer(" ", "", "_", "", "-", "").Replace(v)
+	switch v {
+	case "", ProviderOpenAI:
+		return ProviderOpenAI
+	case ProviderDeepSeek:
+		return ProviderDeepSeek
+	case ProviderLMStudio:
+		return ProviderLMStudio
+	}
+	return v
+}
+
 // Config mirrors env.example in the repository root.
 type Config struct {
 	Port           string
@@ -17,11 +47,12 @@ type Config struct {
 	GoogleClientID string
 	NodeEnv        string
 	OpenAIModel    string
-	UseLMStudio    bool
-	LMStudioURL    string
-	LMStudioModel  string
-	// DeepSeek speaks the OpenAI chat-completions protocol, so DM_USE_DEEPSEEK only changes where calls go.
-	UseDeepSeek     bool
+	// AIProvider is the chat-completions backend every AI call uses (set DM_AI_PROVIDER: openai, deepseek or
+	// lmstudio). One selector replaces a boolean per provider: flags allowed two providers to be enabled at once,
+	// which the server then had to refuse or guess between, while a single name cannot be ambiguous.
+	AIProvider      string
+	LMStudioURL     string
+	LMStudioModel   string
 	DeepSeekURL     string
 	DeepSeekModel   string
 	DeepSeekAPIKey  string
@@ -92,11 +123,10 @@ func Load() *Config {
 		GoogleClientID: strings.TrimSpace(os.Getenv("DM_GOOGLE_CLIENT_ID")),
 		NodeEnv:        getenv("NODE_ENV", ""),
 		OpenAIModel:    getenv("DM_OPENAI_MODEL", "gpt-3.5-turbo"),
-		UseLMStudio:    TruthyEnv("DM_USE_LM_STUDIO"),
+		AIProvider:     NormalizeAIProvider(getenv("DM_AI_PROVIDER", ProviderOpenAI)),
 		LMStudioURL:    getenv("DM_LM_STUDIO_URL", "http://localhost:1234"),
-		// Local LM Studio model id only — do not default to gpt-3.5-turbo (invalid on LM Studio). Set DM_LM_STUDIO_MODEL when DM_USE_LM_STUDIO=true.
+		// Local LM Studio model id only — do not default to gpt-3.5-turbo (invalid on LM Studio). Set DM_LM_STUDIO_MODEL when DM_AI_PROVIDER=lmstudio.
 		LMStudioModel:            strings.TrimSpace(os.Getenv("DM_LM_STUDIO_MODEL")),
-		UseDeepSeek:              TruthyEnv("DM_USE_DEEPSEEK"),
 		DeepSeekURL:              getenv("DM_DEEPSEEK_URL", "https://api.deepseek.com"),
 		DeepSeekModel:            strings.TrimSpace(os.Getenv("DM_DEEPSEEK_MODEL")),
 		DeepSeekAPIKey:           strings.TrimSpace(os.Getenv("DM_DEEPSEEK_API_KEY")),

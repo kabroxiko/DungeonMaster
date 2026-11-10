@@ -18,7 +18,7 @@ func TestTruncatedReplyIsReportedInsteadOfReturned(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, map[string]interface{}{"max_tokens": 900})
@@ -41,7 +41,7 @@ func TestCompleteReplyStillReturns(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{UseDeepSeek: true, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, nil)
