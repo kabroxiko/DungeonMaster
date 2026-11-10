@@ -396,10 +396,15 @@ func renderInitialCampaignInject(spec map[string]interface{}) string {
 		if strings.TrimSpace(name) == "" {
 			continue
 		}
-		mapPlaces = append(mapPlaces, map[string]interface{}{
+		entry := map[string]interface{}{
 			"name": name,
 			"kind": campaignspec.PlaceKind(fmt.Sprint(m["type"])),
-		})
+		}
+		// The opening scene is set somewhere real, so the ground around each candidate travels with its name.
+		if suffix, ok := m["surroundingsSuffix"].(string); ok && suffix != "" {
+			entry["surroundingsSuffix"] = suffix
+		}
+		mapPlaces = append(mapPlaces, entry)
 		if len(mapPlaces) >= 20 {
 			break
 		}

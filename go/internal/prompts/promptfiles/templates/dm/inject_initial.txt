@@ -37,9 +37,9 @@ Key locations:
 Settlements named on the players' map — every settlement or site you name in this opening must be one of these, copied
 exactly. The kind in parentheses is what each name is: only settlements have streets, markets, gates and docks, and a
 region is a territory, never a city. A venue that is not on the map is described by kind and location, never given an
-invented proper name:
+invented proper name. What follows a name describes the ground around it; set the opening scene consistently with it:
 {{#mapPlaces}}
-- {{name}} ({{kind}})
+- {{name}} ({{kind}}){{{surroundingsSuffix}}}
 {{/mapPlaces}}
 {{/hasMapPlaces}}
 

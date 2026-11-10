@@ -45,6 +45,45 @@ func sampleVellarisWorld(placeCount int) map[string]interface{} {
 	}
 }
 
+func TestNormalizeVellarisWorldPrintsWhatSurroundsEachPlace(t *testing.T) {
+	world := map[string]interface{}{
+		"places": []interface{}{
+			map[string]interface{}{
+				"name": "Azureenci", "type": "City", "x": 10.0, "y": 20.0,
+				"surroundings": map[string]interface{}{
+					"terrain":       "forest",
+					"nearbyTerrain": "hills",
+					"coastal":       true,
+					"river":         true,
+					"lake":          false,
+					"mountains":     true,
+					"island":        false,
+					"unexpected":    "ignored",
+				},
+			},
+			map[string]interface{}{
+				"name": "Ostrel", "type": "City", "x": 30.0, "y": 40.0,
+				"surroundings": map[string]interface{}{"terrain": "hills", "coastal": true, "island": true},
+			},
+			map[string]interface{}{"name": "Praino", "type": "City", "x": 1.0, "y": 2.0},
+		},
+	}
+
+	places := NormalizeVellarisWorld(world)["places"].([]interface{})
+	first := places[0].(map[string]interface{})
+	if first["surroundingsSuffix"] != " — forest, bordering hills, on the coast, on a river, near mountains" {
+		t.Fatalf("unexpected surroundings for %v: %q", first["name"], first["surroundingsSuffix"])
+	}
+	second := places[1].(map[string]interface{})
+	if second["surroundingsSuffix"] != " — hills, on an island" {
+		t.Fatalf("an island should read as an island rather than as the mainland coast: %q", second["surroundingsSuffix"])
+	}
+	third := places[2].(map[string]interface{})
+	if _, ok := third["surroundingsSuffix"]; ok {
+		t.Fatalf("a place the map said nothing about must not be given surroundings: %v", third["surroundingsSuffix"])
+	}
+}
+
 func TestNormalizeVellarisWorldIsEmptyForNoWorld(t *testing.T) {
 	if got := NormalizeVellarisWorld(nil); got != nil {
 		t.Fatalf("nil input should stay nil, got %v", got)

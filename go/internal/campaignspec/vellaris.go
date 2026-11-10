@@ -123,11 +123,12 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 	}
 
 	type place struct {
-		name string
-		kind string
-		x    string
-		y    string
-		rank int
+		name         string
+		kind         string
+		x            string
+		y            string
+		rank         int
+		surroundings map[string]interface{}
 	}
 	places := make([]place, 0, len(list))
 	seen := map[string]struct{}{}
@@ -152,7 +153,8 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 		if !known {
 			rank = 3
 		}
-		places = append(places, place{name: name, kind: typeName, x: numText(m["x"], 0), y: numText(m["y"], 0), rank: rank})
+		places = append(places, place{name: name, kind: typeName, x: numText(m["x"], 0), y: numText(m["y"], 0), rank: rank,
+			surroundings: placeSurroundings(m["surroundings"])})
 	}
 	if len(places) == 0 {
 		return nil, 0
@@ -171,15 +173,82 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 	}
 	out := make([]interface{}, 0, len(places))
 	for _, p := range places {
-		out = append(out, map[string]interface{}{
+		entry := map[string]interface{}{
 			"name": p.name,
 			"type": p.kind,
 			"kind": PlaceKind(p.kind),
 			"x":    p.x,
 			"y":    p.y,
-		})
+		}
+		if text := surroundingsText(p.surroundings); text != "" {
+			entry["surroundingsText"] = text
+			entry["surroundingsSuffix"] = " — " + text
+		}
+		out = append(out, entry)
 	}
 	return out, total
+}
+
+// placeSurroundings keeps the map's description of the ground around a place, in the terms the prompt speaks.
+//
+// Vellaris reports the terrain a place stands in, the terrain bordering it, and whether a coast, lake, river,
+// mountains or an island are at hand. Only those fields are kept, so a stored world from an older server (which
+// sent nothing) or a newer one (which might send more) can neither invent surroundings here nor leak raw data into
+// the prompt. Returns nil when nothing was reported, which is what keeps an unknown place from being described at all.
+func placeSurroundings(raw interface{}) map[string]interface{} {
+	m, _ := raw.(map[string]interface{})
+	if m == nil {
+		return nil
+	}
+	out := map[string]interface{}{}
+	if terrain := stringFrom(m["terrain"]); terrain != "" {
+		out["terrain"] = terrain
+	}
+	if nearby := stringFrom(m["nearbyTerrain"]); nearby != "" {
+		out["nearbyTerrain"] = nearby
+	}
+	for _, key := range []string{"coastal", "lake", "river", "mountains", "island"} {
+		if truthy(m[key]) {
+			out[key] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// surroundingsText turns a place's surroundings into the short phrase the prompts print after its name, such as
+// "forest, bordering hills, on the coast".
+//
+// Only what the map reported is said: a world without surroundings produces no phrase, so the model is never handed
+// a terrain the map service did not state. The terrain itself is not repeated as a feature ("mountains" for a place
+// standing on mountains), so the phrase reads as position rather than as a list of duplicates.
+func surroundingsText(surroundings map[string]interface{}) string {
+	terrain := stringFrom(surroundings["terrain"])
+	nearby := stringFrom(surroundings["nearbyTerrain"])
+	parts := make([]string, 0, 5)
+	if terrain != "" {
+		parts = append(parts, terrain)
+	}
+	if nearby != "" && nearby != terrain {
+		parts = append(parts, "bordering "+nearby)
+	}
+	if truthy(surroundings["island"]) {
+		parts = append(parts, "on an island")
+	} else if truthy(surroundings["coastal"]) {
+		parts = append(parts, "on the coast")
+	}
+	if truthy(surroundings["river"]) && terrain != "river" {
+		parts = append(parts, "on a river")
+	}
+	if truthy(surroundings["lake"]) && terrain != "lake" {
+		parts = append(parts, "beside a lake")
+	}
+	if truthy(surroundings["mountains"]) && terrain != "mountain" {
+		parts = append(parts, "near mountains")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func normalizeVellarisRoutes(raw interface{}) []interface{} {

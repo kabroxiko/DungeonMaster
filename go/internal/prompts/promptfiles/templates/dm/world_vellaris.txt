@@ -8,12 +8,16 @@ Regions ({{{regionCount}}}) — territories, not settlements:
 {{/hasRegions}}
 {{#hasPlaces}}
 Named places ({{{placeCount}}}){{{placesNotice}}}:
-{{#places}}- {{{name}}} ({{{kind}}}) at {{{x}}}, {{{y}}}
+{{#places}}- {{{name}}} ({{{kind}}}) at {{{x}}}, {{{y}}}{{{surroundingsSuffix}}}
 {{/places}}
 {{/hasPlaces}}
 Kind legend: a **settlement** is a built-up place with streets, gates, markets and docks; a **region** is a territory
 that contains settlements (say "in the region of X", never "the city of X"); **lake**, **river** and **mountains**
 are landforms with no streets or markets. Use each name as the kind it is.
+
+Surroundings after a place describe the ground it stands on: its terrain (forest, hills, plains, marsh, desert,
+arctic), the terrain bordering it when another one is close, and whether the coast, a river, a lake, mountains or an
+island are at hand. Treat them as map truth alongside the name.
 {{#hasRoutes}}
 Travel already measured for this world — use these numbers verbatim when the party makes these journeys:
 {{#routes}}- {{{from}}} to {{{to}}}: {{{distance}}} units, about {{{days}}} days on foot{{{terrainSuffix}}}{{{waterSuffix}}}; through {{{regionsText}}}
