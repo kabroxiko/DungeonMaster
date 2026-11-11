@@ -162,23 +162,21 @@
         <header class="chat-room__header">
             <!-- Intentionally no "sync / Sincronizar" control — reload the browser to pull latest state. -->
             <div
-                v-if="campaignTitle || canShareInviteLink || showMapToggle"
+                v-if="campaignTitle || canShareInviteLink || showMapButton"
                 class="campaign-heading-row"
                 :class="{ 'campaign-heading-row--no-title': !campaignTitle }"
             >
                 <h2 v-if="campaignTitle" class="campaign-heading">{{ campaignTitle }}</h2>
-                <div v-if="showMapToggle || canShareInviteLink" class="campaign-heading-row__tools">
+                <div v-if="showMapButton || canShareInviteLink" class="campaign-heading-row__tools">
                     <button
-                        v-if="showMapToggle"
+                        v-if="showMapButton"
                         type="button"
                         class="app-banner__tool chat-room__map-tool"
                         :class="{ 'chat-room__map-tool--on': mapVisible }"
-                        :disabled="mapToggleBusy"
-                        :aria-busy="mapToggleBusy"
                         :aria-pressed="mapVisible ? 'true' : 'false'"
                         :title="mapVisible ? $i18n.map_hide : $i18n.map_show"
                         :aria-label="mapVisible ? $i18n.map_hide : $i18n.map_show"
-                        @click="toggleMapVisibility"
+                        @click="toggleMap"
                     >
                         <span class="visually-hidden">{{ mapVisible ? $i18n.map_hide : $i18n.map_show }}</span>
                         <FontAwesomeIcon :icon="faMap" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
@@ -257,10 +255,8 @@
                 :aria-label="$i18n.map_overlay_title"
             >
                 <button
-                    v-if="isGameOwner"
                     type="button"
                     class="world-map-modal__close"
-                    :disabled="mapToggleBusy"
                     :aria-label="$i18n.map_close"
                     :title="$i18n.map_close"
                     @click="closeMapModal"
@@ -419,9 +415,8 @@ export default {
                 campaignMapImage: null,
                 /** campaignSpec.mapImageError — why the rendered map could not be stored, for the host only. */
                 mapImageError: '',
-                /** gameSetup.mapVisible — set by the host, read by every player, so the table sees one screen. */
+                /** Local per-browser view: any player can open the campaign map on their own screen. */
                 mapVisible: false,
-                mapToggleBusy: false,
                 mapImageFailed: false,
                 mapDownloadBusy: false,
                 /** Map modal viewport: translate in stage pixels, scale from 1 (fit) to 8. */
@@ -734,9 +729,9 @@ export default {
                 const ph = this.partyPhase;
                 return ph === 'lobby' || ph === 'starting';
             },
-            /** Only the table owner may show or hide the map, and only a game with a rendered map has one to show. */
-            showMapToggle() {
-                return this.isGameOwner && Boolean(this.campaignMapImage) && !this.isPartyLobby;
+            /** Every member can open the campaign map in their own browser; only a game with a rendered map has one. */
+            showMapButton() {
+                return Boolean(this.campaignMapImage) && !this.isPartyLobby;
             },
             /** An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does. */
             mapImageSrc() {
@@ -1094,7 +1089,7 @@ export default {
             gameSessionBroadcastActive() {
                 this.$nextTick(() => this.maybeStartGameStateEventSource());
             },
-            /** Every open starts at the fitted view; the host's choice is the shared flag, not a view state. */
+            /** Every open starts at the fitted view; zoom and pan belong to this browser only. */
             mapVisible(visible) {
                 if (visible) this.resetMapView();
             },
@@ -1465,13 +1460,6 @@ export default {
                     } catch (err) {
                         return;
                     }
-                    // The host's map toggle is applied from the event itself: it must reach every player even when
-                    // this client is busy sending or is inside the post-load cooldown that skips a full reload.
-                    if (o && o.type === 'world-map-visibility' && String(o.gameId || '') === routeId) {
-                        this.mapVisible = o.visible === true;
-                        if (!this.mapVisible) this.mapImageFailed = false;
-                        return;
-                    }
                     if (!o || o.type !== 'game-state-updated') return;
                     if (String(o.gameId || '') !== routeId) return;
                     if (this.syncBusy || this.isSending) return;
@@ -1678,33 +1666,15 @@ export default {
                     this.localPlayerCharacter = { ...this.localPlayerCharacter, coinage: cur };
                 }
             },
-            /**
-             * Show or hide the physical map for everyone at the table. The server is the source of truth: it stores
-             * the flag on gameSetup and notifies every client, so each player's screen follows the host's choice.
-             */
-            async toggleMapVisibility() {
-                if (!this.isGameOwner || this.mapToggleBusy) return;
-                const gid = this.$store.state.gameId != null ? String(this.$store.state.gameId).trim() : '';
-                if (!gid) return;
-                const next = !this.mapVisible;
-                this.mapToggleBusy = true;
-                try {
-                    const { data } = await axios.patch('/api/game-state/map-visibility', { gameId: gid, visible: next });
-                    this.mapVisible = Boolean(data && data.mapVisible);
-                    if (!this.mapVisible) this.mapImageFailed = false;
-                } catch (e) {
-                    const payload = e && e.response && e.response.data;
-                    const msg = (payload && (payload.error || payload.code)) || this.$i18n.map_toggle_failed;
-                    this.showInviteToast(msg, 'error');
-                } finally {
-                    this.mapToggleBusy = false;
-                }
+            /** Open or close the campaign map on this browser only; other players' screens are unaffected. */
+            toggleMap() {
+                this.mapVisible = !this.mapVisible;
+                if (!this.mapVisible) this.mapImageFailed = false;
             },
-            /** The modal's X means "take the shared map down", so it goes through the same owner-only toggle. */
             closeMapModal() {
-                if (!this.isGameOwner || this.mapToggleBusy) return;
                 this.resetMapView();
-                if (this.mapVisible) this.toggleMapVisibility();
+                this.mapVisible = false;
+                this.mapImageFailed = false;
             },
             /**
              * Download the world behind this map. The server answers in the map service's own shape, so the file can be
@@ -2394,8 +2364,6 @@ export default {
                         spec && spec.mapImage && typeof spec.mapImage === 'object' ? spec.mapImage : null;
                     this.mapImageError =
                         spec && typeof spec.mapImageError === 'string' ? spec.mapImageError : '';
-                    this.mapVisible = Boolean(gameState.gameSetup && gameState.gameSetup.mapVisible);
-                    if (!this.mapVisible) this.mapImageFailed = false;
 
                     const uid = this.myUserIdStr;
                     const sheetForMe = uid ? this.pickPlayerCharacterFromStore(uid) : null;

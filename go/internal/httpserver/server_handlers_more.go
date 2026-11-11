@@ -833,16 +833,6 @@ func (s *Server) handleWorldMapJSON(w http.ResponseWriter, r *http.Request, uid 
 	_ = enc.Encode(payload)
 }
 
-// handleMapVisibility shows or hides the physical map for every player at the table.
-func (s *Server) handleMapVisibility(w http.ResponseWriter, r *http.Request, uid string) {
-	var body map[string]interface{}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	st, out := gamesession.HandleSetMapVisibility(r.Context(), s.GS, uid, body)
-	writeJSON(w, st, localizeIfCoded(r, out))
-}
-
 func (s *Server) handleImportWorld(w http.ResponseWriter, r *http.Request, uid string) {
 	var body map[string]interface{}
 	if !readJSON(w, r, &body) {

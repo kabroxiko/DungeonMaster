@@ -26,7 +26,6 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 | GET | `/load/:gameId` | Bearer | Full state (redacted) |
 | GET | `/map/:gameId` | Bearer **or** `?access_token=` | Rendered map image (`image/jpeg`) |
 | GET | `/map-json/:gameId` | Bearer, owner only | World JSON download (`{ success, world, settings }`, same shape as `POST /api/world`) |
-| PATCH | `/map-visibility` | Bearer, owner only | `{ gameId, visible }` — show/hide the map for every player |
 | GET | `/debug/:gameId/prompts` | Bearer | Debug fields |
 | POST | `/create-party` | Bearer | 201 + lobby `gameSetup` |
 | POST | `/party-ready` | Bearer | |
@@ -72,10 +71,9 @@ one, otherwise by the stored settings. Deleting a game deletes its stored map fr
 A failed world step fails the campaign (a campaign is never written without its map). A failed image render does not:
 the campaign still succeeds and the response carries `mapImageWarning`, with `campaignSpec.mapImageError` on the game.
 
-`gameSetup.mapVisible` is the shared show/hide flag the host toggles through `PATCH /api/game-state/map-visibility`;
-every client reads it from `/load` and from SSE push. The push payload
-`{ type: "world-map-visibility", gameId, visible }` is delivered immediately (not debounced) and carries the value, so
-every client at the table applies the host's choice without waiting for a state reload.
+`GET /api/game-state/map/:gameId` serves the rendered map to any game member. The chat header's map button is
+per-browser: each player opens and closes the campaign map on their own screen, so opening it never affects anyone
+else's view and no owner permission is involved.
 
 ### Marking new places on the map
 

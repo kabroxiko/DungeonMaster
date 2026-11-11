@@ -154,18 +154,6 @@ func (h *Hub) flushNotify(gid string) {
 	h.broadcast(gid, map[string]interface{}{"type": "game-state-updated", "gameId": gid})
 }
 
-// NotifyWorldMapVisibility tells every client in a game that the physical map was shown or hidden.
-//
-// Unlike a game-state notification this is sent immediately and carries the value, because it is a direct action on
-// the shared screen: clients apply it without waiting for a state reload, which a busy client can skip.
-func (h *Hub) NotifyWorldMapVisibility(gameID string, visible bool) {
-	gid := trim(gameID)
-	if gid == "" {
-		return
-	}
-	h.broadcast(gid, map[string]interface{}{"type": "world-map-visibility", "gameId": gid, "visible": visible})
-}
-
 // broadcast writes one payload to every SSE and WebSocket client watching the game.
 func (h *Hub) broadcast(gid string, payloadMap map[string]interface{}) {
 	payloadBytes, _ := json.Marshal(payloadMap)

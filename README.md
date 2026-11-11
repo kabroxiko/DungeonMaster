@@ -136,9 +136,8 @@ respect that (never “the market of <region>”). The opening narration is rend
 (`templates/dm/inject_initial.txt`) with its key locations reconciled to the map again, so even a campaign generated
 before this rule existed opens on places the players can find on their map.
 
-The table host gets a map button in the chat header to **show or hide the physical map** for every player; the shared
-flag lives on `gameSetup.mapVisible` and the server pushes a `world-map-visibility` event to every client immediately,
-so all players see the map open and close together.
+Every player gets a map button in the chat header and opens the campaign map in their own browser; opening or closing
+it never changes what anyone else at the table sees, and no host permission is involved.
 
 A world can also be imported directly, which skips step 2:
 

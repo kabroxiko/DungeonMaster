@@ -119,7 +119,6 @@ func (s *Server) Handler() http.Handler {
 		// access_token query the SSE stream uses.
 		r.Get("/map/{gameId}", s.withAuthBearerOrQuery(s.handleWorldMapImage))
 		r.Get("/map-json/{gameId}", s.withAuthBearer(s.handleWorldMapJSON))
-		r.Patch("/map-visibility", s.withAuthBearer(s.handleMapVisibility))
 		r.Get("/debug/{gameId}/prompts", s.withAuthBearer(s.handleDebugPrompts))
 		r.Post("/create-party", s.withAuthBearer(s.handleCreateParty))
 		r.Post("/party-ready", s.withAuthBearer(s.handlePartyReady))
