@@ -146,7 +146,7 @@ func TestCampaignWorldSystemBlockCarriesRulesRegionsAndPlaces(t *testing.T) {
 	world, _ := sampleVellarisSpec()["vellarisWorld"].(map[string]interface{})
 
 	block := campaignWorldSystemBlock(world, 10)
-	for _, want := range []string{"VELLARIS WORLD", "Never add geography", "DM-ONLY VELLARIS WORLD", "Venetzaddana (region, id 7), hills", "Azureenci"} {
+	for _, want := range []string{"VELLARIS WORLD", "Do not invent geography", "DM-ONLY VELLARIS WORLD", "Venetzaddana (region, id 7), hills", "Azureenci"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("stage world block is missing %q\n---\n%s", want, block)
 		}

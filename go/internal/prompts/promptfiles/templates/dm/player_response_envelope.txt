@@ -8,5 +8,6 @@ Required keys (exact names, double-quoted in JSON):
 - `"combatCue"` (string): Short internal cue when imminentCombat is true; "" otherwise.
 - `"encounterState"` (object, optional): Machine UI only — initiative, HP, participants; **not** pasted as a prose roster into narration. Unique `displayName` per participant.
 - `"coinage"` (object, optional): New **full** `pp`, `gp`, `ep`, `sp`, `cp` totals when on-sheet cash changed; omit if unchanged.
+- `"newPlaces"` (array, optional): **at most one** site the narration introduces that the players must be able to find **on the map** and that the VELLARIS WORLD block does not already name — `[{"name": "Cave of the Red Dragon", "x": 1150, "y": 640}]`. The coordinates use the world block's own `at x, y` space: take a listed place and offset it a short way (a place listed `at 1046, 560` gives roughly `1150, 640`). The name must be a landmark, never a settlement. Omit the key on turns that introduce nothing new, and never list a place the block already names.
 
-Rules: Do not revive a foe at 0 HP as upright/speaking in the same scene; never say "imminentCombat", "combatCue", "encounterState", "coinage", or "JSON" inside narration; do not end narration with a duplicate HP/AC roster — the client uses encounterState.
+Rules: Do not revive a foe at 0 HP as upright/speaking in the same scene; never say "imminentCombat", "combatCue", "encounterState", "coinage", "newPlaces", or "JSON" inside narration; do not end narration with a duplicate HP/AC roster — the client uses encounterState.

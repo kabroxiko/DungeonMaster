@@ -101,6 +101,34 @@ func (c *Client) RouteStored(ctx context.Context, mapID, from, to, mode string, 
 	return c.do(ctx, http.MethodPost, "/api/maps/"+url.PathEscape(strings.TrimSpace(mapID))+"/route", body)
 }
 
+// Place is one named mark to add to a world, in the resolution-invariant coordinates the world reports.
+type Place struct {
+	Name string  `json:"name"`
+	X    float64 `json:"x"`
+	Y    float64 `json:"y"`
+}
+
+// AddPlaces marks places on a stored world and answers with the world as it now reads, including the new names.
+//
+// The service re-renders the map from the same seeds and replaces its stored copy, so the world keeps its id and
+// everything already drawn stays exactly where it was.
+func (c *Client) AddPlaces(ctx context.Context, mapID string, places []Place) (map[string]interface{}, error) {
+	body := map[string]interface{}{"places": places}
+	return c.do(ctx, http.MethodPost, "/api/maps/"+url.PathEscape(strings.TrimSpace(mapID))+"/places", body)
+}
+
+// AddPlacesToWorld marks places on a world the caller describes by settings, for a deployment whose map service
+// keeps no database. The answer carries the updated world, the canonical settings to keep, and the re-rendered map
+// image as imageBase64.
+func (c *Client) AddPlacesToWorld(ctx context.Context, settings map[string]interface{}, places []Place) (map[string]interface{}, error) {
+	body := map[string]interface{}{}
+	for k, v := range settings {
+		body[k] = v
+	}
+	body["places"] = places
+	return c.do(ctx, http.MethodPost, "/api/world/places", body)
+}
+
 // routeBody builds the endpoint fields every route call carries; settings are copied in when the caller has them.
 func routeBody(settings map[string]interface{}, from, to, mode string, allowWater bool) map[string]interface{} {
 	body := map[string]interface{}{}

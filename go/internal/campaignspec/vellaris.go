@@ -408,6 +408,9 @@ func PlaceKind(raw string) string {
 		return "settlement"
 	case "region":
 		return "region"
+	case "landmark":
+		// A site the story marked on the map after generation: somewhere to find, not a built-up place.
+		return "landmark"
 	case "lake":
 		return "lake"
 	case "river":

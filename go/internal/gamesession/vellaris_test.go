@@ -59,7 +59,8 @@ func TestRenderVellarisWorldInjectCarriesRulesGeometryAndTravel(t *testing.T) {
 	// The rules have to travel with the data, or the model has no idea the block is authoritative.
 	for _, want := range []string{
 		"VELLARIS WORLD",
-		"Never add geography",
+		"Do not invent geography",
+		"newPlaces",
 		"DM-ONLY VELLARIS WORLD",
 		"Venetzaddana",
 		"Suste",

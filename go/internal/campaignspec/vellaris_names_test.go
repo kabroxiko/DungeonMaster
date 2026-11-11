@@ -208,6 +208,7 @@ func TestNormalizeVellarisWorldAcceptsMongoDecodedArrays(t *testing.T) {
 func TestPlaceKindNamesWhatTheMapTextIs(t *testing.T) {
 	cases := map[string]string{
 		"City":            "settlement",
+		"Landmark":        "landmark",
 		"Region":          "region",
 		"Lake":            "lake",
 		"River":           "river",
@@ -221,7 +222,7 @@ func TestPlaceKindNamesWhatTheMapTextIs(t *testing.T) {
 			t.Fatalf("PlaceKind(%q) = %q, want %q", raw, got, want)
 		}
 	}
-	if !IsSettlementPlaceType("City") || IsSettlementPlaceType("Region") || IsSettlementPlaceType("Lake") {
+	if !IsSettlementPlaceType("City") || IsSettlementPlaceType("Region") || IsSettlementPlaceType("Lake") || IsSettlementPlaceType("Landmark") {
 		t.Fatal("only settlements may be used as settlements")
 	}
 }

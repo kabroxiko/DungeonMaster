@@ -202,6 +202,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)
 
+	persisted := false
 	if persistPayload != nil && str(persistPayload["gameId"]) == gameID {
 		rid := requestingUserID
 		merged := persist.MergePersistWithAssistantReply(persistPayload, map[string]interface{}{
@@ -211,6 +212,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		}, false, rid)
 		if merged != nil {
 			_, err := persist.PersistGameStateFromBody(ctx, d.Coll, d.Hub, merged, userID, true)
+			persisted = err == nil
 			if err != nil {
 				var pe *persist.PersistError
 				if errors.As(err, &pe) && strings.HasPrefix(pe.Code, "ENTITY_NAME_") {
@@ -228,6 +230,13 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	if env.Coinage != nil {
 		res.Coinage = env.Coinage
 	}
+
+	// A turn may name a site the players must be able to find. Marking it re-renders the map, which takes seconds, so
+	// it runs after the stored reply: the table reads the narration and the map catches up behind it. A turn that was
+	// never stored marks nothing, because the marker belongs to the world the game keeps.
+	if persisted {
+		StartMapPlaceUpdate(d, gameID, env.NewPlaces)
+	}
 	return 200, res
 }
 
@@ -235,6 +244,8 @@ type dmEnvelope struct {
 	Narration      string
 	EncounterState interface{}
 	Coinage        map[string]interface{}
+	// NewPlaces are the sites this turn introduced that the players must be able to find on the map.
+	NewPlaces []NewPlace
 }
 
 func parseDmEnvelope(raw string) *dmEnvelope {
@@ -267,6 +278,7 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 	if cg, ok := obj["coinage"].(map[string]interface{}); ok {
 		out.Coinage = cg
 	}
+	out.NewPlaces = ParseNewPlaces(obj["newPlaces"])
 	return out
 }
 

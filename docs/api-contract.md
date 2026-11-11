@@ -77,6 +77,21 @@ every client reads it from `/load` and from SSE push. The push payload
 `{ type: "world-map-visibility", gameId, visible }` is delivered immediately (not debounced) and carries the value, so
 every client at the table applies the host's choice without waiting for a state reload.
 
+### Marking new places on the map
+
+A DM turn may introduce a site the players must be able to find that the world does not already name. The reply's
+optional `newPlaces` array (`[{ "name", "x", "y" }]`, at most one entry per turn) carries it in the world's own
+resolution-invariant coordinates. After the turn is stored, `ApplyMapPlaces` (`gamesession/map_places.go`) asks the map
+service for the mark — `POST /api/maps/{id}/places` when the game has a stored map, `POST /api/world/places` when it
+keeps the settings instead — and stores the updated world, the canonical settings (stateless path only) and the
+re-rendered image together. `campaignSpec.mapImage.updatedAt` changes, which is the cache key the client uses for the
+image URL, and a game-state push makes every open client reload.
+
+The render takes seconds, so the update runs in the background: the narration is never delayed by it. A failure — the
+map service is down, the name already exists, the point is open water — is logged and leaves the turn and the existing
+map untouched. The added place comes back as a `Landmark`, and `campaignspec.PlaceKind` reports it as `landmark` so it
+is never treated as a settlement.
+
 ## WebSocket
 
 - Upgrade: `GET /api/game-state/ws/:gameId?access_token=<jwt>`
