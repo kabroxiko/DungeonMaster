@@ -501,7 +501,7 @@ func (s *Server) handleDeleteMine(w http.ResponseWriter, r *http.Request, uid st
 	}
 	ctx := r.Context()
 	var doc map[string]interface{}
-	err := s.coll().FindOne(ctx, bson.M{"gameId": gid}, options.FindOne().SetProjection(bson.M{"ownerUserId": 1, "gameId": 1})).Decode(&doc)
+	err := s.coll().FindOne(ctx, bson.M{"gameId": gid}, options.FindOne().SetProjection(bson.M{"ownerUserId": 1, "gameId": 1, "campaignSpec.vellarisMapId": 1})).Decode(&doc)
 	if err == mongo.ErrNoDocuments {
 		writeJSONCoded(w, r, http.StatusNotFound, "GAME_NOT_FOUND", "Game not found")
 		return
@@ -516,6 +516,9 @@ func (s *Server) handleDeleteMine(w http.ResponseWriter, r *http.Request, uid st
 		return
 	}
 	_, _ = s.coll().DeleteOne(ctx, bson.M{"gameId": gid})
+	// The map service keeps this game's map; the game is gone, so nothing can reference it any more.
+	spec, _ := doc["campaignSpec"].(map[string]interface{})
+	gamesession.DeleteStoredMapForGame(ctx, s.GS, spec)
 	s.Hub.NotifyGameStateUpdated(gid)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": true, "gameId": gid})
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
 	"github.com/deckofdmthings/gmai/internal/store"
+	"github.com/deckofdmthings/gmai/internal/vellaris"
 )
 
 // storeWorldMapImage saves the rendered map image for a game, replacing any earlier one.
@@ -86,27 +87,53 @@ func WorldJSONFor(ctx context.Context, d *Deps, uid, gameID string) (payload map
 		return nil, 403, "NOT_OWNER_MAP_JSON", "Only the table owner can download the map"
 	}
 	spec, _ := doc["campaignSpec"].(map[string]interface{})
-	payload = buildWorldJSON(spec)
+	payload, err = buildWorldJSON(ctx, d, spec)
+	if err != nil {
+		return nil, 502, "VELLARIS_MAP_SETTINGS_UNAVAILABLE", err.Error()
+	}
 	if payload == nil {
 		return nil, 404, "WORLD_JSON_MISSING", "This game has no generated world to download"
 	}
 	return payload, 200, "", ""
 }
 
-// buildWorldJSON puts a stored campaign's world into the map service's answer shape.
-func buildWorldJSON(spec map[string]interface{}) map[string]interface{} {
+// buildWorldJSON puts a stored campaign's world into the map service's answer shape, so the download can be fed
+// straight back into import-world.
+//
+// A world whose settings live on the map service carries only the settings' id, so they are read back from the
+// service here; that keeps the download complete instead of hands-off.
+func buildWorldJSON(ctx context.Context, d *Deps, spec map[string]interface{}) (map[string]interface{}, error) {
 	world := mapFrom(spec, "vellarisWorld")
 	if world == nil {
-		return nil
+		return nil, nil
 	}
 	payload := map[string]interface{}{
 		"success": true,
 		"world":   world,
 	}
+	mapID := str(spec["vellarisMapId"])
+	if mapID != "" {
+		payload["mapId"] = mapID
+	}
 	if settings := mapFrom(spec, "vellarisSettings"); settings != nil {
 		payload["settings"] = settings
+		return payload, nil
 	}
-	return payload
+	if mapID == "" {
+		return payload, nil
+	}
+	if d == nil || d.Cfg == nil || strings.TrimSpace(d.Cfg.VellarisURL) == "" {
+		return nil, fmt.Errorf("this map's settings live on the map service, which is not configured (set DM_VELLARIS_URL)")
+	}
+	stored, err := vellaris.NewWithToken(d.Cfg.VellarisURL, d.Cfg.VellarisToken).StoredWorld(ctx, mapID)
+	if err != nil {
+		return nil, err
+	}
+	if settings, _ := stored["settings"].(map[string]interface{}); settings != nil {
+		payload["settings"] = settings
+		return payload, nil
+	}
+	return nil, fmt.Errorf("the map service returned no settings for map %s", mapID)
 }
 
 // HandleSetMapVisibility shows or hides the physical map for every player at the table.

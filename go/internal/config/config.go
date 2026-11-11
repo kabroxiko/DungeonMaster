@@ -66,6 +66,9 @@ type Config struct {
 	// DM_VELLARIS_SETTINGS_FILE). The server copies the document and gives each campaign a fresh seed, so the file
 	// describes the kind of map (size, art pack, probabilities) rather than one fixed world.
 	VellarisSettingsFile string
+	// VellarisToken is the shared secret for the map service's stored-map routes (set DM_VELLARIS_TOKEN). The service
+	// requires it when it is configured with one; empty is correct for a service that needs no token.
+	VellarisToken string
 	// DebugLLM enables verbose stderr logs for every LLM request/response in full (set DM_DEBUG_LLM=true). Use only in development.
 	DebugLLM bool
 	// DebugCharacterFlow logs preview-name / generate-character gameSetup summaries (set DM_DEBUG_CHARACTER_FLOW=true). Use only in development.
@@ -135,6 +138,7 @@ func Load() *Config {
 		OpenAIAPIKey:             strings.TrimSpace(os.Getenv("DM_OPENAI_API_KEY")),
 		VellarisURL:              strings.TrimRight(getenv("DM_VELLARIS_URL", ""), "/"),
 		VellarisSettingsFile:     getenv("DM_VELLARIS_SETTINGS_FILE", "assets/world-settings.json"),
+		VellarisToken:            strings.TrimSpace(os.Getenv("DM_VELLARIS_TOKEN")),
 		DebugLLM:                 TruthyEnv("DM_DEBUG_LLM"),
 		DebugCharacterFlow:       TruthyEnv("DM_DEBUG_CHARACTER_FLOW"),
 		HTTPShutdownGraceSeconds: getenvInt("DM_HTTP_SHUTDOWN_GRACE_SECONDS", 5),

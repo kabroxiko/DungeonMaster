@@ -301,18 +301,35 @@ func TestBuildWorldJSONMatchesTheMapServiceAnswer(t *testing.T) {
 		},
 		"vellarisSettings": map[string]interface{}{"randomSeed": 1.0, "language": "es"},
 	}
-	got := buildWorldJSON(spec)
+	got, err := buildWorldJSON(context.Background(), nil, spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got == nil || got["success"] != true {
 		t.Fatalf("unexpected payload: %v", got)
 	}
 	if got["world"] == nil || got["settings"] == nil {
 		t.Fatalf("world and settings must both be present: %v", got)
 	}
-	if buildWorldJSON(map[string]interface{}{}) != nil {
-		t.Fatal("a game with no world has nothing to download")
+
+	empty, err := buildWorldJSON(context.Background(), nil, map[string]interface{}{})
+	if err != nil || empty != nil {
+		t.Fatalf("a game with no world has nothing to download, got %v / %v", empty, err)
 	}
-	if buildWorldJSON(nil) != nil {
-		t.Fatal("nil spec must not produce a payload")
+	none, err := buildWorldJSON(context.Background(), nil, nil)
+	if err != nil || none != nil {
+		t.Fatalf("nil spec must not produce a payload, got %v / %v", none, err)
+	}
+
+	// A world whose settings live on the map service cannot be downloaded when no service is configured: the failure
+	// is reported rather than answered with a partial file that import-world would accept.
+	storedOnly := map[string]interface{}{
+		"vellarisWorld":    map[string]interface{}{"places": []interface{}{map[string]interface{}{"name": "Cae"}}},
+		"vellarisMapId":    "507f1f77bcf86cd799439011",
+		"vellarisSettings": nil,
+	}
+	if _, err := buildWorldJSON(context.Background(), &Deps{Cfg: &config.Config{}}, storedOnly); err == nil {
+		t.Fatal("settings held by an unconfigured map service must be an explicit failure")
 	}
 }
 

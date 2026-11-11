@@ -3,6 +3,7 @@ package gamesession
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 
 	"github.com/deckofdmthings/gmai/internal/campaignspec"
@@ -61,7 +62,18 @@ func HandleImportVellarisWorld(ctx context.Context, d *Deps, uid string, body ma
 	}
 
 	set := bson.M{"campaignSpec.vellarisWorld": stored}
-	if settings != nil {
+	// A world downloaded from a stored map names that map again, so the next game uses the service's copy of the
+	// settings instead of keeping a second one on the game.
+	mapID := str(body["mapId"])
+	if mapID == "" {
+		if raw, ok := body["world"].(map[string]interface{}); ok {
+			mapID = str(raw["mapId"])
+		}
+	}
+	if mapID != "" {
+		set["campaignSpec.vellarisMapId"] = mapID
+		set["campaignSpec.vellarisSettings"] = nil
+	} else if settings != nil {
 		if encoded, err := json.Marshal(settings); err == nil && len(encoded) <= maxStoredVellarisSettings {
 			set["campaignSpec.vellarisSettings"] = settings
 		}
@@ -125,6 +137,23 @@ func vellarisWorldFromRequest(ctx context.Context, d *Deps, body map[string]inte
 	return world, canonical, ""
 }
 
+// DeleteStoredMapForGame tells the map service to drop the map a deleted game owned.
+//
+// The game is already gone when this runs: a failed delete leaves an unreferenced map behind, which is worth a log
+// rather than failing the delete the host asked for. A service with retention configured collects it anyway.
+func DeleteStoredMapForGame(ctx context.Context, d *Deps, spec map[string]interface{}) {
+	if d == nil || d.Cfg == nil || strings.TrimSpace(d.Cfg.VellarisURL) == "" {
+		return
+	}
+	mapID := str(spec["vellarisMapId"])
+	if mapID == "" {
+		return
+	}
+	if err := vellaris.NewWithToken(d.Cfg.VellarisURL, d.Cfg.VellarisToken).DeleteStored(ctx, mapID); err != nil {
+		log.Printf("deleted game left its stored map %s behind: %v", mapID, err)
+	}
+}
+
 // HandleVellarisRoute measures one journey and stores it with the world, so later DM turns can quote a real
 // distance and travel time instead of guessing.
 //
@@ -161,17 +190,25 @@ func HandleVellarisRoute(ctx context.Context, d *Deps, uid string, body map[stri
 			return 400, map[string]interface{}{"error": "the supplied leg is not a usable journey", "code": "LEG_UNUSABLE"}
 		}
 	} else {
-		settings, _ := spec["vellarisSettings"].(map[string]interface{})
-		if settings == nil {
-			return 400, map[string]interface{}{
-				"error": "no settings were stored with this world, so the map service cannot be asked; send the measured leg instead",
-				"code":  "VELLARIS_SETTINGS_MISSING",
-			}
-		}
 		if d.Cfg == nil || strings.TrimSpace(d.Cfg.VellarisURL) == "" {
 			return 400, map[string]interface{}{"error": "no map service is configured (set DM_VELLARIS_URL)", "code": "VELLARIS_NOT_CONFIGURED"}
 		}
-		answer, err := vellaris.New(d.Cfg.VellarisURL).Route(ctx, settings, from, to, strParam(body, "mode"), boolParam(body, "allowWater", false))
+		client := vellaris.NewWithToken(d.Cfg.VellarisURL, d.Cfg.VellarisToken)
+		var answer map[string]interface{}
+		var err error
+		if mapID := str(spec["vellarisMapId"]); mapID != "" {
+			// The service keeps this world's settings beside it, so the journey is measured without sending them again.
+			answer, err = client.RouteStored(ctx, mapID, from, to, strParam(body, "mode"), boolParam(body, "allowWater", false))
+		} else {
+			settings, _ := spec["vellarisSettings"].(map[string]interface{})
+			if settings == nil {
+				return 400, map[string]interface{}{
+					"error": "no settings were stored with this world, so the map service cannot be asked; send the measured leg instead",
+					"code":  "VELLARIS_SETTINGS_MISSING",
+				}
+			}
+			answer, err = client.Route(ctx, settings, from, to, strParam(body, "mode"), boolParam(body, "allowWater", false))
+		}
 		if err != nil {
 			return 502, map[string]interface{}{"error": err.Error(), "code": "VELLARIS_ROUTE_FAILED"}
 		}

@@ -3,9 +3,11 @@ package gamesession
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +22,8 @@ import (
 )
 
 // campaignWorld is the world a campaign is generated on: the stored world document plus the settings that render it
-// again. Settings is nil when the world was imported without them, which means no map image can be rendered.
+// again. Settings is nil when the world was imported without them or when the map service keeps them beside the map,
+// which means no map image can be rendered by settings; the map id in the game document names the service's copy.
 type campaignWorld struct {
 	World    map[string]interface{}
 	Settings map[string]interface{}
@@ -70,10 +73,12 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 			existing := campaignspec.SanitizeVellarisWorld(mapFrom(spec, "vellarisWorld"))
 			if existing != nil {
 				settings, _ := spec["vellarisSettings"].(map[string]interface{})
+				mapID := str(spec["vellarisMapId"])
 				var imageCh <-chan campaignWorldMapResult
 				if mapFrom(spec, "mapImage") == nil {
-					// The world exists but its picture does not; render it from the stored settings.
-					imageCh = startCampaignWorldMapDownload(ctx, d, settings)
+					// The world exists but its picture does not; fetch it from the service's stored map, or render it from
+					// the stored settings for a world created before the service kept maps.
+					imageCh = startCampaignWorldMapDownload(ctx, d, settings, mapID)
 				}
 				return campaignWorld{World: existing, Settings: settings, Reused: true}, imageCh, 200, "", ""
 			}
@@ -93,11 +98,18 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 	}
 	settings = withCampaignLanguage(settings, language)
 
-	// The world and its picture are both fully determined by these settings, so they can be produced at the same
-	// time instead of one waiting for the other.
-	imageCh := startCampaignWorldMapDownload(ctx, d, settings)
-
-	answer, err := vellaris.New(d.Cfg.VellarisURL).World(ctx, settings)
+	// Ask for a stored map, so later calls can name the world by id instead of sending its megabyte of settings again.
+	// A service without a database, or without the shared secret the game server was given, refuses that explicitly;
+	// that is a supported deployment, so the world is then generated statelessly and its settings stay on the game.
+	client := vellaris.NewWithToken(d.Cfg.VellarisURL, d.Cfg.VellarisToken)
+	answer, err := client.WorldStored(ctx, settings)
+	if err != nil {
+		var apiErr *vellaris.APIError
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusServiceUnavailable || apiErr.StatusCode == http.StatusForbidden) {
+			log.Printf("campaign world: the map service cannot store maps (%d: %s); keeping the settings on the game instead", apiErr.StatusCode, apiErr.Message)
+			answer, err = client.World(ctx, settings)
+		}
+	}
 	if err != nil {
 		return campaignWorld{}, nil, 502, "VELLARIS_WORLD_FAILED", err.Error()
 	}
@@ -111,10 +123,16 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 	if canonical == nil {
 		canonical = settings
 	}
+	mapID, _ := answer["mapId"].(string)
 
 	if gameID != "" {
 		set := bson.M{"campaignSpec.vellarisWorld": stored}
-		if encoded, err := json.Marshal(canonical); err == nil && len(encoded) <= maxStoredVellarisSettings {
+		if mapID != "" {
+			// The service keeps the canonical settings beside the stored world, so a second copy on the game would be
+			// a second source of truth for the same map.
+			set["campaignSpec.vellarisMapId"] = mapID
+			set["campaignSpec.vellarisSettings"] = nil
+		} else if encoded, err := json.Marshal(canonical); err == nil && len(encoded) <= maxStoredVellarisSettings {
 			set["campaignSpec.vellarisSettings"] = canonical
 		}
 		if _, err := d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": set}); err != nil {
@@ -123,6 +141,8 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 		}
 	}
 
+	// The image was rendered while the world was generated, so this is a download rather than a second render.
+	imageCh := startCampaignWorldMapDownload(ctx, d, canonical, mapID)
 	return campaignWorld{World: stored, Settings: canonical}, imageCh, 200, "", ""
 }
 
@@ -259,19 +279,31 @@ type campaignWorldMapResult struct {
 	Err         error
 }
 
-// startCampaignWorldMapDownload begins rendering the player-facing map image.
+// startCampaignWorldMapDownload fetches the player-facing map image.
 //
-// It runs while the campaign text is being generated: the image depends only on the settings, so holding the
-// campaign back until the render finishes would add its time to every campaign for no reason.
-func startCampaignWorldMapDownload(ctx context.Context, d *Deps, settings map[string]interface{}) <-chan campaignWorldMapResult {
+// When the world is stored on the service the image is already rendered, so this is a download by id; otherwise it
+// asks the service to render the settings, which is the stateless path.
+func startCampaignWorldMapDownload(ctx context.Context, d *Deps, settings map[string]interface{}, mapID string) <-chan campaignWorldMapResult {
 	ch := make(chan campaignWorldMapResult, 1)
-	if d == nil || d.Cfg == nil || strings.TrimSpace(d.Cfg.VellarisURL) == "" || settings == nil {
+	if d == nil || d.Cfg == nil || strings.TrimSpace(d.Cfg.VellarisURL) == "" {
+		ch <- campaignWorldMapResult{Err: fmt.Errorf("no map service is configured to fetch the map image from")}
+		close(ch)
+		return ch
+	}
+	if strings.TrimSpace(mapID) == "" && settings == nil {
 		ch <- campaignWorldMapResult{Err: fmt.Errorf("no map settings to render the map image from")}
 		close(ch)
 		return ch
 	}
 	go func() {
-		data, contentType, err := vellaris.New(d.Cfg.VellarisURL).WorldMap(ctx, settings)
+		client := vellaris.NewWithToken(d.Cfg.VellarisURL, d.Cfg.VellarisToken)
+		if strings.TrimSpace(mapID) != "" {
+			data, contentType, err := client.StoredWorldImage(ctx, mapID)
+			ch <- campaignWorldMapResult{Data: data, ContentType: contentType, Err: err}
+			close(ch)
+			return
+		}
+		data, contentType, err := client.WorldMap(ctx, settings)
 		ch <- campaignWorldMapResult{Data: data, ContentType: contentType, Err: err}
 		close(ch)
 	}()

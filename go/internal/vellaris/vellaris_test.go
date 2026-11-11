@@ -3,6 +3,7 @@ package vellaris
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -127,5 +128,126 @@ func TestBaseURLTrailingSlashIsTolerated(t *testing.T) {
 	}
 	if gotPath != "/api/world" {
 		t.Fatalf("a trailing slash produced %q", gotPath)
+	}
+}
+
+// A stored world is asked for with the persist flag, and the token that lets the service accept it travels with the
+// request. The answer carries the id every later call uses.
+func TestWorldStoredAsksForPersistenceAndSendsTheToken(t *testing.T) {
+	var gotPath, gotQuery, gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		gotToken = r.Header.Get("X-Vellaris-Token")
+		_, _ = w.Write([]byte(`{"success":true,"mapId":"507f1f77bcf86cd799439011","world":{},"settings":{}}`))
+	}))
+	defer srv.Close()
+
+	answer, err := NewWithToken(srv.URL, "secret").WorldStored(context.Background(), map[string]interface{}{"randomSeed": 7.0})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/world" || gotQuery != "persist=true" {
+		t.Fatalf("expected POST /api/world?persist=true, got %s?%s", gotPath, gotQuery)
+	}
+	if gotToken != "secret" {
+		t.Fatalf("the shared secret was not sent, got %q", gotToken)
+	}
+	if answer["mapId"] != "507f1f77bcf86cd799439011" {
+		t.Fatalf("the stored id must reach the caller, got %v", answer["mapId"])
+	}
+}
+
+// Reading a stored world and its image goes through the id, so neither call has to carry the settings again.
+func TestStoredWorldAndImageUseTheMapIdEndpoint(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/map") {
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write([]byte("jpegbytes"))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"mapId":"abc","world":{"places":[]},"settings":{"randomSeed":1}}`))
+	}))
+	defer srv.Close()
+
+	client := NewWithToken(srv.URL, "secret")
+	stored, err := client.StoredWorld(context.Background(), "abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stored["settings"] == nil {
+		t.Fatalf("the stored settings must come back, got %v", stored)
+	}
+	data, contentType, err := client.StoredWorldImage(context.Background(), "abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(data) != "jpegbytes" || contentType != "image/jpeg" {
+		t.Fatalf("unexpected image answer: %q %q", contentType, data)
+	}
+	if len(paths) != 2 || paths[0] != "/api/maps/abc" || paths[1] != "/api/maps/abc/map" {
+		t.Fatalf("unexpected paths: %v", paths)
+	}
+}
+
+func TestRouteStoredSendsOnlyTheEndpoints(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_, _ = w.Write([]byte(`{"success":true,"reachable":true,"distance":12}`))
+	}))
+	defer srv.Close()
+
+	if _, err := NewWithToken(srv.URL, "secret").RouteStored(context.Background(), "abc", "Azureenci", "Aditarie", "", false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/maps/abc/route" {
+		t.Fatalf("expected the stored route endpoint, got %s", gotPath)
+	}
+	if _, has := gotBody["randomSeed"]; has {
+		t.Fatalf("stored routes must not resend settings, got %v", gotBody)
+	}
+	from, _ := gotBody["from"].(map[string]interface{})
+	if from["name"] != "Azureenci" {
+		t.Fatalf("from was not sent as a named endpoint, got %v", gotBody["from"])
+	}
+}
+
+func TestDeleteStoredSendsADelete(t *testing.T) {
+	var gotMethod, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	defer srv.Close()
+
+	if err := NewWithToken(srv.URL, "secret").DeleteStored(context.Background(), "abc"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/api/maps/abc" {
+		t.Fatalf("expected DELETE /api/maps/abc, got %s %s", gotMethod, gotPath)
+	}
+}
+
+// A refusal carries its status so the caller can tell "this service cannot store maps" from a real failure.
+func TestRefusalCarriesTheStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"success":false,"message":"not configured to store maps"}`))
+	}))
+	defer srv.Close()
+
+	_, err := NewWithToken(srv.URL, "secret").WorldStored(context.Background(), map[string]interface{}{})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("expected a 503 APIError, got %v", err)
+	}
+	if !strings.Contains(apiErr.Message, "not configured") {
+		t.Fatalf("the service's explanation must survive, got %q", apiErr.Message)
 	}
 }
