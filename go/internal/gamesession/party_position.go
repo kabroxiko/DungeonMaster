@@ -53,7 +53,8 @@ func ParsePartyPosition(raw interface{}) *PartyPosition {
 // resolvePartyPoint turns a reply's position into a world coordinate and the label the pin carries.
 //
 // A named place has to exist in the stored world: the model is told to copy names from the block, and a pin for an
-// invented name would point at coordinates that are not on the map.
+// invented name would point at coordinates that are not on the map. A place's point is where the map draws it — the
+// pictogram for a settlement, the label for anything with no drawing of its own — so the pin lands on the place itself.
 func resolvePartyPoint(world map[string]interface{}, pos *PartyPosition) (x, y float64, label string, ok bool) {
 	if pos == nil || world == nil {
 		return 0, 0, "", false
@@ -79,8 +80,9 @@ func resolvePartyPoint(world map[string]interface{}, pos *PartyPosition) (x, y f
 		if !strings.EqualFold(strings.TrimSpace(str(place["name"])), wanted) {
 			continue
 		}
-		px, py, okPoint := placePoint(place)
-		if !okPoint {
+		px, okX := numberValue(place["x"])
+		py, okY := numberValue(place["y"])
+		if !okX || !okY {
 			continue
 		}
 		label := wanted
@@ -90,24 +92,6 @@ func resolvePartyPoint(world map[string]interface{}, pos *PartyPosition) (x, y f
 		return px, py, label, true
 	}
 	return 0, 0, "", false
-}
-
-// placePoint is the point a pin belongs on: the drawn place when the world says where its drawing is, otherwise the
-// point the world reports for the place.
-//
-// A place's x/y is its label. The map service draws the name beside the pictogram — above it, or below it when the
-// space above is taken — so pinning x/y puts the dot on the word rather than on the town. The centre of the drawing
-// is reported as iconX/iconY, and a world that carries it is preferred; a world stored before the map service
-// reported drawings has only the label, which is still the right place to stand, just less precisely drawn.
-func placePoint(place map[string]interface{}) (float64, float64, bool) {
-	if x, okX := numberValue(place["iconX"]); okX {
-		if y, okY := numberValue(place["iconY"]); okY {
-			return x, y, true
-		}
-	}
-	x, okX := numberValue(place["x"])
-	y, okY := numberValue(place["y"])
-	return x, y, okX && okY
 }
 
 // mapGeometry is the projection from a world coordinate onto a fraction of the rendered image.

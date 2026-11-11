@@ -444,15 +444,81 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 	if len(directive) > 4000 {
 		directive = directive[:4000]
 	}
+	startPlace := strings.TrimSpace(str(frame["startPlace"]))
+	if runes := []rune(startPlace); len(runes) > maxOpeningStartPlaceRunes {
+		startPlace = string(runes[:maxOpeningStartPlaceRunes])
+	}
+	storedFrame := map[string]interface{}{"id": idStr, "directive": directive}
+	if startPlace != "" {
+		storedFrame["startPlace"] = startPlace
+	}
 	_, err = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-		"campaignSpec.openingSceneFrame": map[string]interface{}{"id": idStr, "directive": directive},
+		"campaignSpec.openingSceneFrame": storedFrame,
 		"rawModelOutput":                 trunc200k(aiMessage),
 	}})
 	if err != nil {
 		return false
 	}
+	storeOpeningPartyPosition(ctx, d, gameID, startPlace, locs)
 	_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
 	return true
+}
+
+// maxOpeningStartPlaceRunes bounds the place name the opening frame may hand back, since it becomes a stored label.
+const maxOpeningStartPlaceRunes = 120
+
+// storeOpeningPartyPosition puts the party on the map where the adventure opens.
+//
+// The opening frame names the map place the first scene happens in, and that name becomes the stored pin, so the table
+// sees the party standing somewhere exact before a single turn is played instead of waiting for the model to say where
+// it is. A name the map does not have — a region, or an invented one — falls through to the campaign's own key
+// locations, which are settlement names on that same map; a world carrying none of them keeps no pin until the first
+// turn places one.
+func storeOpeningPartyPosition(ctx context.Context, d *Deps, gameID, chosen string, keyLocations []interface{}) {
+	candidates := openingStartCandidates(chosen, keyLocations)
+	for _, name := range candidates {
+		label, err := ApplyPartyPosition(ctx, d, gameID, &PartyPosition{Place: name})
+		if err != nil {
+			log.Printf("opening position: %v (gameId=%s)", err, gameID)
+			return
+		}
+		if label != "" {
+			return
+		}
+	}
+	log.Printf("opening position: none of %d candidate place(s) is on this map (gameId=%s)", len(candidates), gameID)
+}
+
+// openingStartCandidates is the order the opening spot is looked for in: the frame's own choice first, then the
+// campaign's key locations in the order the campaign rated them. Blank names are dropped, so a missing startPlace does
+// not spend a lookup.
+func openingStartCandidates(chosen string, keyLocations []interface{}) []string {
+	candidates := make([]string, 0, len(keyLocations)+1)
+	if name := strings.TrimSpace(chosen); name != "" {
+		candidates = append(candidates, name)
+	}
+	for _, name := range keyLocationNames(keyLocations) {
+		if strings.TrimSpace(name) != "" {
+			candidates = append(candidates, name)
+		}
+	}
+	return candidates
+}
+
+// keyLocationNames lists a campaign's key locations in the order the campaign rated them, which is also the order the
+// story is likely to care about them.
+func keyLocationNames(locations []interface{}) []string {
+	names := make([]string, 0, len(locations))
+	for _, raw := range locations {
+		entry, _ := raw.(map[string]interface{})
+		if entry == nil {
+			continue
+		}
+		if name := strings.TrimSpace(str(entry["name"])); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // openingFrameID turns whatever the model put in "id" into a stable identifier.

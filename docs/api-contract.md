@@ -96,11 +96,16 @@ A reply may also carry `partyPosition`, either `{ "place": "<name from the world
 `{ "x": .., "y": .., "note": "on the road to …" }` for an encounter between places. `ApplyPartyPosition` resolves the
 name against `campaignSpec.vellarisWorld`, projects the point onto the picture, and stores
 `campaignSpec.partyMapPosition` as `{ x, y, label, place?, note?, updatedAt }` where `x`/`y` are **fractions of the
-image** (0–1, top-left origin). A place's `x`/`y` in the world is its label, which the map draws beside the town, so the
-resolver uses the place's `iconX`/`iconY` — the centre of the drawing — when the world reports one, and falls back to
-the label only for worlds stored before that was reported. No render and no image download is involved: the client
-draws the dot inside the same layer as the picture it already shows, at those fractions, so travel and encounters move
-the pin for free and it cannot drift from the map while that layer is panned or zoomed.
+image** (0–1, top-left origin). A place's `x`/`y` in the world is where the map draws it — the centre of its pictogram
+for a settlement, its label for anything with no drawing of its own — so the pin lands on the place, not beside its
+name. No render and no image download is involved: the client draws the dot inside the same layer as the picture it
+already shows, at those fractions, so travel and encounters move the pin for free and it cannot drift from the map
+while that layer is panned or zoomed.
+
+The pin exists before play starts: when the campaign's opening frame is written, `openingSceneFrame.startPlace` names
+the map place the first scene happens in and the server resolves it into `partyMapPosition` straight away. A start
+the map does not have — a region, or an invented name — falls through to the campaign's key locations, which are
+settlement names, so the party opens on an exact spot and never on a territory.
 
 The projection lives in `campaignSpec.mapGeometry` (DM-only): `xPerUnit`, `yPerUnit`, `xOffset`, `yOffset`. It is
 derived once from the map's settings — `resolution`, `generatedWidth`/`generatedHeight`, and the border padding when

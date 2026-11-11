@@ -55,3 +55,37 @@ func TestStageTimeoutStillReportsFailure(t *testing.T) {
 		t.Fatal("a stage that ran out of time must report failure")
 	}
 }
+
+// The adventure opens on an exact spot on the map, so the frame's own choice is tried first and the campaign's key
+// locations follow: they are settlement names on the same map, which is what keeps a region from becoming the start.
+func TestOpeningStartCandidatesPutTheFramesPlaceFirst(t *testing.T) {
+	locations := []interface{}{
+		map[string]interface{}{"name": "Miriesa", "type": "settlement"},
+		map[string]interface{}{"name": "  Analitta  "},
+		map[string]interface{}{"type": "settlement"},
+		map[string]interface{}{"name": ""},
+		nil,
+		"not a location",
+	}
+
+	got := openingStartCandidates("Farrijas", locations)
+	want := []string{"Farrijas", "Miriesa", "Analitta"}
+	if len(got) != len(want) {
+		t.Fatalf("expected %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
+	}
+}
+
+func TestOpeningStartCandidatesSkipAMissingChoice(t *testing.T) {
+	got := openingStartCandidates("   ", []interface{}{map[string]interface{}{"name": "Miriesa"}})
+	if len(got) != 1 || got[0] != "Miriesa" {
+		t.Fatalf("a blank start place must not spend a lookup, got %v", got)
+	}
+	if len(openingStartCandidates("", nil)) != 0 {
+		t.Fatal("a campaign with no named place has no candidate to try")
+	}
+}
