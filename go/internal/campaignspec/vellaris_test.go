@@ -159,6 +159,37 @@ func TestNormalizeVellarisWorldKeepsCitiesWhenTruncating(t *testing.T) {
 	}
 }
 
+// A place is in exactly one region. The map reports which one, so the prompt can state it instead of leaving the model
+// to guess and file a place under a territory it is not in.
+func TestNormalizeVellarisWorldSaysWhichRegionEachPlaceIsIn(t *testing.T) {
+	world := map[string]interface{}{
+		"regions": []interface{}{
+			map[string]interface{}{"id": 7.0, "name": "Venetzaddana"},
+		},
+		"places": []interface{}{
+			map[string]interface{}{"name": "Azureenci", "type": "City", "regionId": 7.0},
+			map[string]interface{}{"name": "Nowhere", "type": "City"},
+		},
+	}
+
+	byName := map[string]map[string]interface{}{}
+	for _, raw := range NormalizeVellarisWorld(world)["places"].([]interface{}) {
+		m := raw.(map[string]interface{})
+		byName[m["name"].(string)] = m
+	}
+
+	azureenci := byName["Azureenci"]
+	if azureenci["regionId"] != "7" || azureenci["regionName"] != "Venetzaddana" {
+		t.Fatalf("a place should name its region, got %v / %v", azureenci["regionId"], azureenci["regionName"])
+	}
+	if azureenci["regionSuffix"] != " — in Venetzaddana" {
+		t.Fatalf("unexpected region suffix: %q", azureenci["regionSuffix"])
+	}
+	if _, ok := byName["Nowhere"]["regionSuffix"]; ok {
+		t.Fatal("a place the map puts in no region must not be given one")
+	}
+}
+
 func TestSanitizeVellarisWorldKeepsOnlyKnownKeys(t *testing.T) {
 	got := SanitizeVellarisWorld(map[string]interface{}{
 		"seed":        7.0,

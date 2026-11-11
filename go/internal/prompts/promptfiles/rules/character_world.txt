@@ -12,6 +12,8 @@ geography this character sheet may use.
   the players can read these names on their own map, and a different one contradicts it.
 - **Use each name as the kind it is.** A region is a territory — say "the region of X", never "the city of X" or "the
   market of X". Only settlements have streets, gates, docks and markets. Lakes, rivers and mountains have no buildings.
+- **A home is in one region.** Each named place states the region it belongs to (“— in X”). A character raised in that
+  place is from that region, and the sheet must not move them to another one.
 - **Surroundings are part of where the character grew up.** Each named place reports the ground around it: its terrain,
   the terrain bordering it, and whether the coast, a river, a lake, mountains or an island are at hand. A character
   raised on the coast knows boats and tides; one from a river town knows floods and ferries; one from the mountains

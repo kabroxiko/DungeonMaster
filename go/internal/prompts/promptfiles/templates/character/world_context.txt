@@ -5,6 +5,6 @@ Regions on the table's map — territories, canonical names:
 {{/hasRegions}}
 {{#hasPlaces}}
 Named places on the table's map — the only settlements and sites this character may name:
-{{#places}}- {{{name}}} ({{{kind}}}){{{surroundingsSuffix}}}
+{{#places}}- {{{name}}} ({{{kind}}}){{{regionSuffix}}}{{{surroundingsSuffix}}}
 {{/places}}
 {{/hasPlaces}}

@@ -10,7 +10,7 @@ where a conflict, a faction or a hidden objective sits:
 {{/hasRegions}}
 {{#hasPlaces}}
 Named places ({{{placeCount}}}){{{placesNotice}}}:
-{{#places}}- {{{name}}} ({{{kind}}}){{{surroundingsSuffix}}}
+{{#places}}- {{{name}}} ({{{kind}}}){{{regionSuffix}}}{{{surroundingsSuffix}}}
 {{/places}}
 {{/hasPlaces}}
 
@@ -22,6 +22,8 @@ Build the campaign on this map:
   need by the nearest named place and a local detail ("the shrine a mile outside the nearest town").
 - **Use each name as the kind it is.** A region is a territory: write "in the region of X", never "the city of X" or
   "the market of X". Only settlements have streets, gates, markets and docks. Lakes, rivers and mountains are landforms.
+- **Every place sits in one region.** Each named place states the region it belongs to ("— in X"). Keep that pairing when
+  you place a conflict, a faction or a secret: a place belongs to the region the block names and to no other.
 - **Surroundings and terrain are the ground itself.** Every region names the terrain most of its land is, and every
   place names the ground around it (terrain, bordering terrain, coast, river, lake, mountains, island). Let that decide
   what a region can grow, mine, fish or trade and where a faction would sit. Terrain forbids features, it does not just

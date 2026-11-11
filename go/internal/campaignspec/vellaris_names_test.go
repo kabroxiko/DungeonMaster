@@ -60,6 +60,36 @@ func TestAlignKeyLocationsToWorldUsesOnlyMapNames(t *testing.T) {
 	}
 }
 
+// The map says which region a place sits in, so a key location named after that place is moved there even when the
+// model chose another one. A location renamed to a map place takes that place's region too.
+func TestAlignKeyLocationsToWorldMovesAPlaceToItsMapRegion(t *testing.T) {
+	world := map[string]interface{}{
+		"places": []interface{}{
+			map[string]interface{}{"name": "Azureenci", "type": "City", "regionId": "7"},
+			map[string]interface{}{"name": "Aditarie", "type": "City", "regionId": "4"},
+		},
+		"regions": []interface{}{
+			map[string]interface{}{"id": "7", "name": "Venetzaddana"},
+			map[string]interface{}{"id": "4", "name": "Suste"},
+		},
+	}
+	locations := []interface{}{
+		map[string]interface{}{"name": "Azureenci", "regionId": "4"},
+		map[string]interface{}{"name": "Zorvath", "regionId": "7"},
+	}
+
+	aligned, _ := AlignKeyLocationsToWorld(locations, world)
+	if got := aligned[0].(map[string]interface{})["regionId"]; got != "7" {
+		t.Fatalf("the map's region must win over the model's guess, got %v", got)
+	}
+	if aligned[1].(map[string]interface{})["name"] != "Aditarie" {
+		t.Fatalf("the invented name should take the next map name, got %v", aligned[1])
+	}
+	if got := aligned[1].(map[string]interface{})["regionId"]; got != "4" {
+		t.Fatalf("a renamed location takes the region of the name it received, got %v", got)
+	}
+}
+
 func TestAlignKeyLocationsToWorldDropsDuplicatesInsteadOfInventing(t *testing.T) {
 	locations := []interface{}{
 		map[string]interface{}{"name": "Azureenci"},

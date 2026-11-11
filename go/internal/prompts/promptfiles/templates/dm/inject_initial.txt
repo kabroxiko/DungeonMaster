@@ -39,7 +39,7 @@ exactly. The kind in parentheses is what each name is: only settlements have str
 region is a territory, never a city. A venue that is not on the map is described by kind and location, never given an
 invented proper name. What follows a name describes the ground around it; set the opening scene consistently with it:
 {{#mapPlaces}}
-- {{name}} ({{kind}}){{{surroundingsSuffix}}}
+- {{name}} ({{kind}}){{{regionSuffix}}}{{{surroundingsSuffix}}}
 {{/mapPlaces}}
 {{/hasMapPlaces}}
 

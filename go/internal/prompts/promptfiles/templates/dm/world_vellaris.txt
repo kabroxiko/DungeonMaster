@@ -8,7 +8,7 @@ Regions ({{{regionCount}}}) — territories, not settlements:
 {{/hasRegions}}
 {{#hasPlaces}}
 Named places ({{{placeCount}}}){{{placesNotice}}}:
-{{#places}}- {{{name}}} ({{{kind}}}) at {{{x}}}, {{{y}}}{{{surroundingsSuffix}}}
+{{#places}}- {{{name}}} ({{{kind}}}) at {{{x}}}, {{{y}}}{{{regionSuffix}}}{{{surroundingsSuffix}}}
 {{/places}}
 {{/hasPlaces}}
 Kind legend: a **settlement** is a built-up place with streets, gates, markets and docks; a **region** is a territory

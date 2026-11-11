@@ -29,11 +29,11 @@ The map's named places — any settlement or site you name must be one of these,
 name **at least two** of them. The kind in parentheses is what each name really is; never treat a region or a lake as
 a settlement:
 {{#vellarisPlaces}}
-- "{{name}}" ({{kind}}){{{surroundingsSuffix}}}
+- "{{name}}" ({{kind}}){{{regionSuffix}}}{{{surroundingsSuffix}}}
 {{/vellarisPlaces}}
-Each place also names the ground around it (its terrain, the terrain bordering it, and whether the coast, a river, a
-lake, mountains or an island are at hand). Let that shape what each settlement can offer and where each conflict sits;
-never contradict it.
+Each place also names the region it sits in and the ground around it (its terrain, the terrain bordering it, and
+whether the coast, a river, a lake, mountains or an island are at hand). Keep each place in its own region and let that
+shape what each settlement can offer and where each conflict sits; never contradict it.
 Never invent a region, river, coastline or mountain range, and never rename or translate one of these. When you name a
 settlement or site,
 use one of the named places from the DM-ONLY VELLARIS WORLD block exactly as written — the players can see those names

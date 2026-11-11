@@ -23,9 +23,9 @@ func sampleVellarisSpec() map[string]interface{} {
 				map[string]interface{}{"id": 4.0, "name": "Suste", "centerX": 2100.4, "centerY": 900.1, "centerCount": 640.0},
 			},
 			"places": []interface{}{
-				map[string]interface{}{"name": "Azureenci", "type": "City", "x": 1794.97, "y": 612.86,
+				map[string]interface{}{"name": "Azureenci", "type": "City", "x": 1794.97, "y": 612.86, "regionId": 7.0,
 					"surroundings": map[string]interface{}{"terrain": "forest", "river": true, "coastal": true}},
-				map[string]interface{}{"name": "Aditarie", "type": "City", "x": 2040.92, "y": 914.52},
+				map[string]interface{}{"name": "Aditarie", "type": "City", "x": 2040.92, "y": 914.52, "regionId": 4.0},
 			},
 			"routes": []interface{}{
 				map[string]interface{}{
@@ -69,7 +69,7 @@ func TestRenderVellarisWorldInjectCarriesRulesGeometryAndTravel(t *testing.T) {
 		"2.0 days on foot",
 		"plains 51%",
 		"Venetzaddana, Suste",
-		"forest, on the coast, on a river",
+		" — in Venetzaddana — forest, on the coast, on a river",
 		"https://vellaris.example/api/world/map.jpg",
 	} {
 		if !strings.Contains(got, want) {

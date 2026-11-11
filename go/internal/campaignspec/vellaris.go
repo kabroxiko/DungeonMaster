@@ -34,7 +34,7 @@ func NormalizeVellarisWorld(in map[string]interface{}) map[string]interface{} {
 	}
 
 	regions := normalizeVellarisRegions(in["regions"])
-	places, placeTotal := normalizeVellarisPlaces(in["places"])
+	places, placeTotal := normalizeVellarisPlaces(in["places"], regionNameByID(regions))
 	routes := normalizeVellarisRoutes(in["routes"])
 	if len(regions) == 0 && len(places) == 0 {
 		return nil
@@ -111,12 +111,33 @@ func normalizeVellarisRegions(raw interface{}) []interface{} {
 	return regions
 }
 
+// regionNameByID maps every kept region id to its name, so a place can say which territory it is in without the
+// prompt having to join two lists itself. Regions whose label the map never generated are absent, not given a
+// placeholder name.
+func regionNameByID(regions []interface{}) map[string]string {
+	names := make(map[string]string, len(regions))
+	for _, item := range regions {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		id := stringFrom(m["id"])
+		name := stringFrom(m["name"])
+		if id != "" && name != "" {
+			names[id] = name
+		}
+	}
+	return names
+}
+
 // normalizeVellarisPlaces returns the kept places plus the true total, so the prompt can say how much it is showing.
 //
 // Region labels and the map title are not places in the sense this list means: a region is a territory (it already has
 // its own entry with an id) and the title is the map's name. Listing them here is what let the model write "the market
-// of <region>", so they are left out; every remaining entry carries the kind it really is.
-func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
+// of <region>", so they are left out; every remaining entry carries the kind it really is and, when the map says so,
+// the region it belongs to — a place is in exactly one territory, and a prompt that does not say which one invites the
+// model to file it under the wrong region.
+func normalizeVellarisPlaces(raw interface{}, regionNames map[string]string) ([]interface{}, int) {
 	list := neighborSliceAny(raw)
 	if len(list) == 0 {
 		return nil, 0
@@ -128,6 +149,8 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 		x            string
 		y            string
 		rank         int
+		regionID     string
+		regionName   string
 		surroundings map[string]interface{}
 	}
 	places := make([]place, 0, len(list))
@@ -153,8 +176,9 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 		if !known {
 			rank = 3
 		}
+		regionID := regionIDText(m["regionId"])
 		places = append(places, place{name: name, kind: typeName, x: numText(m["x"], 0), y: numText(m["y"], 0), rank: rank,
-			surroundings: placeSurroundings(m["surroundings"])})
+			regionID: regionID, regionName: regionNames[regionID], surroundings: placeSurroundings(m["surroundings"])})
 	}
 	if len(places) == 0 {
 		return nil, 0
@@ -180,6 +204,13 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 			"x":    p.x,
 			"y":    p.y,
 		}
+		if p.regionID != "" {
+			entry["regionId"] = p.regionID
+		}
+		if p.regionName != "" {
+			entry["regionName"] = p.regionName
+			entry["regionSuffix"] = " — in " + p.regionName
+		}
 		if text := surroundingsText(p.surroundings); text != "" {
 			entry["surroundingsText"] = text
 			entry["surroundingsSuffix"] = " — " + text
@@ -187,6 +218,15 @@ func normalizeVellarisPlaces(raw interface{}) ([]interface{}, int) {
 		out = append(out, entry)
 	}
 	return out, total
+}
+
+// regionIDText renders a region id the way the region list does, so a place and its region compare equal whether the
+// service sent the id as a number or already as text.
+func regionIDText(v interface{}) string {
+	if n, ok := floatFrom(v); ok {
+		return fmt.Sprintf("%.0f", n)
+	}
+	return stringFrom(v)
 }
 
 // placeSurroundings keeps the map's description of the ground around a place, in the terms the prompt speaks.
@@ -439,7 +479,9 @@ func SettlementNames(world map[string]interface{}, limit int) []string {
 // The map owns place names, not the model: a location that renames a place the players can see would make narration
 // and map disagree. A name the map already has is kept (with the map's spelling); an invented or repeated name takes
 // the next unused map name, so the model's type and significance survive; a location left with no name is dropped
-// rather than invented. Region references to regions that do not exist are removed the same way.
+// rather than invented. Region references to regions that do not exist are removed the same way, and a location named
+// after a map place is moved to the region that place actually belongs to, so a stage cannot file a settlement under a
+// territory it is not in.
 //
 // Only settlements are candidates: a key location is a place the party goes to, so it cannot be named after a region or
 // a lake. Worlds with no settlement at all fall back to every named place. When a settlement name is assigned, the
@@ -467,6 +509,19 @@ func AlignKeyLocationsToWorld(locations []interface{}, world map[string]interfac
 		m, _ := item.(map[string]interface{})
 		if id := stringFrom(m["id"]); id != "" {
 			validRegions[id] = struct{}{}
+		}
+	}
+	// Which region each place is in, straight from the map. Worlds generated before the map service reported this
+	// leave the map empty, and the model's own choice is then only checked for existence as before.
+	regionByPlace := map[string]string{}
+	for _, item := range neighborSliceAny(world["places"]) {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		key := normalizePlaceNameKey(stringFrom(m["name"]))
+		if id := regionIDText(m["regionId"]); key != "" && id != "" {
+			regionByPlace[key] = id
 		}
 	}
 
@@ -535,7 +590,10 @@ func AlignKeyLocationsToWorld(locations []interface{}, world map[string]interfac
 			// different mistake in the other direction. What the place is comes from the map, not the model.
 			item["type"] = "settlement"
 		}
-		if regionID := stringFrom(item["regionId"]); regionID != "" {
+		// The map knows which region the place is in, so that region wins over the model's guess.
+		if mapped := regionByPlace[normalizePlaceNameKey(name)]; mapped != "" {
+			item["regionId"] = mapped
+		} else if regionID := stringFrom(item["regionId"]); regionID != "" {
 			if _, valid := validRegions[regionID]; !valid {
 				delete(item, "regionId")
 			}
