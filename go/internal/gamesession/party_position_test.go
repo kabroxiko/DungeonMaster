@@ -60,6 +60,28 @@ func TestResolvePartyPointUsesTheWorldCoordinateOfANamedPlace(t *testing.T) {
 	}
 }
 
+func TestResolvePartyPointPinsTheDrawnPlaceRatherThanItsLabel(t *testing.T) {
+	// A settlement, as Vellaris reports it: x/y is where the name was drawn and iconX/iconY is the centre of the town
+	// pictogram the name sits under.
+	world := map[string]interface{}{
+		"places": []interface{}{
+			map[string]interface{}{"name": "Miriesa", "x": 1096.0, "y": 895.0, "iconX": 1096.0, "iconY": 864.0},
+			map[string]interface{}{"name": "Analitta", "x": 685.0, "y": 683.0},
+		},
+	}
+
+	x, y, _, ok := resolvePartyPoint(world, &PartyPosition{Place: "Miriesa"})
+	if !ok || x != 1096 || y != 864 {
+		t.Fatalf("expected the drawing's own point, got %v, %v (ok=%v)", x, y, ok)
+	}
+
+	// A world stored before places carried their drawing still resolves, on the label.
+	x, y, _, ok = resolvePartyPoint(world, &PartyPosition{Place: "Analitta"})
+	if !ok || x != 685 || y != 683 {
+		t.Fatalf("expected the label's point when no drawing is reported, got %v, %v (ok=%v)", x, y, ok)
+	}
+}
+
 func TestGeometryProjectsAWorldPointOntoAImageFraction(t *testing.T) {
 	// The shape of a real generated world: a 4096x2304 map at resolution ~0.9568 with a border drawn outside it.
 	settings := map[string]interface{}{

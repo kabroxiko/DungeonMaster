@@ -96,8 +96,11 @@ A reply may also carry `partyPosition`, either `{ "place": "<name from the world
 `{ "x": .., "y": .., "note": "on the road to …" }` for an encounter between places. `ApplyPartyPosition` resolves the
 name against `campaignSpec.vellarisWorld`, projects the point onto the picture, and stores
 `campaignSpec.partyMapPosition` as `{ x, y, label, place?, note?, updatedAt }` where `x`/`y` are **fractions of the
-image** (0–1, top-left origin). No render and no image download is involved: the client draws the dot as a layer over
-the image it already shows, so travel and encounters move the pin for free.
+image** (0–1, top-left origin). A place's `x`/`y` in the world is its label, which the map draws beside the town, so the
+resolver uses the place's `iconX`/`iconY` — the centre of the drawing — when the world reports one, and falls back to
+the label only for worlds stored before that was reported. No render and no image download is involved: the client
+draws the dot inside the same layer as the picture it already shows, at those fractions, so travel and encounters move
+the pin for free and it cannot drift from the map while that layer is panned or zoomed.
 
 The projection lives in `campaignSpec.mapGeometry` (DM-only): `xPerUnit`, `yPerUnit`, `xOffset`, `yOffset`. It is
 derived once from the map's settings — `resolution`, `generatedWidth`/`generatedHeight`, and the border padding when
@@ -121,4 +124,4 @@ campaign content: `campaignspec.mapMarkerKeys` keeps it out of the readiness che
 
 ## Environment (see [`env.example`](../env.example))
 
-- `DM_MONGODB_URI`, `DM_JWT_SECRET`, `DM_FRONTEND_URL`, `DM_PUBLIC_URL`, `DM_GOOGLE_CLIENT_ID`, `DM_AI_PROVIDER` (`openai` | `deepseek` | `lmstudio`), `DM_OPENAI_MODEL`, `DM_LM_STUDIO_URL`, `PORT`, `DM_BIND_HOST`, `DM_TRUST_PROXY`, etc.
+- `DM_MONGODB_URI`, `DM_JWT_SECRET`, `DM_FRONTEND_URL`, `DM_PUBLIC_URL`, `DM_GOOGLE_CLIENT_ID`, `DM_AI_PROVIDER` (`openai` | `deepseek` | `gemini` | `lmstudio`), `DM_OPENAI_MODEL`, `DM_GEMINI_MODEL`, `DM_LM_STUDIO_URL`, `PORT`, `DM_BIND_HOST`, `DM_TRUST_PROXY`, etc.
