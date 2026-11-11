@@ -139,6 +139,9 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 			return campaignWorld{}, nil, 500, "CAMPAIGN_WORLD_PERSIST_FAILED",
 				"the generated world could not be saved, so the campaign was not started"
 		}
+		if mapID != "" {
+			log.Printf("campaign world: stored map %s for game %s", mapID, gameID)
+		}
 	}
 
 	// The image was rendered while the world was generated, so this is a download rather than a second render.
