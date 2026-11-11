@@ -90,6 +90,23 @@ map service is down, the name already exists, the point is open water — is log
 map untouched. The added place comes back as a `Landmark`, and `campaignspec.PlaceKind` reports it as `landmark` so it
 is never treated as a settlement.
 
+### The party pin
+
+A reply may also carry `partyPosition`, either `{ "place": "<name from the world block>" }` or
+`{ "x": .., "y": .., "note": "on the road to …" }` for an encounter between places. `ApplyPartyPosition` resolves the
+name against `campaignSpec.vellarisWorld`, projects the point onto the picture, and stores
+`campaignSpec.partyMapPosition` as `{ x, y, label, place?, note?, updatedAt }` where `x`/`y` are **fractions of the
+image** (0–1, top-left origin). No render and no image download is involved: the client draws the dot as a layer over
+the image it already shows, so travel and encounters move the pin for free.
+
+The projection lives in `campaignSpec.mapGeometry` (DM-only): `xPerUnit`, `yPerUnit`, `xOffset`, `yOffset`. It is
+derived once from the map's settings — `resolution`, `generatedWidth`/`generatedHeight`, and the border padding when
+`drawBorder` is on and `borderPosition` is `Outside map` — and then reused, so a game does not refetch the settings each
+turn. Because the fractions are relative, they stay correct if the image is ever served downscaled.
+
+`partyMapPosition` is delivered with `/load` and over SSE like the rest of the game state, and it does not count as
+campaign content: `campaignspec.mapMarkerKeys` keeps it out of the readiness check.
+
 ## WebSocket
 
 - Upgrade: `GET /api/game-state/ws/:gameId?access_token=<jwt>`

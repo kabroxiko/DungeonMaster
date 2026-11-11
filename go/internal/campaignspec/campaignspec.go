@@ -13,13 +13,17 @@ var dmOnlyKeys = map[string]struct{}{
 	// redacted view and out of the readiness check means the world can be stored before the campaign is written.
 	"vellarisWorld":    {},
 	"vellarisSettings": {},
+	// The projection from world coordinates onto the rendered image is arithmetic about the picture, not story, and
+	// clients receive the resulting fraction instead.
+	"mapGeometry": {},
 }
 
 // mapMarkerKeys describe the rendered map the table is shown, not the campaign written on it. They stay in the client
 // view (the map control needs them) but never count as campaign content.
 var mapMarkerKeys = map[string]struct{}{
-	"mapImage":      {},
-	"mapImageError": {},
+	"mapImage":         {},
+	"mapImageError":    {},
+	"partyMapPosition": {},
 }
 
 // RedactCampaignSpecForClient removes DM-only keys.

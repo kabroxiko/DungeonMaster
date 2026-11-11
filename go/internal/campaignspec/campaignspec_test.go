@@ -12,6 +12,7 @@ func TestRenderedMapDoesNotCountAsACampaign(t *testing.T) {
 			"updatedAt":   "2026-11-10T20:27:55.840023Z",
 		},
 		"mapImageError":    nil,
+		"partyMapPosition": map[string]interface{}{"x": 0.42, "y": 0.31, "label": "Aditarie"},
 		"vellarisWorld":    map[string]interface{}{"seed": 42.0, "regions": []interface{}{map[string]interface{}{"name": "Giah"}}},
 		"vellarisSettings": map[string]interface{}{"randomSeed": 42.0},
 	}
@@ -25,6 +26,13 @@ func TestRenderedMapDoesNotCountAsACampaign(t *testing.T) {
 	}
 	if RedactCampaignSpecForClient(spec)["vellarisWorld"] != nil {
 		t.Fatal("the world itself is DM-only")
+	}
+	// The party pin is part of the map the table is shown, so clients must receive it and it must not look like story.
+	if RedactCampaignSpecForClient(spec)["partyMapPosition"] == nil {
+		t.Fatal("the party pin must stay in the client view")
+	}
+	if RedactCampaignSpecForClient(spec)["mapGeometry"] != nil {
+		t.Fatal("the coordinate projection is arithmetic, not something clients need")
 	}
 
 	spec["title"] = "La Traición del Mentor"

@@ -76,6 +76,8 @@ func numberValue(v interface{}) (float64, bool) {
 		return float64(n), true
 	case int:
 		return float64(n), true
+	case int32:
+		return float64(n), true
 	case int64:
 		return float64(n), true
 	case json.Number:

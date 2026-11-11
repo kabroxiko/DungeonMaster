@@ -275,14 +275,27 @@
                     @dblclick="resetMapView"
                 >
                     <img
+                        ref="mapImageEl"
                         class="world-map-modal__image"
                         :src="mapImageSrc"
                         :alt="$i18n.map_overlay_title"
                         :style="mapImageStyle"
                         draggable="false"
-                        @load="mapImageFailed = false"
+                        @load="onMapImageLoad"
                         @error="mapImageFailed = true"
                     />
+                    <!-- The pin is a layer over the picture: positions come from the server as fractions of the
+                         image, so nothing has to be re-rendered to move it. -->
+                    <div
+                        v-if="partyPinStyle"
+                        class="world-map-modal__pin"
+                        :style="partyPinStyle"
+                        :title="partyPinLabel"
+                        aria-hidden="true"
+                    >
+                        <span class="world-map-modal__pin-dot"></span>
+                        <span v-if="partyPinLabel" class="world-map-modal__pin-label">{{ partyPinLabel }}</span>
+                    </div>
                     <p v-if="mapImageFailed" class="world-map-modal__error">{{ $i18n.map_unavailable }}</p>
                 </div>
                 <div class="world-map-modal__tools">
@@ -415,6 +428,11 @@ export default {
                 campaignMapImage: null,
                 /** campaignSpec.mapImageError — why the rendered map could not be stored, for the host only. */
                 mapImageError: '',
+                /** campaignSpec.partyMapPosition — the party's spot as a fraction of the image (client-visible). */
+                campaignPartyPosition: null,
+                /** The image's laid-out box inside the stage, measured so the pin can be placed in image fractions. */
+                mapImageBox: null,
+                mapStageSize: null,
                 /** Local per-browser view: any player can open the campaign map on their own screen. */
                 mapVisible: false,
                 mapImageFailed: false,
@@ -747,6 +765,32 @@ export default {
                 return {
                     transform: `translate(${this.mapPanX}px, ${this.mapPanY}px) scale(${this.mapZoom})`,
                 };
+            },
+            /**
+             * The party pin, in stage pixels. The image is centred in the stage and scales about its own centre, so a
+             * point at a fraction of the image maps to centre + pan + (point - centre) * zoom. Only its position is
+             * transformed: the dot keeps its size at every zoom level.
+             */
+            partyPinStyle() {
+                const box = this.mapImageBox;
+                const stage = this.mapStageSize;
+                const pos = this.campaignPartyPosition;
+                if (!box || !stage || !stage.width || !stage.height || !pos) return null;
+                const fx = Number(pos.x);
+                const fy = Number(pos.y);
+                if (!Number.isFinite(fx) || !Number.isFinite(fy)) return null;
+                const clamp = (v) => Math.min(1, Math.max(0, v));
+                const centreX = stage.width / 2;
+                const centreY = stage.height / 2;
+                const pointX = box.left + box.width * clamp(fx);
+                const pointY = box.top + box.height * clamp(fy);
+                const left = centreX + this.mapPanX + (pointX - centreX) * this.mapZoom;
+                const top = centreY + this.mapPanY + (pointY - centreY) * this.mapZoom;
+                return { left: `${left}px`, top: `${top}px` };
+            },
+            partyPinLabel() {
+                const pos = this.campaignPartyPosition;
+                return pos && typeof pos.label === 'string' ? pos.label.trim() : '';
             },
             lastStartError() {
                 const p = this.$store.state.gameSetup && this.$store.state.gameSetup.party;
@@ -1092,6 +1136,7 @@ export default {
             /** Every open starts at the fitted view; zoom and pan belong to this browser only. */
             mapVisible(visible) {
                 if (visible) this.resetMapView();
+                if (visible) this.$nextTick(() => this.measureMapImage());
             },
             'messages.length'(n, o) {
                 if (n === 0) return;
@@ -1117,6 +1162,9 @@ export default {
             document.addEventListener('visibilitychange', this.onDocumentVisibility);
             this.onPageHideKeepalive = () => this.flushKeepaliveAppend();
             window.addEventListener('pagehide', this.onPageHideKeepalive);
+            // The modal is viewport-sized, so a window resize is the only thing that moves the image under the pin.
+            this.onWindowResizeForMap = () => this.measureMapImage();
+            window.addEventListener('resize', this.onWindowResizeForMap);
             this.$nextTick(() => {
                 this.maybeStartGameStateEventSource();
                 this.scrollChatToBottom({ smooth: false });
@@ -1130,6 +1178,9 @@ export default {
         beforeUnmount() {
             if (this.onPageHideKeepalive) {
                 window.removeEventListener('pagehide', this.onPageHideKeepalive);
+            }
+            if (this.onWindowResizeForMap) {
+                window.removeEventListener('resize', this.onWindowResizeForMap);
             }
             document.removeEventListener('visibilitychange', this.onDocumentVisibility);
             if (this.visSyncTimer) {
@@ -1744,6 +1795,27 @@ export default {
             onMapWheel(event) {
                 this.zoomMapAt(event.deltaY < 0 ? 1.15 : 1 / 1.15, event.clientX, event.clientY);
             },
+            /** A loaded image is the first moment its laid-out box exists, which is what the pin is placed against. */
+            onMapImageLoad() {
+                this.mapImageFailed = false;
+                this.$nextTick(() => this.measureMapImage());
+            },
+            /**
+             * Measures where the image sits inside the stage, in unscaled layout pixels. `offset*` is used rather than
+             * `getBoundingClientRect` because the latter already includes the pan/zoom transform the pin applies itself.
+             */
+            measureMapImage() {
+                const img = this.$refs.mapImageEl;
+                const stage = this.$refs.mapStage;
+                if (!img || !stage) return;
+                this.mapImageBox = {
+                    left: img.offsetLeft,
+                    top: img.offsetTop,
+                    width: img.offsetWidth,
+                    height: img.offsetHeight,
+                };
+                this.mapStageSize = { width: stage.clientWidth, height: stage.clientHeight };
+            },
             onMapPointerDown(event) {
                 if (event.button != null && event.button !== 0) return;
                 this.mapDragging = true;
@@ -2178,6 +2250,9 @@ export default {
 
                             if (ad && ad.partyDm && String(ad.partyDm.narration || '').trim()) {
                                 this.applyDmPayloadToConversation(ad.partyDm, userMessage);
+                                // The turn also stores where the party now stands; a reload is what brings that pin in,
+                                // because the push that announced it arrived while this client was still sending.
+                                this.$nextTick(() => this.syncFromServer());
                                 return;
                             }
 
@@ -2204,6 +2279,7 @@ export default {
                             persist: this.buildPersistPayload(),
                         });
                         this.applyDmPayloadToConversation(response.data, userMessage);
+                        this.$nextTick(() => this.syncFromServer());
                     } else {
                         this.$nextTick(() => this.syncFromServer());
                     }
@@ -2364,6 +2440,11 @@ export default {
                         spec && spec.mapImage && typeof spec.mapImage === 'object' ? spec.mapImage : null;
                     this.mapImageError =
                         spec && typeof spec.mapImageError === 'string' ? spec.mapImageError : '';
+                    // Where the party stands, as a fraction of that same image; the pin layers over it client-side.
+                    this.campaignPartyPosition =
+                        spec && spec.partyMapPosition && typeof spec.partyMapPosition === 'object'
+                            ? spec.partyMapPosition
+                            : null;
 
                     const uid = this.myUserIdStr;
                     const sheetForMe = uid ? this.pickPlayerCharacterFromStore(uid) : null;
@@ -2684,6 +2765,7 @@ export default {
   }
 
   .world-map-modal__stage {
+    position: relative; /* the image's offsetParent: the pin is placed against the stage in layout pixels */
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
@@ -2711,6 +2793,45 @@ export default {
 
   .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__image {
     transition: transform 0.08s ease-out;
+  }
+
+  /* Party pin: a layer over the picture, positioned from image fractions the server stores. */
+  .world-map-modal__pin {
+    position: absolute;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__pin {
+    transition: left 0.08s ease-out, top 0.08s ease-out;
+  }
+
+  .world-map-modal__pin-dot {
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffd166, #c81e1e 72%);
+    border: 2px solid rgba(255, 248, 232, 0.92);
+    box-shadow: 0 0 0 3px rgba(200, 30, 30, 0.3), 0 2px 6px rgba(0, 0, 0, 0.55);
+  }
+
+  .world-map-modal__pin-label {
+    max-width: 14rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 6px;
+    background: rgba(20, 18, 14, 0.78);
+    color: var(--gm-text, #ece7dc);
+    font-size: 0.7rem;
+    line-height: 1.3;
+    text-align: center;
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .world-map-modal__tools {

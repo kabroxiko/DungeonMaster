@@ -134,6 +134,10 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			if vw := renderVellarisWorldInject(spec); vw != "" {
 				consolidated = vw + "\n\n" + consolidated
 			}
+			// Where the party stands is the one piece of state that makes travel continuous across turns.
+			if pp := renderPartyPositionInject(spec); pp != "" {
+				consolidated = pp + "\n\n" + consolidated
+			}
 			inj := promptmgr.LoadPrompt("templates/dm/inject_explore.txt")
 			if inj != "" && (mode == "exploration" || mode == "explore") {
 				// minimal Mustache data
@@ -237,6 +241,16 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	if persisted {
 		StartMapPlaceUpdate(d, gameID, env.NewPlaces)
 	}
+
+	// The party pin is only arithmetic over the picture the table already has, so it is stored before the reply goes
+	// out: every client that loads the turn finds the position it describes.
+	if persisted && env.PartyPosition != nil {
+		if label, err := ApplyPartyPosition(ctx, d, gameID, env.PartyPosition); err != nil {
+			log.Printf("party position: gameId=%s: %v", gameID, err)
+		} else if label != "" {
+			log.Printf("party position: gameId=%s now at %s", gameID, label)
+		}
+	}
 	return 200, res
 }
 
@@ -246,6 +260,8 @@ type dmEnvelope struct {
 	Coinage        map[string]interface{}
 	// NewPlaces are the sites this turn introduced that the players must be able to find on the map.
 	NewPlaces []NewPlace
+	// PartyPosition is where this turn left the party, so the map pin follows travel and encounters.
+	PartyPosition *PartyPosition
 }
 
 func parseDmEnvelope(raw string) *dmEnvelope {
@@ -279,6 +295,7 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 		out.Coinage = cg
 	}
 	out.NewPlaces = ParseNewPlaces(obj["newPlaces"])
+	out.PartyPosition = ParsePartyPosition(obj["partyPosition"])
 	return out
 }
 
