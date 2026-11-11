@@ -274,27 +274,25 @@
                     @pointercancel="onMapPointerUp"
                     @dblclick="resetMapView"
                 >
-                    <img
-                        ref="mapImageEl"
-                        class="world-map-modal__image"
-                        :src="mapImageSrc"
-                        :alt="$i18n.map_overlay_title"
-                        :style="mapImageStyle"
-                        draggable="false"
-                        @load="onMapImageLoad"
-                        @error="mapImageFailed = true"
-                    />
-                    <!-- The pin is a layer over the picture: positions come from the server as fractions of the
-                         image, so nothing has to be re-rendered to move it. -->
-                    <div
-                        v-if="partyPinStyle"
-                        class="world-map-modal__pin"
-                        :style="partyPinStyle"
-                        :title="partyPinLabel"
-                        aria-hidden="true"
-                    >
-                        <span class="world-map-modal__pin-dot"></span>
-                        <span v-if="partyPinLabel" class="world-map-modal__pin-label">{{ partyPinLabel }}</span>
+                    <!-- The picture and the party dot are one layer: the dot is placed in the map's own coordinates, so it
+                         cannot drift from the picture however the layer is panned or zoomed, and nothing has to be
+                         recalculated frame by frame. -->
+                    <div class="world-map-modal__map" :style="mapLayerStyle">
+                        <img
+                            ref="mapImageEl"
+                            class="world-map-modal__image"
+                            :src="mapImageSrc"
+                            :alt="$i18n.map_overlay_title"
+                            draggable="false"
+                            @load="onMapImageLoad"
+                            @error="mapImageFailed = true"
+                        />
+                        <span
+                            v-if="partyPinStyle"
+                            class="world-map-modal__pin"
+                            :style="partyPinStyle"
+                            aria-hidden="true"
+                        ></span>
                     </div>
                     <p v-if="mapImageFailed" class="world-map-modal__error">{{ $i18n.map_unavailable }}</p>
                 </div>
@@ -430,9 +428,8 @@ export default {
                 mapImageError: '',
                 /** campaignSpec.partyMapPosition — the party's spot as a fraction of the image (client-visible). */
                 campaignPartyPosition: null,
-                /** The image's laid-out box inside the stage, measured so the pin can be placed in image fractions. */
+                /** The image's letterboxed box inside the stage, measured so the map layer can be built to match it. */
                 mapImageBox: null,
-                mapStageSize: null,
                 /** Local per-browser view: any player can open the campaign map on their own screen. */
                 mapVisible: false,
                 mapImageFailed: false,
@@ -760,37 +757,38 @@ export default {
                 const query = `access_token=${encodeURIComponent(token)}${version ? `&v=${encodeURIComponent(version)}` : ''}`;
                 return `${resolveApiBaseURL()}/api/game-state/map/${encodeURIComponent(gid)}?${query}`;
             },
-            /** Pan and zoom share one transform, so dragging stays smooth at any scale. */
-            mapImageStyle() {
+            /**
+             * The picture and its dot share one transformed layer, sized to the picture's letterboxed box. The layer is
+             * what pans and zooms, so the browser composites the dot with the picture and the two cannot separate: no
+             * per-frame arithmetic, and no overlay that lags a frame behind the moving image.
+             */
+            mapLayerStyle() {
+                const box = this.mapImageBox;
+                if (!box) return { visibility: 'hidden' };
                 return {
+                    left: `${box.left}px`,
+                    top: `${box.top}px`,
+                    width: `${box.width}px`,
+                    height: `${box.height}px`,
                     transform: `translate(${this.mapPanX}px, ${this.mapPanY}px) scale(${this.mapZoom})`,
                 };
             },
             /**
-             * The party pin, in stage pixels. The image is centred in the stage and scales about its own centre, so a
-             * point at a fraction of the image maps to centre + pan + (point - centre) * zoom. Only its position is
-             * transformed: the dot keeps its size at every zoom level.
+             * The party dot's spot as a fraction of the picture, so it rides the layer rather than tracking it. The
+             * layer is already scaled, so counter-scaling keeps the dot the same size on screen at every zoom level.
              */
             partyPinStyle() {
-                const box = this.mapImageBox;
-                const stage = this.mapStageSize;
                 const pos = this.campaignPartyPosition;
-                if (!box || !stage || !stage.width || !stage.height || !pos) return null;
+                if (!pos) return null;
                 const fx = Number(pos.x);
                 const fy = Number(pos.y);
                 if (!Number.isFinite(fx) || !Number.isFinite(fy)) return null;
                 const clamp = (v) => Math.min(1, Math.max(0, v));
-                const centreX = stage.width / 2;
-                const centreY = stage.height / 2;
-                const pointX = box.left + box.width * clamp(fx);
-                const pointY = box.top + box.height * clamp(fy);
-                const left = centreX + this.mapPanX + (pointX - centreX) * this.mapZoom;
-                const top = centreY + this.mapPanY + (pointY - centreY) * this.mapZoom;
-                return { left: `${left}px`, top: `${top}px` };
-            },
-            partyPinLabel() {
-                const pos = this.campaignPartyPosition;
-                return pos && typeof pos.label === 'string' ? pos.label.trim() : '';
+                return {
+                    left: `${clamp(fx) * 100}%`,
+                    top: `${clamp(fy) * 100}%`,
+                    transform: `translate(-50%, -50%) scale(${1 / this.mapZoom})`,
+                };
             },
             lastStartError() {
                 const p = this.$store.state.gameSetup && this.$store.state.gameSetup.party;
@@ -1795,26 +1793,34 @@ export default {
             onMapWheel(event) {
                 this.zoomMapAt(event.deltaY < 0 ? 1.15 : 1 / 1.15, event.clientX, event.clientY);
             },
-            /** A loaded image is the first moment its laid-out box exists, which is what the pin is placed against. */
+            /** A loaded image is the first moment its natural size exists, which is what the fitted box is built from. */
             onMapImageLoad() {
                 this.mapImageFailed = false;
                 this.$nextTick(() => this.measureMapImage());
             },
             /**
-             * Measures where the image sits inside the stage, in unscaled layout pixels. `offset*` is used rather than
-             * `getBoundingClientRect` because the latter already includes the pan/zoom transform the pin applies itself.
+             * Measures the picture's letterboxed box inside the stage, in unscaled layout pixels. The layer is built to
+             * exactly this box, because the dot's fractions are fractions of the picture, not of the stage: a point at
+             * 50% must not land on a letterbox bar. `object-fit: contain` on the picture is the same fit.
              */
             measureMapImage() {
                 const img = this.$refs.mapImageEl;
                 const stage = this.$refs.mapStage;
                 if (!img || !stage) return;
+                const stageWidth = stage.clientWidth;
+                const stageHeight = stage.clientHeight;
+                const naturalWidth = img.naturalWidth;
+                const naturalHeight = img.naturalHeight;
+                if (!stageWidth || !stageHeight || !naturalWidth || !naturalHeight) return;
+                const fit = Math.min(stageWidth / naturalWidth, stageHeight / naturalHeight);
+                const width = naturalWidth * fit;
+                const height = naturalHeight * fit;
                 this.mapImageBox = {
-                    left: img.offsetLeft,
-                    top: img.offsetTop,
-                    width: img.offsetWidth,
-                    height: img.offsetHeight,
+                    left: (stageWidth - width) / 2,
+                    top: (stageHeight - height) / 2,
+                    width,
+                    height,
                 };
-                this.mapStageSize = { width: stage.clientWidth, height: stage.clientHeight };
             },
             onMapPointerDown(event) {
                 if (event.button != null && event.button !== 0) return;
@@ -2765,7 +2771,7 @@ export default {
   }
 
   .world-map-modal__stage {
-    position: relative; /* the image's offsetParent: the pin is placed against the stage in layout pixels */
+    position: relative; /* the map layer's offsetParent */
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
@@ -2781,57 +2787,44 @@ export default {
     cursor: grabbing;
   }
 
-  .world-map-modal__image {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
+  /* The picture and the party dot move as one box: pan and zoom are one transform on this layer, so the dot cannot
+     drift behind the picture while the wheel or a drag is updating it. */
+  .world-map-modal__map {
+    position: absolute;
     transform-origin: center center;
-    user-select: none;
-    -webkit-user-drag: none;
     will-change: transform;
   }
 
-  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__image {
+  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__map {
     transition: transform 0.08s ease-out;
   }
 
-  /* Party pin: a layer over the picture, positioned from image fractions the server stores. */
+  .world-map-modal__image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+
+  /* Party dot: placed inside the map layer by fractions of the picture the server stores, so it is carried by the
+     same transform as the image instead of being positioned over it. */
   .world-map-modal__pin {
     position: absolute;
     z-index: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-    transform: translate(-50%, -50%);
-    pointer-events: none;
-  }
-
-  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__pin {
-    transition: left 0.08s ease-out, top 0.08s ease-out;
-  }
-
-  .world-map-modal__pin-dot {
     width: 0.8rem;
     height: 0.8rem;
     border-radius: 50%;
     background: radial-gradient(circle at 35% 30%, #ffd166, #c81e1e 72%);
     border: 2px solid rgba(255, 248, 232, 0.92);
     box-shadow: 0 0 0 3px rgba(200, 30, 30, 0.3), 0 2px 6px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
   }
 
-  .world-map-modal__pin-label {
-    max-width: 14rem;
-    padding: 0.05rem 0.4rem;
-    border-radius: 6px;
-    background: rgba(20, 18, 14, 0.78);
-    color: var(--gm-text, #ece7dc);
-    font-size: 0.7rem;
-    line-height: 1.3;
-    text-align: center;
-    white-space: normal;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  /* The counter-scale that keeps the dot the same size on screen has to move with the zoom, or it pops at the end. */
+  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__pin {
+    transition: transform 0.08s ease-out;
   }
 
   .world-map-modal__tools {
