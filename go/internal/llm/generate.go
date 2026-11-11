@@ -69,7 +69,7 @@ func debugLogRequestMessages(cfg *config.Config, messages []interface{}) {
 	}
 }
 
-// GenerateResponse performs chat-completions against OpenAI, DeepSeek, or LM Studio.
+// GenerateResponse performs chat-completions against OpenAI, DeepSeek, Google AI Studio (Gemini), or LM Studio.
 func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]interface{}, opts map[string]interface{}) (string, error) {
 	backend, err := resolveChatBackend(cfg)
 	if err != nil {
@@ -119,20 +119,36 @@ func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]
 	return out, nil
 }
 
-// chatBackend is the endpoint chat completions are sent to. OpenAI and DeepSeek speak the same protocol, so they
-// differ only in where the request goes, which key authorises it, and the name that appears in errors.
+// chatBackend is the endpoint chat completions are sent to. OpenAI, DeepSeek and Gemini's compatibility layer speak
+// the same protocol, so they differ only in where the request goes, which key authorises it, and the name that appears
+// in errors.
 type chatBackend struct {
 	name    string
 	baseURL string
-	apiKey  string
-	keyEnv  string
+	// endpoint, when set, is the full chat-completions URL to POST to. Gemini serves its compatibility layer under
+	// /v1beta/openai rather than /v1, so it sets this instead of relying on the base URL convention below.
+	endpoint string
+	apiKey   string
+	keyEnv   string
 }
 
 const (
 	lmStudioBackendName = "lm_studio"
 	deepSeekBackendName = "deepseek"
+	geminiBackendName   = "gemini"
 	openAIBackendName   = "openai"
+	// DefaultGeminiBaseURL is the base of Gemini's OpenAI-compatible surface, the one the AI Studio key unlocks. It is
+	// the whole base including /v1beta/openai; only the chat-completions route gets appended to it.
+	DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
 )
+
+// chatURL is where a chat-completions request is POSTed for this backend.
+func (b chatBackend) chatURL() string {
+	if b.endpoint != "" {
+		return b.endpoint
+	}
+	return chatCompletionsURL(b.baseURL)
+}
 
 // resolveChatBackend picks the provider named by DM_AI_PROVIDER. It is one name, so there is no combination to guess
 // between; an unknown name is an error rather than a silent fallback to a provider the operator did not choose.
@@ -153,6 +169,12 @@ func resolveChatBackend(cfg *config.Config) (chatBackend, error) {
 			base = "https://api.deepseek.com"
 		}
 		return chatBackend{name: deepSeekBackendName, baseURL: base, apiKey: cfg.DeepSeekAPIKey, keyEnv: "DM_DEEPSEEK_API_KEY"}, nil
+	case config.ProviderGemini:
+		base := strings.TrimRight(cfg.GeminiURL, "/")
+		if base == "" {
+			base = DefaultGeminiBaseURL
+		}
+		return chatBackend{name: geminiBackendName, baseURL: base, endpoint: geminiChatURL(base), apiKey: cfg.GeminiAPIKey, keyEnv: "DM_GEMINI_API_KEY"}, nil
 	case config.ProviderOpenAI:
 		return chatBackend{name: openAIBackendName, baseURL: "https://api.openai.com", apiKey: cfg.OpenAIAPIKey, keyEnv: "DM_OPENAI_API_KEY"}, nil
 	default:
@@ -173,6 +195,12 @@ func defaultModelFor(cfg *config.Config, backend chatBackend) (string, error) {
 		model := strings.TrimSpace(cfg.DeepSeekModel)
 		if model == "" {
 			model = "deepseek-chat"
+		}
+		return model, nil
+	case geminiBackendName:
+		model := strings.TrimSpace(cfg.GeminiModel)
+		if model == "" {
+			model = "gemini-2.5-flash"
 		}
 		return model, nil
 	default:
@@ -207,6 +235,20 @@ func chatCompletionsURL(baseURL string) string {
 	return base + "/v1/chat/completions"
 }
 
+// geminiChatURL appends the chat-completions route to Gemini's OpenAI-compatible base. The /v1 convention above cannot
+// be reused: Gemini's compatibility layer lives under /v1beta/openai, so the base already includes it and only the route
+// is appended. A base that names the route already is left alone, mirroring how chatCompletionsURL tolerates /v1.
+func geminiChatURL(baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		base = DefaultGeminiBaseURL
+	}
+	if strings.HasSuffix(base, "/chat/completions") {
+		return base
+	}
+	return base + "/chat/completions"
+}
+
 func openAICompatibleChat(ctx context.Context, backend chatBackend, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}) (string, error) {
 	key := backend.apiKey
 	if key == "" {
@@ -222,7 +264,7 @@ func openAICompatibleChat(ctx context.Context, backend chatBackend, messages []i
 		body["response_format"] = rf
 	}
 	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL(backend.baseURL), bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backend.chatURL(), bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}

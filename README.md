@@ -75,10 +75,26 @@ For proper functioning of the application, you must set up the following environ
   3. Restart the server: `.env` is read once at startup, and the log line `AI provider: deepseek at …` confirms which backend this process uses.
 - **Notes**: use a plain chat model (`deepseek-chat`). Reasoning models (`deepseek-reasoner`, `deepseek-flash`) spend the output budget on hidden reasoning tokens — a 550-token stage can come back with ~130 tokens of actual reply, truncated mid-document, which then fails to parse. `DM_MODEL_CONTEXT_TOKENS` defaults to 16384; raise it (e.g. `65536`) to use more of DeepSeek's window.
 
+#### Google Gemini (Google AI Studio)
+
+- **Purpose**: Same role as OpenAI — Gemini's OpenAI-compatible endpoint takes the same chat-completions request, so only the endpoint, key and model change. This is the **Google AI Studio API key** product on `generativelanguage.googleapis.com`; Vertex AI (a GCP project plus service account) is a different surface and is not what `DM_AI_PROVIDER=gemini` selects.
+- **Setup**:
+  1. Create an API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+  2. In your `.env` file:
+     ```bash
+     DM_AI_PROVIDER=gemini
+     DM_GEMINI_API_KEY=AIza...
+     # optional, these are the defaults:
+     DM_GEMINI_MODEL=gemini-2.5-flash
+     DM_GEMINI_URL=https://generativelanguage.googleapis.com/v1beta/openai
+     ```
+  3. Restart the server: `.env` is read once at startup, and the log line `AI provider: gemini at …` confirms which backend this process uses.
+- **Notes**: `DM_GEMINI_URL` is the whole compatibility base — Gemini serves it under `/v1beta/openai`, not `/v1`, so the server appends only `/chat/completions` to it. Gemini 2.5 Flash reasons before answering and those hidden tokens are charged to `max_tokens`, so a short reply budget can come back truncated mid-document and fail to parse; either raise the budget or choose a model without thinking (`DM_GEMINI_MODEL=gemini-2.0-flash`).
+
 #### Choosing the AI provider
 
 - **Purpose**: one selector, `DM_AI_PROVIDER`, instead of a boolean per provider.
-- **Values**: `openai` (default when unset), `deepseek`, `lmstudio`. An unknown value stops the server at boot with the list of accepted names, rather than quietly using a different provider.
+- **Values**: `openai` (default when unset), `deepseek`, `gemini`, `lmstudio`. An unknown value stops the server at boot with the list of accepted names, rather than quietly using a different provider.
 - **Why not flags**: `DM_USE_LM_STUDIO` and `DM_USE_DEEPSEEK` could both be on at once, and the server then had to refuse or guess. A single name cannot be ambiguous, and the startup log states the provider, its endpoint and the model.
 
 #### Google Sign-In and session JWT (required for play)

@@ -140,13 +140,13 @@ func TestDeepSeekSurfacesProviderErrors(t *testing.T) {
 // One selector cannot enable two providers at once, so the only configuration error left to report is a name the
 // server does not serve. It must fail loudly rather than fall back to a provider nobody asked for.
 func TestUnknownProviderIsRejectedByName(t *testing.T) {
-	cfg := &config.Config{AIProvider: "gemini"}
+	cfg := &config.Config{AIProvider: "anthropic"}
 
 	_, err := generate(t, cfg, nil)
 	if err == nil {
 		t.Fatal("expected an error for a provider the server does not serve")
 	}
-	if !strings.Contains(err.Error(), "DM_AI_PROVIDER") || !strings.Contains(err.Error(), "deepseek") {
+	if !strings.Contains(err.Error(), "DM_AI_PROVIDER") || !strings.Contains(err.Error(), "deepseek") || !strings.Contains(err.Error(), "gemini") {
 		t.Fatalf("the error should name the setting and the accepted values, got %v", err)
 	}
 }

@@ -12,12 +12,16 @@ const (
 	ProviderOpenAI = "openai"
 	// ProviderDeepSeek is DeepSeek's hosted, OpenAI-compatible API.
 	ProviderDeepSeek = "deepseek"
+	// ProviderGemini is Google's Gemini API, the one behind Google AI Studio, through its OpenAI-compatible surface.
+	// It is a plain API key on the generativelanguage endpoint; Vertex AI (a GCP project and service account) is a
+	// different surface and is not what this provider selects.
+	ProviderGemini = "gemini"
 	// ProviderLMStudio is a local LM Studio server, also OpenAI-compatible.
 	ProviderLMStudio = "lmstudio"
 )
 
 // AIProviderOptions lists the accepted DM_AI_PROVIDER values, for error messages and docs.
-var AIProviderOptions = []string{ProviderOpenAI, ProviderDeepSeek, ProviderLMStudio}
+var AIProviderOptions = []string{ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderLMStudio}
 
 // NormalizeAIProvider lowercases and trims a provider name and folds the spellings of LM Studio (lm-studio,
 // lm_studio, lm studio) into ProviderLMStudio. An unknown value comes back trimmed and lowercased, so the backend
@@ -30,6 +34,9 @@ func NormalizeAIProvider(raw string) string {
 		return ProviderOpenAI
 	case ProviderDeepSeek:
 		return ProviderDeepSeek
+	case ProviderGemini, "google", "googleai", "googleaistudio", "aistudio":
+		// AI Studio is how an operator gets the key, so the names they read on the console fold onto one provider.
+		return ProviderGemini
 	case ProviderLMStudio:
 		return ProviderLMStudio
 	}
@@ -47,15 +54,22 @@ type Config struct {
 	GoogleClientID string
 	NodeEnv        string
 	OpenAIModel    string
-	// AIProvider is the chat-completions backend every AI call uses (set DM_AI_PROVIDER: openai, deepseek or
+	// AIProvider is the chat-completions backend every AI call uses (set DM_AI_PROVIDER: openai, deepseek, gemini or
 	// lmstudio). One selector replaces a boolean per provider: flags allowed two providers to be enabled at once,
 	// which the server then had to refuse or guess between, while a single name cannot be ambiguous.
-	AIProvider      string
-	LMStudioURL     string
-	LMStudioModel   string
-	DeepSeekURL     string
-	DeepSeekModel   string
-	DeepSeekAPIKey  string
+	AIProvider     string
+	LMStudioURL    string
+	LMStudioModel  string
+	DeepSeekURL    string
+	DeepSeekModel  string
+	DeepSeekAPIKey string
+	// GeminiURL is the base of Gemini's OpenAI-compatible surface (set DM_GEMINI_URL). It already carries the
+	// /v1beta/openai segment, because Gemini does not put its compatibility layer under /v1 like OpenAI and DeepSeek.
+	GeminiURL string
+	// GeminiModel is the Gemini model id (set DM_GEMINI_MODEL). Empty means the server's default Gemini model.
+	GeminiModel string
+	// GeminiAPIKey is the API key from Google AI Studio (set DM_GEMINI_API_KEY).
+	GeminiAPIKey    string
 	TrustProxy      string
 	ModelContextTok int
 	OpenAIAPIKey    string
@@ -133,6 +147,9 @@ func Load() *Config {
 		DeepSeekURL:              getenv("DM_DEEPSEEK_URL", "https://api.deepseek.com"),
 		DeepSeekModel:            strings.TrimSpace(os.Getenv("DM_DEEPSEEK_MODEL")),
 		DeepSeekAPIKey:           strings.TrimSpace(os.Getenv("DM_DEEPSEEK_API_KEY")),
+		GeminiURL:                getenv("DM_GEMINI_URL", "https://generativelanguage.googleapis.com/v1beta/openai"),
+		GeminiModel:              strings.TrimSpace(os.Getenv("DM_GEMINI_MODEL")),
+		GeminiAPIKey:             strings.TrimSpace(os.Getenv("DM_GEMINI_API_KEY")),
 		TrustProxy:               strings.TrimSpace(os.Getenv("DM_TRUST_PROXY")),
 		ModelContextTok:          getenvInt("DM_MODEL_CONTEXT_TOKENS", 16384),
 		OpenAIAPIKey:             strings.TrimSpace(os.Getenv("DM_OPENAI_API_KEY")),
