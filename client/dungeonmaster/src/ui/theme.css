@@ -426,6 +426,21 @@ body.gm-theme {
   transform: translateY(0);
 }
 
+/* A disabled button must not look pressable: without this it keeps the pointer cursor and the hover lift, so a frozen
+   control reads as a dead click rather than as one that is unavailable right now. */
+.ui-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.ui-button:disabled:hover,
+.ui-button:disabled:active {
+  transform: none;
+  box-shadow: none;
+}
+
 /* Heroicons in buttons / banner */
 .ui-btn-content {
   display: inline-flex;

@@ -136,10 +136,12 @@
         </section>
         <div v-if="lastStartError" class="party-lobby__warn party-lobby__warn--retry">
             <span class="party-lobby__warn-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
+            <!-- Deliberately not gated on partyLobbyActionsFrozen: a failed start leaves everyone marked ready (that is
+                 why it was attempted), so that flag is true exactly when this control is needed. -->
             <UIButton
                 class="party-lobby__retry-btn"
                 :aria-label="$i18n.lobby_retry_start"
-                :disabled="lobbyRetryPosting || partyLobbyActionsFrozen"
+                :disabled="lobbyRetryPosting || partyPhase === 'starting'"
                 @click="retryPartyStart"
             >
                 {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
@@ -2140,6 +2142,9 @@ export default {
              * Repeats the start that failed. The server records the reason in gameSetup.party.lastStartError, which is
              * what puts this control on screen, so pressing it runs the same party-ready + start-party-adventure
              * sequence as the roster button rather than merely reloading the page.
+             *
+             * The sheet check is what decides between retrying and asking for a character, and the party-ready call is
+             * idempotent, so a repeat press while already marked ready still reaches start-party-adventure.
              */
             async retryPartyStart() {
                 if (this.lobbyRetryPosting) return;
@@ -2147,7 +2152,9 @@ export default {
                 try {
                     const uid = this.myUserIdStr;
                     if (!uid || !this.memberHasCommittedSheet(uid)) {
-                        // The failure may be about the sheet itself; send the player to the character flow instead.
+                        // The failure may be about the sheet itself; say so and send the player to the character flow,
+                        // instead of opening the editor over an unchanged screen.
+                        this.showInviteToast(this.$i18n.party_ready_needs_character, 'error');
                         this.openLobbyCharacterEditor();
                         return;
                     }
