@@ -9,9 +9,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
-	"github.com/deckofdmthings/gmai/internal/campaignspec"
 	"github.com/deckofdmthings/gmai/internal/config"
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
+	"github.com/deckofdmthings/gmai/internal/llm"
 	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/persist"
 	"github.com/deckofdmthings/gmai/internal/realtime"
@@ -51,6 +51,48 @@ func rollbackPartyStartAfterOpeningFailure(ctx context.Context, coll *mongo.Coll
 	return err
 }
 
+// partyPhaseOf returns the phase stored on the game's party object, or "" when no phase was ever recorded (documents
+// written before the lobby phase existed).
+//
+// It reads the raw field rather than party.GetParty because that helper fills in a default of "lobby", which would hide
+// the difference between an old document and a real lobby.
+func partyPhaseOf(doc map[string]interface{}) string {
+	gs, _ := doc["gameSetup"].(map[string]interface{})
+	if gs == nil {
+		return ""
+	}
+	p, _ := gs["party"].(map[string]interface{})
+	if p == nil {
+		return ""
+	}
+	phase, _ := p["phase"].(string)
+	return strings.TrimSpace(phase)
+}
+
+// adventureAlreadyStarted reports whether the adventure has begun.
+//
+// A generated campaign is not a start: the lobby pipeline writes campaign text stage by stage (factions, NPCs, key
+// locations, opening frame), and a start that fails part-way leaves a perfectly substantive campaignSpec behind while
+// the party is still in the lobby. Only the party phase says the table is playing. For documents written before the
+// phase was recorded, the opening scene in the conversation is the marker: a lobby's conversation is empty until the
+// start replaces it.
+func adventureAlreadyStarted(doc map[string]interface{}) bool {
+	phase := partyPhaseOf(doc)
+	if phase == "playing" {
+		return true
+	}
+	if phase != "" {
+		return false
+	}
+	for _, raw := range llm.SliceValues(doc["conversation"]) {
+		m, _ := raw.(map[string]interface{})
+		if role, _ := m["role"].(string); role == "assistant" {
+			return true
+		}
+	}
+	return false
+}
+
 // HandleStartPartyAdventure mirrors POST /start-party-adventure.
 func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, userID string, body map[string]interface{}) (status int, payload map[string]interface{}) {
 	gameID := strings.TrimSpace(fmt.Sprint(body["gameId"]))
@@ -71,11 +113,13 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 	if err != nil {
 		return 500, map[string]interface{}{"error": "db error", "code": "DB_ERROR"}
 	}
-	spec, _ := doc["campaignSpec"].(map[string]interface{})
-	if campaignspec.HasSubstantiveCampaignSpec(spec) {
-		gs, _ := doc["gameSetup"].(map[string]interface{})
-		next := party.MergeParty(gs, map[string]interface{}{"phase": "playing", "lastStartError": nil})
-		_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{"gameSetup": next}})
+	if adventureAlreadyStarted(doc) {
+		if partyPhaseOf(doc) != "playing" {
+			// A legacy document carries the opening but never recorded the phase; record it now so later calls agree.
+			gs, _ := doc["gameSetup"].(map[string]interface{})
+			next := party.MergeParty(gs, map[string]interface{}{"phase": "playing", "lastStartError": nil})
+			_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{"gameSetup": next}})
+		}
 		if hub != nil {
 			hub.NotifyGameStateUpdated(gameID)
 		}
@@ -112,7 +156,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		var cur map[string]interface{}
 		_ = d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&cur)
 		if cur != nil {
-			if cs, ok := cur["campaignSpec"].(map[string]interface{}); ok && campaignspec.HasSubstantiveCampaignSpec(cs) {
+			if adventureAlreadyStarted(cur) {
 				if hub != nil {
 					hub.NotifyGameStateUpdated(gameID)
 				}
