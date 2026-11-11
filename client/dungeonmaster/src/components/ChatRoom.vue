@@ -134,7 +134,17 @@
                 @lobby-inline-after-character-saved="onLobbyInlineAfterCharacterSaved"
             />
         </section>
-        <p v-if="lastStartError" class="party-lobby__warn">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</p>
+        <div v-if="lastStartError" class="party-lobby__warn party-lobby__warn--retry">
+            <span class="party-lobby__warn-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
+            <UIButton
+                class="party-lobby__retry-btn"
+                :aria-label="$i18n.lobby_retry_start"
+                :disabled="lobbyRetryPosting || partyLobbyActionsFrozen"
+                @click="retryPartyStart"
+            >
+                {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
+            </UIButton>
+        </div>
         <!-- In-flow sheet (embedded): uses theme .floating-card--embedded width:100% — avoids fixed FAB 492px cap. -->
         <section
             v-if="showPartyLobbyEmbeddedCharacterSheet"
@@ -449,6 +459,8 @@ export default {
                 /** From GET /game-state/load: Mongo user id string → trimmed nickname (lobby roster). */
                 memberNicknamesByUserId: {},
                 lobbyRosterConfirmPosting: false,
+                /** Guards the retry control while a failed lobby start is being repeated. */
+                lobbyRetryPosting: false,
                 /** Synced from SetupForm on the inline confirm step — roster cannot rely on Vuex alone. */
                 lobbyInlineConfirmSheet: null,
                 lobbyCharacterEditorOpen: false,
@@ -2076,6 +2088,27 @@ export default {
                 void this.syncFromServer();
             },
 
+            /**
+             * Repeats the start that failed. The server records the reason in gameSetup.party.lastStartError, which is
+             * what puts this control on screen, so pressing it runs the same party-ready + start-party-adventure
+             * sequence as the roster button rather than merely reloading the page.
+             */
+            async retryPartyStart() {
+                if (this.lobbyRetryPosting) return;
+                this.lobbyRetryPosting = true;
+                try {
+                    const uid = this.myUserIdStr;
+                    if (!uid || !this.memberHasCommittedSheet(uid)) {
+                        // The failure may be about the sheet itself; send the player to the character flow instead.
+                        this.openLobbyCharacterEditor();
+                        return;
+                    }
+                    await this.postPartyReadyFromLobbyRoster();
+                } finally {
+                    this.lobbyRetryPosting = false;
+                }
+            },
+
             incrementTokenCount(message) {
                 const tokenCountForMessage = Math.ceil(message.length / 4);
                 this.totalTokenCount += tokenCountForMessage;
@@ -3221,6 +3254,23 @@ export default {
     font-size: 0.85rem;
     opacity: 0.9;
     color: #f0c674;
+  }
+
+  /* The failure message and its retry control share a row, wrapping on narrow screens. */
+  .party-lobby__warn--retry {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+
+  .party-lobby__warn-text {
+    flex: 1 1 16rem;
+    min-width: 0;
+  }
+
+  .party-lobby__retry-btn {
+    flex: 0 0 auto;
   }
 
   /* Match .app-banner content inset: lobby root uses --party-lobby-gutter; banner uses --gm-banner-padding-x. */

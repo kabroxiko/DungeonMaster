@@ -327,6 +327,8 @@ const translations = {
     /** Roster column: opens character flow before marking ready (left of primary). */
     lobby_roster_regenerate_short: 'Regenerate',
     lobby_last_error: 'Last start error',
+    lobby_retry_start: 'Retry start',
+    lobby_retry_busy: 'Retrying…',
     auth_env_hint:
       'Sign-in is not configured: set VUE_APP_DM_GOOGLE_CLIENT_ID for the client and DM_GOOGLE_CLIENT_ID (and DM_JWT_SECRET) on the server.',
     public_hero_title: 'AI-powered party fantasy play (one player or a full group)',
@@ -579,6 +581,8 @@ const translations = {
     lobby_roster_ready_aria: 'Confirmar personaje y marcarte listo para jugar',
     lobby_roster_regenerate_short: 'Regenerar',
     lobby_last_error: 'Último error al empezar',
+    lobby_retry_start: 'Reintentar inicio',
+    lobby_retry_busy: 'Reintentando…',
     auth_env_hint:
       'Inicio de sesión no configurado: define VUE_APP_DM_GOOGLE_CLIENT_ID en el cliente y DM_GOOGLE_CLIENT_ID (y DM_JWT_SECRET) en el servidor.',
     public_hero_title: 'Juego de fantasía en grupo con IA (un jugador o muchos)',
