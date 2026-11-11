@@ -3,10 +3,13 @@ package httpserver
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -30,6 +33,19 @@ type Server struct {
 
 func (s *Server) coll() *mongo.Collection {
 	return store.GameStates(s.DB)
+}
+
+// logRequests prints one line per API request: method, path, status, response size and duration.
+//
+// The writer wrapper is chi's, not a hand-written one, because it keeps Flush and Hijack working; the event stream
+// and the WebSocket route need both.
+func logRequests(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
+		next.ServeHTTP(ww, r)
+		log.Printf("%s %s -> %d (%d bytes, %s)", r.Method, r.URL.RequestURI(), ww.Status(), ww.BytesWritten(), time.Since(start).Round(time.Millisecond))
+	})
 }
 
 func (s *Server) users() *mongo.Collection {
@@ -70,6 +86,10 @@ func (s *Server) Handler() http.Handler {
 			next.ServeHTTP(w, req)
 		})
 	})
+
+	// Requests are logged after CORS so preflights stay out of the output. This is what makes the API visible when
+	// `npm start` runs the frontend dev server next to it.
+	r.Use(logRequests)
 
 	r.Get("/api/meta", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
