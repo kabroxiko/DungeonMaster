@@ -14,6 +14,7 @@ import (
 // (which address the previous graph's centres) must not survive the reseed.
 func TestWithFreshWorldSeedMovesEverySeedAndClearsEdits(t *testing.T) {
 	base := map[string]interface{}{
+		"version":              "3.18",
 		"randomSeed":           1.0,
 		"backgroundRandomSeed": 1.0,
 		"regionsRandomSeed":    1.0,
@@ -54,6 +55,33 @@ func TestWithFreshWorldSeedMovesEverySeedAndClearsEdits(t *testing.T) {
 		t.Fatalf("old edits must be cleared with the seed, got hasIconEdits=%v", edits["hasIconEdits"])
 	}
 	if base["randomSeed"] != 1.0 {
+		t.Fatal("the caller's settings must not be mutated")
+	}
+}
+
+// The short settings document describes a kind of map, so it needs one seed to name the world that Vellaris invents
+// from it, and nothing to clear: it carries no seeds or edits of its own.
+func TestWithFreshWorldSeedSeedsTheShortDocument(t *testing.T) {
+	base := map[string]interface{}{
+		"dimension":   "Sixteen_by_9",
+		"worldSize":   28000.0,
+		"landShape":   "Continents",
+		"regionCount": 11.0,
+	}
+	got := withFreshWorldSeed(base)
+
+	if got["randomSeed"] == nil {
+		t.Fatal("a short document must be seeded, or every request invents a different world")
+	}
+	if _, hasEdits := got["edits"]; hasEdits {
+		t.Fatal("a short document has no edits to clear")
+	}
+	for _, key := range []string{"dimension", "worldSize", "landShape", "regionCount"} {
+		if got[key] != base[key] {
+			t.Fatalf("%s must be kept as written, got %v want %v", key, got[key], base[key])
+		}
+	}
+	if _, mutated := base["randomSeed"]; mutated {
 		t.Fatal("the caller's settings must not be mutated")
 	}
 }

@@ -1,7 +1,11 @@
 // Package vellaris is a client for the Vellaris map service.
 //
-// The service takes a map-settings document as the body of every request and ignores fields it does not know,
-// so the same document is passed to /api/world to generate a world and to /api/route to measure a journey in it.
+// The service accepts two shapes of settings document and ignores fields it does not know. The short one names only the
+// choices the service's own generator panel offers - dimension, world size, land shape, region count, city frequency, art
+// pack, city icon set and books - and describes a kind of map: /api/world and /api/world/map expand it into a full map.
+// The full one is what /api/world answers with: it carries every rendering setting and the seeds, so it names one
+// specific world. Keep the full document for a campaign and send it to /api/route or /api/world/places, which need a
+// world that already exists.
 package vellaris
 
 import (

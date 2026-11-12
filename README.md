@@ -135,8 +135,11 @@ Set `DM_VELLARIS_URL` to the map service. Campaign generation (`generate-campaig
 
 1. Reuses the game's world if it already has one.
 2. Otherwise asks Vellaris for one (`POST /api/world`) using `DM_VELLARIS_SETTINGS_FILE` (default
-   `assets/world-settings.json`) or a `worldSettings` document sent with the request. Settings from the file get a
-   fresh seed per campaign, so each table gets its own map; settings you send keep their seed, which pins one world.
+   `assets/world-settings.json`) or a `worldSettings` document sent with the request. The file holds the short document —
+   the same choices the Vellaris generator panel offers (dimension, world size, land shape, region count, city
+   frequency, art pack, city icons, books) — so it describes the kind of map, and Vellaris invents the rest around it.
+   Settings from the file get a fresh seed per campaign, so each table gets its own map; settings you send may be either
+   the short document or a full one, and a full one keeps its seed, which pins one world.
    The map is generated **in the game's language** (`language` is stamped from `gameSetup.language`, so a Spanish game
    gets Spanish place names such as "Aldea de X"), because those names are what the story uses.
 3. Stores the world on the game and writes the campaign from its regions.

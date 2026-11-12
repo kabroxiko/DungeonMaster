@@ -222,9 +222,17 @@ func readWorldSettingsDocument(path string) (map[string]interface{}, error) {
 
 // withFreshWorldSeed returns a copy of settings that describes a new world.
 //
-// Edits are cleared with the seed: they address centres and edges of the graph the old seed produced, so carrying
-// them into a different world would draw rivers and region colours in the wrong places.
+// The settings file may hold either shape of document. A full one carries a seed per randomised part - the graph, the
+// background, the regions and the names - and those seeds move together so the parts all belong to the same world. It
+// also carries edits, which address centres and edges of the graph the old seed produced, so they are cleared with it.
+// The short document carries neither: it names only the kind of map to invent and Vellaris invents the rest around it,
+// so a single seed is enough to say which world comes out.
 func withFreshWorldSeed(settings map[string]interface{}) map[string]interface{} {
+	if _, full := settings["version"]; !full {
+		out := cloneMap(settings)
+		out["randomSeed"] = newWorldSeed()
+		return out
+	}
 	out := cloneMap(settings)
 	seed := newWorldSeed()
 	for _, key := range worldSeedKeys {
