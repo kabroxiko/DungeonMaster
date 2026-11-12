@@ -9,7 +9,7 @@
   "frayedBorder": false,
   "coastShadingLevel": 42,
   "coastlineWidth": 2.7,
-  "lineStyle": "SplinesWithSmoothedCoastlines",
+  "lineStyle": "Splines",
   "drawGridOverlay": true,
   "gridOverlayShape": "Horizontal_hexes",
   "gridOverlayRowOrColCount": 16,
