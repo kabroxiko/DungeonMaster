@@ -3,6 +3,7 @@ package gamesession
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 )
 
 // storeWorldMapImage saves the rendered map image for a game, replacing any earlier one.
+//
+// The full picture is kept for zooming and a pre-scales copy is stored beside it, so opening the map can paint a
+// sixth of the bytes immediately instead of waiting for the whole render to cross the wire.
 func storeWorldMapImage(ctx context.Context, d *Deps, gameID, contentType string, data []byte) error {
 	if d == nil || d.Coll == nil {
 		return fmt.Errorf("world map image: no database")
@@ -25,19 +29,34 @@ func storeWorldMapImage(ctx context.Context, d *Deps, gameID, contentType string
 	if len(data) == 0 {
 		return fmt.Errorf("world map image: no bytes to store")
 	}
-	_, err := store.WorldMaps(d.Coll.Database()).ReplaceOne(ctx, bson.M{"_id": gameID}, bson.M{
-		"_id":         gameID,
-		"gameId":      gameID,
-		"contentType": contentType,
-		"byteLength":  len(data),
-		"data":        data,
-		"updatedAt":   time.Now().UTC(),
+	preview, err := downscaledJPEG(data, previewMaxDimension, previewJPEGQuality)
+	if err != nil {
+		// The full picture is what the map is; a preview that could not be built only costs the client its fast first
+		// paint, so it must not cost the table its map.
+		log.Printf("world map preview for gameId=%s failed: %v", gameID, err)
+		preview = nil
+	}
+	if len(preview) == len(data) {
+		preview = nil
+	}
+	_, err = store.WorldMaps(d.Coll.Database()).ReplaceOne(ctx, bson.M{"_id": gameID}, bson.M{
+		"_id":          gameID,
+		"gameId":       gameID,
+		"contentType":  contentType,
+		"byteLength":   len(data),
+		"data":         data,
+		"previewData":  preview,
+		"previewBytes": len(preview),
+		"updatedAt":    time.Now().UTC(),
 	}, options.Replace().SetUpsert(true))
 	return err
 }
 
 // LoadWorldMapImage returns the stored map image for a game. The caller must already have checked membership.
-func LoadWorldMapImage(ctx context.Context, d *Deps, gameID string) (contentType string, data []byte, err error) {
+//
+// Unless full is set the pre-scaled preview is answered, which is what the map is drawn from at the fitted view; full
+// answers the picture as it was rendered, which is what zooming into it needs.
+func LoadWorldMapImage(ctx context.Context, d *Deps, gameID string, full bool) (contentType string, data []byte, err error) {
 	if d == nil || d.Coll == nil {
 		return "", nil, fmt.Errorf("world map image: no database")
 	}
@@ -48,6 +67,7 @@ func LoadWorldMapImage(ctx context.Context, d *Deps, gameID string) (contentType
 	var row struct {
 		ContentType string `bson:"contentType"`
 		Data        []byte `bson:"data"`
+		PreviewData []byte `bson:"previewData"`
 	}
 	err = store.WorldMaps(d.Coll.Database()).FindOne(ctx, bson.M{"_id": gid}).Decode(&row)
 	if err != nil {
@@ -59,6 +79,9 @@ func LoadWorldMapImage(ctx context.Context, d *Deps, gameID string) (contentType
 	contentType = strings.TrimSpace(row.ContentType)
 	if contentType == "" {
 		contentType = "image/jpeg"
+	}
+	if !full && len(row.PreviewData) > 0 {
+		return contentType, row.PreviewData, nil
 	}
 	return contentType, row.Data, nil
 }

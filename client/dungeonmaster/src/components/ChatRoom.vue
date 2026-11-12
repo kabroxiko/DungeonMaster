@@ -302,6 +302,18 @@
                             @load="onMapImageLoad"
                             @error="mapImageFailed = true"
                         />
+                        <!-- The full-size picture is only fetched once the view is zoomed past the size the preview
+                             covers, and it fades in over the preview, so zooming never shows an empty map. -->
+                        <img
+                            v-if="mapFullSrc"
+                            class="world-map-modal__image world-map-modal__image--full"
+                            :class="{ 'is-ready': mapFullReady }"
+                            :src="mapFullSrc"
+                            alt=""
+                            aria-hidden="true"
+                            draggable="false"
+                            @load="mapFullReady = true"
+                        />
                         <span
                             v-if="partyPinStyle"
                             class="world-map-modal__pin"
@@ -560,6 +572,10 @@ export default {
                 /** Local per-browser view: any player can open the campaign map on their own screen. */
                 mapVisible: false,
                 mapImageFailed: false,
+                /** Set once the view is zoomed past the preview's detail, which is when the full picture is worth fetching. */
+                mapFullRequested: false,
+                /** The full picture has arrived and may be faded in over the preview. */
+                mapFullReady: false,
                 mapDownloadBusy: false,
                 /** Map modal viewport: translate in stage pixels, scale from 1 (fit) to 8. */
                 mapZoom: 1,
@@ -937,14 +953,13 @@ export default {
                         this.campaignCreativeSeed
                 );
             },
-            /** An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does. */
+            /** The pre-scaled picture the modal paints first: about a sixth of the bytes of the render. */
             mapImageSrc() {
-                const gid = this.$store.state.gameId != null ? String(this.$store.state.gameId).trim() : '';
-                const token = this.$store.state.authToken ? String(this.$store.state.authToken).trim() : '';
-                if (!gid || !token || !this.campaignMapImage) return '';
-                const version = this.campaignMapImage.updatedAt ? String(this.campaignMapImage.updatedAt) : '';
-                const query = `access_token=${encodeURIComponent(token)}${version ? `&v=${encodeURIComponent(version)}` : ''}`;
-                return `${resolveApiBaseURL()}/api/game-state/map/${encodeURIComponent(gid)}?${query}`;
+                return this.mapImageURL(false);
+            },
+            /** The picture as rendered, fetched only to zoom into; empty until the view asks for that detail. */
+            mapFullSrc() {
+                return this.mapFullRequested ? this.mapImageURL(true) : '';
             },
             /**
              * The picture and its dot share one transformed layer, sized to the picture's letterboxed box. The layer is
@@ -1324,6 +1339,19 @@ export default {
             mapVisible(visible) {
                 if (visible) this.resetMapView();
                 if (visible) this.$nextTick(() => this.measureMapImage());
+            },
+            /**
+             * The preview is a sixth of the render's bytes, so fetching it the moment the game announces a map costs
+             * little and makes opening the modal paint at once instead of after a download.
+             */
+            mapImageSrc(src) {
+                if (!src) return;
+                const preloaded = new Image();
+                preloaded.src = src;
+            },
+            /** A new picture, or none at all, must not start out faded in from the previous one. */
+            mapFullSrc() {
+                this.mapFullReady = false;
             },
             'messages.length'(n, o) {
                 if (n === 0) return;
@@ -1964,6 +1992,21 @@ export default {
                 this.mapPanX = 0;
                 this.mapPanY = 0;
                 this.mapDragging = false;
+                // Back at the fitted view the preview is all the detail there is to see, so the full picture is not
+                // held in memory for a zoom that may never happen. The browser keeps it cached for the next zoom.
+                this.mapFullRequested = false;
+            },
+            /**
+             * An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does.
+             * The version is part of the URL, which is what lets the picture be cached as immutable.
+             */
+            mapImageURL(full) {
+                const gid = this.$store.state.gameId != null ? String(this.$store.state.gameId).trim() : '';
+                const token = this.$store.state.authToken ? String(this.$store.state.authToken).trim() : '';
+                if (!gid || !token || !this.campaignMapImage) return '';
+                const version = this.campaignMapImage.updatedAt ? String(this.campaignMapImage.updatedAt) : '';
+                const query = `access_token=${encodeURIComponent(token)}${version ? `&v=${encodeURIComponent(version)}` : ''}${full ? '&full=1' : ''}`;
+                return `${resolveApiBaseURL()}/api/game-state/map/${encodeURIComponent(gid)}?${query}`;
             },
             /** Zoom about the centre of the viewport, for the +/− controls. */
             zoomMap(factor) {
@@ -1994,6 +2037,8 @@ export default {
                 this.mapPanX = pointX - (pointX - this.mapPanX) * ratio;
                 this.mapPanY = pointY - (pointY - this.mapPanY) * ratio;
                 this.mapZoom = newZoom;
+                // Past 1.25 the fitted preview is being stretched, so the render itself is worth its bytes.
+                if (newZoom > 1.25) this.mapFullRequested = true;
             },
             onMapWheel(event) {
                 this.zoomMapAt(event.deltaY < 0 ? 1.15 : 1 / 1.15, event.clientX, event.clientY);
@@ -3020,6 +3065,18 @@ export default {
     object-fit: contain;
     user-select: none;
     -webkit-user-drag: none;
+  }
+
+  /* The render fades in over the preview it is replacing, so zooming never blanks the map while it arrives. */
+  .world-map-modal__image--full {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.2s ease-out;
+  }
+
+  .world-map-modal__image--full.is-ready {
+    opacity: 1;
   }
 
   /* Party dot: placed inside the map layer by fractions of the picture the server stores, so it is carried by the

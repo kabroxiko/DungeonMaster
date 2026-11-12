@@ -75,6 +75,13 @@ the campaign still succeeds and the response carries `mapImageWarning`, with `ca
 per-browser: each player opens and closes the campaign map on their own screen, so opening it never affects anyone
 else's view and no owner permission is involved.
 
+Two renditions are stored for each game: the picture exactly as rendered (2.7 MB for a 4096×2304 world) and a
+pre-scaled 1280px copy (about 215 KB) built once by `storeWorldMapImage`. The route answers the preview, and the render
+only when the client asks for `?full=1` — which it does once the view is zoomed past 1.25, fading it in over the
+preview. Both carry the version in the URL (`v=<campaignSpec.mapImage.updatedAt>`), so both are served
+`Cache-Control: private, max-age=31536000, immutable`. The client preloads the preview as soon as game state announces
+a map, so opening the modal paints without a download.
+
 ### Marking new places on the map
 
 A DM turn may introduce a site the players must be able to find that the world does not already name. The reply's

@@ -806,6 +806,9 @@ func (s *Server) handleGameStateWS(w http.ResponseWriter, r *http.Request) {
 
 // handleWorldMapImage streams the rendered map players are shown. The image belongs to one game and never changes,
 // so it is cached privately per browser rather than served again on every open.
+//
+// ?full=1 answers the picture as rendered, for zooming; anything else answers the pre-scaled preview, which is a
+// sixth of the bytes and enough at the fitted view.
 func (s *Server) handleWorldMapImage(w http.ResponseWriter, r *http.Request, uid string) {
 	gid := strings.TrimSpace(chi.URLParam(r, "gameId"))
 	if gid == "" {
@@ -816,14 +819,16 @@ func (s *Server) handleWorldMapImage(w http.ResponseWriter, r *http.Request, uid
 		sendAccessError(w, r, err)
 		return
 	}
-	contentType, data, err := gamesession.LoadWorldMapImage(r.Context(), s.GS, gid)
+	full := r.URL.Query().Get("full") == "1"
+	contentType, data, err := gamesession.LoadWorldMapImage(r.Context(), s.GS, gid, full)
 	if err != nil {
 		writeJSONCoded(w, r, http.StatusNotFound, "WORLD_MAP_IMAGE_MISSING", "This game has no rendered map")
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", fmt.Sprint(len(data)))
-	w.Header().Set("Cache-Control", "private, max-age=86400")
+	// The client keys the URL on campaignSpec.mapImage.updatedAt, so a stored picture is never stale under one URL.
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
