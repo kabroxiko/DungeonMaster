@@ -955,7 +955,7 @@ export default {
                         this.campaignCreativeSeed
                 );
             },
-            /** The pre-scaled picture the modal paints first: about a sixth of the bytes of the render. */
+            /** The pre-scaled picture the modal paints first: about a twentieth of the bytes of the render. */
             mapImageSrc() {
                 return this.mapImageURL(false);
             },

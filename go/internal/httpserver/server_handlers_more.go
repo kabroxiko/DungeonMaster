@@ -809,7 +809,7 @@ func (s *Server) handleGameStateWS(w http.ResponseWriter, r *http.Request) {
 // so it is cached privately per browser rather than served again on every open.
 //
 // ?full=1 answers the picture as rendered, for zooming; anything else answers the pre-scaled preview, which is a
-// sixth of the bytes and enough at the fitted view.
+// twentieth of the bytes and enough at the fitted view.
 func (s *Server) handleWorldMapImage(w http.ResponseWriter, r *http.Request, uid string) {
 	gid := strings.TrimSpace(chi.URLParam(r, "gameId"))
 	if gid == "" {

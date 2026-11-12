@@ -29,6 +29,14 @@ func storeWorldMapImage(ctx context.Context, d *Deps, gameID, contentType string
 	if len(data) == 0 {
 		return fmt.Errorf("world map image: no bytes to store")
 	}
+	// A picture bigger than what the map is ever shown at only costs the game its database row: scale it down to the cap
+	// before it is stored. A picture already within the cap comes back untouched, so this costs nothing for the normal
+	// render.
+	if capped, err := downscaledJPEG(data, storedImageMaxDimension, storedImageJPEGQuality); err != nil {
+		log.Printf("world map image for gameId=%s could not be scaled to %d: %v", gameID, storedImageMaxDimension, err)
+	} else {
+		data = capped
+	}
 	preview, err := downscaledJPEG(data, previewMaxDimension, previewJPEGQuality)
 	if err != nil {
 		// The full picture is what the map is; a preview that could not be built only costs the client its fast first
