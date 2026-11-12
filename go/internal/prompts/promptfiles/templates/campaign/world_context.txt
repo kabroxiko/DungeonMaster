@@ -25,10 +25,11 @@ Build the campaign on this map:
 - **Every place sits in one region.** Each named place states the region it belongs to ("— in X"). Keep that pairing when
   you place a conflict, a faction or a secret: a place belongs to the region the block names and to no other.
 - **Surroundings and terrain are the ground itself.** Every region names the terrain most of its land is, and every
-  place names the ground around it (terrain, bordering terrain, coast, river, lake, mountains, island). Let that decide
-  what a region can grow, mine, fish or trade and where a faction would sit. Terrain forbids features, it does not just
-  suggest them: a region or place reported as **desert** has no river, stream or woods, and an inland place has no
-  harbour — describe wells, cisterns, dry wadis or caravan roads instead. Never contradict the block.
+  place names the ground around it (terrain, bordering terrain, coast, a river reaching it or only near it, lake,
+  mountains, island; a place "inland on an island" has no harbour). Let that decide what a region can grow, mine, fish
+  or trade and where a faction would sit. Terrain forbids features, it does not just suggest them: a region or place
+  reported as **desert** has no river, stream or woods, and an inland place has no harbour — describe wells, cisterns,
+  dry wadis or caravan roads instead. Never contradict the block.
 - Do not invent a region, river, coastline or mountain range. A settlement the campaign needs but this block lacks does
   not exist; keep anything new small and local, inside one of the named regions.
 - Never rename, translate or respell a name from this block.

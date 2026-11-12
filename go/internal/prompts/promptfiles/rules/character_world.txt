@@ -15,9 +15,11 @@ geography this character sheet may use.
 - **A home is in one region.** Each named place states the region it belongs to (“— in X”). A character raised in that
   place is from that region, and the sheet must not move them to another one.
 - **Surroundings are part of where the character grew up.** Each named place reports the ground around it: its terrain,
-  the terrain bordering it, and whether the coast, a river, a lake, mountains or an island are at hand. A character
-  raised on the coast knows boats and tides; one from a river town knows floods and ferries; one from the mountains
-  knows snow and thin air; one from an island has never walked to the next town. Use what the place reports and never
+  the terrain bordering it, and whether the coast, a river reaching it or only a river near it, a lake, mountains or
+  an island are at hand. A character raised on the coast knows boats and tides; one from a river town knows floods and
+  ferries; one raised within a walk of a river it does not touch knows that river only as a landmark, not as a living;
+  one from the mountains knows snow and thin air; one from an island that reports the coast uses boats to leave it,
+  while one raised inland on an island rode to its shore. Use what the place reports and never
   contradict it: a desert homeland has no river, woods or harbour, so give it wells, cisterns or caravan roads instead.
 - **If the story needs somewhere unnamed**, describe it relative to a named place — "a farmstead an hour outside
   <place>", "a shrine up the valley from <place>" — instead of inventing a proper name.

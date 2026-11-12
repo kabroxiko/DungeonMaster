@@ -16,8 +16,10 @@ that contains settlements (say "in the region of X", never "the city of X"); **l
 are landforms with no streets or markets. Use each name as the kind it is.
 
 Surroundings after a place describe the ground it stands on: its terrain (forest, hills, plains, marsh, desert,
-arctic), the terrain bordering it when another one is close, and whether the coast, a river, a lake, mountains or an
-island are at hand. Treat them as map truth alongside the name.
+arctic), the terrain bordering it when another one is close, and whether the coast, a river reaching it ("on a
+river") or only passing near it ("near a river"), a lake, mountains or an island are at hand. A place "on an
+island" is within reach of that island's shore; "inland on an island" is not, and has no harbour. Treat them as map
+truth alongside the name.
 
 Marking a new site: a landmark the players must be able to find that this block does not name goes in the reply's
 `newPlaces`, with coordinates derived from a listed place's `at x, y` (a short offset, so it stays on that land). The

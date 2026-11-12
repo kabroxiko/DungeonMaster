@@ -247,7 +247,7 @@ func placeSurroundings(raw interface{}) map[string]interface{} {
 	if nearby := stringFrom(m["nearbyTerrain"]); nearby != "" {
 		out["nearbyTerrain"] = nearby
 	}
-	for _, key := range []string{"coastal", "lake", "river", "mountains", "island"} {
+	for _, key := range []string{"coastal", "lake", "river", "riverNearby", "mountains", "island"} {
 		if truthy(m[key]) {
 			out[key] = true
 		}
@@ -264,6 +264,12 @@ func placeSurroundings(raw interface{}) map[string]interface{} {
 // Only what the map reported is said: a world without surroundings produces no phrase, so the model is never handed
 // a terrain the map service did not state. The terrain itself is not repeated as a feature ("mountains" for a place
 // standing on mountains), so the phrase reads as position rather than as a list of duplicates.
+//
+// The phrase is careful about three things a model would otherwise over-read. A river reaches a place ("on a river")
+// or only passes near it ("near a river"); the map distinguishes the two, so a settlement is never given a ford or a
+// millrace it does not have. An island only reads as "on an island" when the sea is within reach of the place itself,
+// because most settlements on a large island sit inland and have no harbour. And a coast or island is never said as
+// well as the other, since one phrase is enough to place the settlement.
 func surroundingsText(surroundings map[string]interface{}) string {
 	terrain := stringFrom(surroundings["terrain"])
 	nearby := stringFrom(surroundings["nearbyTerrain"])
@@ -275,12 +281,18 @@ func surroundingsText(surroundings map[string]interface{}) string {
 		parts = append(parts, "bordering "+nearby)
 	}
 	if truthy(surroundings["island"]) {
-		parts = append(parts, "on an island")
+		if truthy(surroundings["coastal"]) {
+			parts = append(parts, "on an island")
+		} else {
+			parts = append(parts, "inland on an island")
+		}
 	} else if truthy(surroundings["coastal"]) {
 		parts = append(parts, "on the coast")
 	}
 	if truthy(surroundings["river"]) && terrain != "river" {
 		parts = append(parts, "on a river")
+	} else if truthy(surroundings["riverNearby"]) && terrain != "river" {
+		parts = append(parts, "near a river")
 	}
 	if truthy(surroundings["lake"]) && terrain != "lake" {
 		parts = append(parts, "beside a lake")
