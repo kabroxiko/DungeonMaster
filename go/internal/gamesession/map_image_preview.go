@@ -12,10 +12,10 @@ import (
 // previewMaxDimension and previewJPEGQuality are the size of the copy the map modal paints first.
 //
 // A rendered map is 4096x2304 and about 2.7 MB, which the browser can only show once every byte has arrived. At
-// 1280 pixels the same picture is a sixth of the bytes and still crisp at the modal's fitted size, so it is what a
-// client gets unless it explicitly asks for the full picture to zoom into.
+// 2048 pixels the same picture is a fifth of the bytes and covers the fitted view on a high-density screen, so it is
+// what a client gets unless it explicitly asks for the render to zoom into.
 const (
-	previewMaxDimension = 1280
+	previewMaxDimension = 2048
 	previewJPEGQuality  = 78
 )
 

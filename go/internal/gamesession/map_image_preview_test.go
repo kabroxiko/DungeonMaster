@@ -32,7 +32,7 @@ func encodeTestJPEG(t *testing.T, width, height int) []byte {
 }
 
 func TestDownscaledJPEGFitsThePreviewLimitAndKeepsTheAspectRatio(t *testing.T) {
-	full := encodeTestJPEG(t, 2048, 1152)
+	full := encodeTestJPEG(t, 4096, 2304)
 
 	preview, err := downscaledJPEG(full, previewMaxDimension, previewJPEGQuality)
 	if err != nil {

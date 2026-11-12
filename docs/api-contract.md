@@ -76,11 +76,15 @@ per-browser: each player opens and closes the campaign map on their own screen, 
 else's view and no owner permission is involved.
 
 Two renditions are stored for each game: the picture exactly as rendered (2.7 MB for a 4096×2304 world) and a
-pre-scaled 1280px copy (about 215 KB) built once by `storeWorldMapImage`. The route answers the preview, and the render
-only when the client asks for `?full=1` — which it does once the view is zoomed past 1.25, fading it in over the
-preview. Both carry the version in the URL (`v=<campaignSpec.mapImage.updatedAt>`), so both are served
-`Cache-Control: private, max-age=31536000, immutable`. The client preloads the preview as soon as game state announces
-a map, so opening the modal paints without a download.
+pre-scaled 2048px copy (about 530 KB) built once by `storeWorldMapImage`. The route answers the preview, and the render
+only when the client asks for `?full=1` — which it does as soon as the preview is on screen, and immediately when the
+view is zoomed past 1.25, fading it in over the preview. Both carry the version in the URL
+(`v=<campaignSpec.mapImage.updatedAt>`), so both are served `Cache-Control: private, max-age=31536000, immutable`. The
+client preloads the preview as soon as game state announces a map, so opening the modal paints without a download.
+
+The modal zooms by resizing the picture's box rather than by CSS-scaling it: a scaled layer is rasterised once at the
+fitted size, so every zoom level enlarged those pixels and the map looked blocky. With a resized box the browser
+samples the stored picture at the size it is drawn at.
 
 ### Marking new places on the map
 

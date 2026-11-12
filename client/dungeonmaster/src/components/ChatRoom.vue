@@ -572,10 +572,12 @@ export default {
                 /** Local per-browser view: any player can open the campaign map on their own screen. */
                 mapVisible: false,
                 mapImageFailed: false,
-                /** Set once the view is zoomed past the preview's detail, which is when the full picture is worth fetching. */
+                /** Set once the view is zoomed past the preview's detail, which is when the render is worth fetching. */
                 mapFullRequested: false,
-                /** The full picture has arrived and may be faded in over the preview. */
+                /** The render has arrived and may be faded in over the preview. */
                 mapFullReady: false,
+                /** Pending quiet prefetch of the render, started once the preview is on screen. */
+                mapFullTimer: null,
                 mapDownloadBusy: false,
                 /** Map modal viewport: translate in stage pixels, scale from 1 (fit) to 8. */
                 mapZoom: 1,
@@ -965,21 +967,26 @@ export default {
              * The picture and its dot share one transformed layer, sized to the picture's letterboxed box. The layer is
              * what pans and zooms, so the browser composites the dot with the picture and the two cannot separate: no
              * per-frame arithmetic, and no overlay that lags a frame behind the moving image.
+             *
+             * Zoom resizes the layer instead of scaling a composited copy of it: a scaled layer is rasterised once at
+             * the fitted size and every zoom level then enlarges those pixels, which is why a zoomed map went blocky.
+             * Given a bigger box the browser samples the stored picture at the size it is actually drawn at.
              */
             mapLayerStyle() {
                 const box = this.mapImageBox;
                 if (!box) return { visibility: 'hidden' };
+                const width = box.width * this.mapZoom;
+                const height = box.height * this.mapZoom;
                 return {
-                    left: `${box.left}px`,
-                    top: `${box.top}px`,
-                    width: `${box.width}px`,
-                    height: `${box.height}px`,
-                    transform: `translate(${this.mapPanX}px, ${this.mapPanY}px) scale(${this.mapZoom})`,
+                    left: `${box.left + (box.width - width) / 2 + this.mapPanX}px`,
+                    top: `${box.top + (box.height - height) / 2 + this.mapPanY}px`,
+                    width: `${width}px`,
+                    height: `${height}px`,
                 };
             },
             /**
              * The party dot's spot as a fraction of the picture, so it rides the layer rather than tracking it. The
-             * layer is already scaled, so counter-scaling keeps the dot the same size on screen at every zoom level.
+             * layer already grows with the zoom, so the dot keeps its size on screen without a counter-scale.
              */
             partyPinStyle() {
                 const pos = this.campaignPartyPosition;
@@ -991,7 +998,7 @@ export default {
                 return {
                     left: `${clamp(fx) * 100}%`,
                     top: `${clamp(fy) * 100}%`,
-                    transform: `translate(-50%, -50%) scale(${1 / this.mapZoom})`,
+                    transform: 'translate(-50%, -50%)',
                 };
             },
             lastStartError() {
@@ -1401,6 +1408,10 @@ export default {
             if (this.visSyncTimer) {
                 clearTimeout(this.visSyncTimer);
                 this.visSyncTimer = null;
+            }
+            if (this.mapFullTimer) {
+                clearTimeout(this.mapFullTimer);
+                this.mapFullTimer = null;
             }
             if (this.lobbyStartingPollTimer) {
                 clearInterval(this.lobbyStartingPollTimer);
@@ -1992,9 +2003,26 @@ export default {
                 this.mapPanX = 0;
                 this.mapPanY = 0;
                 this.mapDragging = false;
-                // Back at the fitted view the preview is all the detail there is to see, so the full picture is not
-                // held in memory for a zoom that may never happen. The browser keeps it cached for the next zoom.
+                // Back at the fitted view the preview is all there is to see, so the render is not held for a zoom that
+                // may never happen. The browser keeps it cached, so the next zoom finds it without a download.
                 this.mapFullRequested = false;
+                if (this.mapFullTimer) {
+                    clearTimeout(this.mapFullTimer);
+                    this.mapFullTimer = null;
+                }
+            },
+            /**
+             * Fetches the render quietly once the preview is on screen.
+             *
+             * The preview makes opening the map instant; this makes zooming instant too. Without it the first zoom
+             * enlarges the preview until a 2.7 MB download lands, which is the moment a map looks blocky.
+             */
+            scheduleFullMapFetch() {
+                if (this.mapFullRequested || this.mapFullTimer) return;
+                this.mapFullTimer = setTimeout(() => {
+                    this.mapFullTimer = null;
+                    if (this.mapVisible) this.mapFullRequested = true;
+                }, 600);
             },
             /**
              * An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does.
@@ -2037,7 +2065,8 @@ export default {
                 this.mapPanX = pointX - (pointX - this.mapPanX) * ratio;
                 this.mapPanY = pointY - (pointY - this.mapPanY) * ratio;
                 this.mapZoom = newZoom;
-                // Past 1.25 the fitted preview is being stretched, so the render itself is worth its bytes.
+                // Past 1.25 the fitted preview is being stretched, so the render itself is worth its bytes now rather
+                // than when the quiet prefetch gets to it.
                 if (newZoom > 1.25) this.mapFullRequested = true;
             },
             onMapWheel(event) {
@@ -2047,6 +2076,7 @@ export default {
             onMapImageLoad() {
                 this.mapImageFailed = false;
                 this.$nextTick(() => this.measureMapImage());
+                this.scheduleFullMapFetch();
             },
             /**
              * Measures the picture's letterboxed box inside the stage, in unscaled layout pixels. The layer is built to
@@ -3046,16 +3076,10 @@ export default {
     cursor: grabbing;
   }
 
-  /* The picture and the party dot move as one box: pan and zoom are one transform on this layer, so the dot cannot
-     drift behind the picture while the wheel or a drag is updating it. */
+  /* The picture and the party dot move as one box: the layer is sized to the picture's fitted box and then grown by
+     the zoom, so the dot cannot drift behind the picture while the wheel or a drag is updating it. */
   .world-map-modal__map {
     position: absolute;
-    transform-origin: center center;
-    will-change: transform;
-  }
-
-  .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__map {
-    transition: transform 0.08s ease-out;
   }
 
   .world-map-modal__image {
@@ -3097,7 +3121,6 @@ export default {
   .world-map-modal__stage:not(.world-map-modal__stage--dragging) .world-map-modal__pin {
     transition: transform 0.08s ease-out;
   }
-
   .world-map-modal__tools {
     position: absolute;
     left: 50%;
