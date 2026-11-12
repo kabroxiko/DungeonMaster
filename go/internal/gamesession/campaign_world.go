@@ -55,13 +55,13 @@ func emptyWorldEdits() map[string]interface{} {
 // it is not, no campaign may be produced, because a campaign that is not grounded in its map is exactly what this
 // step exists to prevent.
 //
-// The returned channel carries the player-facing map image. It is started as soon as the settings are known, so the
-// render runs while the world description is still being produced; it is nil when there is nothing to render (the
-// game already has a stored map image, or the world was imported without settings).
+// The returned channel carries the warning for a picture that could not be stored, or "" when it was. The picture is
+// stored as soon as it is rendered rather than when the campaign text is finished: it belongs to the world, which is
+// already saved by then, and holding it back leaves the table waiting for a map that has been ready for a while.
 //
 // language is the game's session language: the map's place and region names are generated in it, because those names
 // are what the story names.
-func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[string]interface{}, language string) (campaignWorld, <-chan campaignWorldMapResult, int, string, string) {
+func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[string]interface{}, language string) (campaignWorld, <-chan string, int, string, string) {
 	if d == nil || d.Coll == nil {
 		return campaignWorld{}, nil, 500, "DB_ERROR", "database is not available"
 	}
@@ -80,7 +80,7 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 					// the stored settings for a world created before the service kept maps.
 					imageCh = startCampaignWorldMapDownload(ctx, d, settings, mapID)
 				}
-				return campaignWorld{World: existing, Settings: settings, Reused: true}, imageCh, 200, "", ""
+				return campaignWorld{World: existing, Settings: settings, Reused: true}, startCampaignWorldMapSave(ctx, d, gameID, imageCh), 200, "", ""
 			}
 		}
 	}
@@ -146,7 +146,7 @@ func prepareCampaignWorld(ctx context.Context, d *Deps, gameID string, body map[
 
 	// The image was rendered while the world was generated, so this is a download rather than a second render.
 	imageCh := startCampaignWorldMapDownload(ctx, d, canonical, mapID)
-	return campaignWorld{World: stored, Settings: canonical}, imageCh, 200, "", ""
+	return campaignWorld{World: stored, Settings: canonical}, startCampaignWorldMapSave(ctx, d, gameID, imageCh), 200, "", ""
 }
 
 // resolveCampaignLanguage returns the language the game is actually played in.
@@ -321,16 +321,36 @@ func startCampaignWorldMapDownload(ctx context.Context, d *Deps, settings map[st
 	return ch
 }
 
-// finishCampaignWorldMapDownload waits for the image and stores it with the game.
+// startCampaignWorldMapSave stores the map picture as soon as the render finishes and announces it on the game.
+//
+// Writing the campaign text takes far longer than fetching or rendering the picture, and the picture describes the world,
+// which is already stored by the time this starts. Waiting for the last stage would leave the map sitting on the server
+// while the table watches the campaign being written, so it is stored and announced as soon as it arrives: that update is
+// what lets a client fetch the picture during the generation it is already waiting on.
+//
+// The returned channel carries the warning for the picture ("" when it was stored), which the caller reports at the end.
+func startCampaignWorldMapSave(ctx context.Context, d *Deps, gameID string, renders <-chan campaignWorldMapResult) <-chan string {
+	warnings := make(chan string, 1)
+	if renders == nil {
+		warnings <- ""
+		close(warnings)
+		return warnings
+	}
+	// The save outlives the request that started the render: a client closing its tab is not a reason to lose the map.
+	saveCtx := context.WithoutCancel(ctx)
+	go func() {
+		warnings <- storeCampaignWorldMap(saveCtx, d, gameID, <-renders)
+		close(warnings)
+	}()
+	return warnings
+}
+
+// storeCampaignWorldMap keeps a rendered picture with the game and tells every client it is there.
 //
 // Returns a warning that describes a failure, or "" on success. A missing map image does not fail the campaign: the
-// world, and therefore the campaign, exists already; the warning is reported to the caller so the host knows the
-// map cannot be shown instead of discovering it when the players ask.
-func finishCampaignWorldMapDownload(ctx context.Context, d *Deps, gameID string, ch <-chan campaignWorldMapResult) string {
-	if ch == nil {
-		return ""
-	}
-	result := <-ch
+// world, and therefore the campaign, exists already; the warning is reported to the caller so the host knows the map
+// cannot be shown instead of discovering it when the players ask.
+func storeCampaignWorldMap(ctx context.Context, d *Deps, gameID string, result campaignWorldMapResult) string {
 	if result.Err != nil || len(result.Data) == 0 {
 		warning := "the map image could not be rendered"
 		if result.Err != nil {
@@ -342,6 +362,7 @@ func finishCampaignWorldMapDownload(ctx context.Context, d *Deps, gameID string,
 				"campaignSpec.mapImageError": warning,
 				"campaignSpec.mapImage":      nil,
 			}})
+			notifyGameMapChanged(ctx, d, gameID)
 		}
 		return warning
 	}
@@ -358,6 +379,7 @@ func finishCampaignWorldMapDownload(ctx context.Context, d *Deps, gameID string,
 			"campaignSpec.mapImageError": err.Error(),
 			"campaignSpec.mapImage":      nil,
 		}})
+		notifyGameMapChanged(ctx, d, gameID)
 		return err.Error()
 	}
 	_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
@@ -369,7 +391,27 @@ func finishCampaignWorldMapDownload(ctx context.Context, d *Deps, gameID string,
 		},
 		"campaignSpec.mapImageError": nil,
 	}})
+	notifyGameMapChanged(ctx, d, gameID)
 	return ""
+}
+
+// notifyGameMapChanged tells every connected client that the game now has a picture to fetch.
+func notifyGameMapChanged(_ context.Context, d *Deps, gameID string) {
+	if d == nil || d.Hub == nil || strings.TrimSpace(gameID) == "" {
+		return
+	}
+	d.Hub.NotifyGameStateUpdated(gameID)
+}
+
+// finishCampaignWorldMapDownload waits for the picture startCampaignWorldMapSave is storing and returns its warning.
+//
+// It is awaited before the campaign spec is written back, because that write replaces the spec wholesale and would drop
+// the map marker the save has just set.
+func finishCampaignWorldMapDownload(warnings <-chan string) string {
+	if warnings == nil {
+		return ""
+	}
+	return <-warnings
 }
 
 // renderCampaignWorldContext renders the world block the campaign generator reads.

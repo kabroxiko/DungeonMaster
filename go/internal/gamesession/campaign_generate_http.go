@@ -173,7 +173,6 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	}
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
-	worldMapCtx := context.WithoutCancel(ctx)
 
 	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, hostPremise)
 	if !ok {
@@ -232,6 +231,9 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	if gameIDPersist == "" {
 		gameIDPersist = queryGameID
 	}
+	// The picture was stored while the core was being written; wait for it before the spec is read back, because the
+	// merge below starts from the stored spec and would otherwise lose the map marker the save just set.
+	mapWarning := finishCampaignWorldMapDownload(worldMapCh)
 	if gameIDPersist != "" {
 		if _, err := gameaccess.AssertGameMember(ctx, d.Coll, uid, gameIDPersist); err != nil {
 			st, payload := accessErrHTTP(err)
@@ -254,8 +256,6 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 			_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameIDPersist)
 		}
 	}
-
-	mapWarning := finishCampaignWorldMapDownload(worldMapCtx, d, gameIDPersist, worldMapCh)
 
 	if parsedObj != nil {
 		out := campaignspec.RedactCampaignSpecForClient(parsedObj)
@@ -295,7 +295,6 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	}
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
-	worldMapCtx := context.WithoutCancel(ctx)
 
 	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, hostPremise)
 	if !ok {
@@ -384,6 +383,9 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		}) {
 			return 500, map[string]interface{}{"error": "Failed generating opening scene frame stage"}
 		}
+		// The picture was stored while the stages ran; wait for that before the spec is read back, because the campaign is
+		// written back as a whole and would otherwise drop the map marker the save just set.
+		mapWarning := finishCampaignWorldMapDownload(worldMapCh)
 		var existing map[string]interface{}
 		_ = d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&existing)
 		var existingSpec map[string]interface{}
@@ -402,7 +404,6 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 			}
 		}
 		_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
-		mapWarning := finishCampaignWorldMapDownload(worldMapCtx, d, gameID, worldMapCh)
 		out := campaignspec.RedactCampaignSpecForClient(combined)
 		if mapWarning != "" {
 			out["mapImageWarning"] = mapWarning
@@ -410,9 +411,20 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		return 200, out
 	}
 
+	// The picture was stored while the core was being written; wait for it before the spec is written back, because that
+	// write replaces the spec and would drop the map marker the save just set.
+	mapWarning := finishCampaignWorldMapDownload(worldMapCh)
 	if gameID != "" {
+		var existing map[string]interface{}
+		_ = d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&existing)
+		var existingSpec map[string]interface{}
+		if existing != nil {
+			existingSpec, _ = existing["campaignSpec"].(map[string]interface{})
+		}
+		// The core is a patch on a game that already carries its world and its picture, so it is merged rather than written
+		// over the spec.
 		_, err := d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-			"campaignSpec": parsedObj,
+			"campaignSpec": campaignspec.MergeCampaignSpecPreservingDmSecrets(existingSpec, parsedObj),
 		}}, options.Update().SetUpsert(true))
 		if err != nil {
 			return 500, map[string]interface{}{
@@ -446,7 +458,6 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		}()
 	}
 
-	mapWarning := finishCampaignWorldMapDownload(worldMapCtx, d, gameID, worldMapCh)
 	out := campaignspec.RedactCampaignSpecForClient(parsedObj)
 	if mapWarning != "" {
 		out["mapImageWarning"] = mapWarning

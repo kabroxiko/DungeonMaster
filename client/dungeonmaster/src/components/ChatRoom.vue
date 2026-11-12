@@ -578,6 +578,8 @@ export default {
                 mapFullReady: false,
                 /** Pending quiet prefetch of the render, started once the preview is on screen. */
                 mapFullTimer: null,
+                /** Which map version has already been fetched into the browser cache by preloadMapImages. */
+                mapPreloadKey: null,
                 mapDownloadBusy: false,
                 /** Map modal viewport: translate in stage pixels, scale from 1 (fit) to 8. */
                 mapZoom: 1,
@@ -955,7 +957,7 @@ export default {
                         this.campaignCreativeSeed
                 );
             },
-            /** The pre-scaled picture the modal paints first: about a twentieth of the bytes of the render. */
+            /** The pre-scaled picture the modal paints first: about a sixth of the bytes of the render. */
             mapImageSrc() {
                 return this.mapImageURL(false);
             },
@@ -2025,6 +2027,30 @@ export default {
                 }, 600);
             },
             /**
+             * Warms the browser cache with the picture the map modal will show.
+             *
+             * The map is rendered and stored while the campaign text is still being written, so the picture can cross the
+             * wire during that wait rather than on the click that opens it. Every version is cached immutably, so each
+             * picture is fetched once per map; the render is asked for after the preview, because that is the copy the
+             * modal paints and the one worth having first.
+             */
+            preloadMapImages() {
+                const previewUrl = this.mapImageURL(false);
+                if (!previewUrl) return;
+                const fullUrl = this.mapImageURL(true);
+                const key = `${previewUrl}|${fullUrl}`;
+                if (this.mapPreloadKey === key) return;
+                this.mapPreloadKey = key;
+                const preview = new Image();
+                preview.onload = preview.onerror = () => {
+                    // Only follow with the render while this is still the map version being prepared.
+                    if (!fullUrl || this.mapPreloadKey !== key) return;
+                    const full = new Image();
+                    full.src = fullUrl;
+                };
+                preview.src = previewUrl;
+            },
+            /**
              * An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does.
              * The version is part of the URL, which is what lets the picture be cached as immutable.
              */
@@ -2730,6 +2756,9 @@ export default {
                     // The map marker and its visibility flag come from the server so every client agrees on both.
                     this.campaignMapImage =
                         spec && spec.mapImage && typeof spec.mapImage === 'object' ? spec.mapImage : null;
+                    // The picture is stored while the campaign is still being written, so this is the moment it can start
+                    // crossing the wire instead of on the click that opens the map.
+                    this.preloadMapImages();
                     this.mapImageError =
                         spec && typeof spec.mapImageError === 'string' ? spec.mapImageError : '';
                     // Where the party stands, as a fraction of that same image; the pin layers over it client-side.

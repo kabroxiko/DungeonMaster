@@ -11,16 +11,12 @@ import (
 
 // previewMaxDimension and previewJPEGQuality are the size of the copy the map modal paints first.
 //
-// A rendered map is 6144x3456 and about 6 MB, which the browser can only show once every byte has arrived. At 2560
-// pixels the same picture is a twentieth of the bytes and still covers the fitted view on a high-density screen, so it
-// is what a client gets unless it explicitly asks for the render to zoom into.
+// A rendered map is 4096x2304 and about 2.7 MB, which the browser can only show once every byte has arrived. At
+// 2048 pixels the same picture is a fifth of the bytes and covers the fitted view on a high-density screen, so it is
+// what a client gets unless it explicitly asks for the render to zoom into.
 const (
-	previewMaxDimension = 2560
-	previewJPEGQuality  = 80
-	// storedImageMaxDimension caps the picture kept for zooming. A MongoDB document must stay under 16 MB, and a
-	// 6144-wide 16:9 map is about 6 MB of JPEG, so anything larger is scaled down rather than risking the world save.
-	storedImageMaxDimension = 6144
-	storedImageJPEGQuality  = 88
+	previewMaxDimension = 2048
+	previewJPEGQuality  = 78
 )
 
 // downscaledJPEG re-encodes a JPEG so neither side exceeds maxDimension, averaging every source pixel a destination

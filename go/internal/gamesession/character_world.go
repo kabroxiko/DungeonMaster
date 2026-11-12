@@ -76,14 +76,12 @@ func campaignWorldForCharacter(ctx context.Context, d *Deps, gameID string, owne
 		return nil, 500, "CHARACTER_WORLD_PERSIST_FAILED", "the game could not be prepared for its map: " + err.Error()
 	}
 
-	prepared, imageCh, status, code, problem := prepareCampaignWorld(ctx, d, gameID, body, language)
+	prepared, _, status, code, problem := prepareCampaignWorld(ctx, d, gameID, body, language)
 	if problem != "" {
 		return nil, status, code, problem
 	}
-	if imageCh != nil {
-		// The picture is for the players' map control; it must not hold up the character sheet.
-		go finishCampaignWorldMapDownload(context.WithoutCancel(ctx), d, gameID, imageCh)
-	}
+	// The picture is for the players' map control; prepareCampaignWorld stores and announces it on its own, so it never
+	// holds up the character sheet.
 	return prepared.World, 0, "", ""
 }
 

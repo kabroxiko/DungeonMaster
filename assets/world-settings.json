@@ -1,7 +1,5 @@
 {
   "dimension": "Sixteen_by_9",
-  "generatedWidth": 6144,
-  "generatedHeight": 3456,
   "oceanEffect": "ConcentricWaves",
   "worldSize": 28000,
   "landShape": "Continents",

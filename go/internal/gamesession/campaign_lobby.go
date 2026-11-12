@@ -683,7 +683,6 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	}
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
-	worldMapCtx := context.WithoutCancel(ctx)
 
 	seedRaceMs := resolveCreativeSeedRaceTimeout()
 	seedCtx, cancelSeed := context.WithTimeout(ctx, seedRaceMs)
@@ -790,6 +789,9 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	}) {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed generating opening scene frame stage", Code: "CAMPAIGN_STAGE_OPENING_FRAME"}
 	}
+	// The picture was stored while the stages ran; wait for that before reading the spec back, because the campaign is
+	// written back as a whole and would otherwise drop the map marker the save just set.
+	mapWarning := finishCampaignWorldMapDownload(worldMapCh)
 	var existing map[string]interface{}
 	_ = d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&existing)
 	var existingSpec map[string]interface{}
@@ -805,7 +807,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: err.Error(), Code: "CAMPAIGN_PIPELINE_EXCEPTION"}
 	}
 	_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
-	return LobbyCampaignOutcome{OK: true, Combined: combined, MapImageWarning: finishCampaignWorldMapDownload(worldMapCtx, d, gameID, worldMapCh)}
+	return LobbyCampaignOutcome{OK: true, Combined: combined, MapImageWarning: mapWarning}
 }
 
 func firstNonEmpty(a, b string) string {
