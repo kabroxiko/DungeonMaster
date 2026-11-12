@@ -296,13 +296,19 @@ func openAICompatibleChat(ctx context.Context, backend chatBackend, messages []i
 	// A reply that stopped on the token budget is half a document. Returning it makes the failure surface later as
 	// an unreadable parse, so say what actually happened instead.
 	if strings.EqualFold(data.Choices[0].FinishReason, "length") {
-		return "", fmt.Errorf("%s: reply hit max_tokens (%d) before finishing, so it was cut off; reasoning models spend part of that budget on hidden tokens, so raise max_tokens or use a model that does not reason", backend.name, maxTok)
+		return "", truncatedReplyError(backend.name, maxTok)
 	}
 	out := normalizeAssistantContent(data.Choices[0].Message.Content)
 	if out != "" {
 		return out, nil
 	}
 	return coerceAssistantOutputToString(data.Choices[0].Message.Content), nil
+}
+
+// truncatedReplyError names the budget that ran out. Reasoning models spend part of max_tokens on hidden tokens, so
+// the visible document can stop well before the budget looks spent.
+func truncatedReplyError(backendName string, maxTok int) error {
+	return fmt.Errorf("%s: reply hit max_tokens (%d) before finishing, so it was cut off; reasoning models spend part of that budget on hidden tokens, so raise max_tokens or use a model that does not reason", backendName, maxTok)
 }
 
 func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}) (string, error) {
@@ -340,7 +346,8 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 	}
 	var data struct {
 		Choices []struct {
-			Message struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
 				Content interface{} `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
@@ -350,6 +357,10 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 	}
 	if len(data.Choices) == 0 {
 		return lmStudioNative(ctx, cfg, messages, model, temp)
+	}
+	// The native fallback would re-run the whole generation, so a cut-off reply is reported, not retried.
+	if strings.EqualFold(data.Choices[0].FinishReason, "length") {
+		return "", truncatedReplyError(lmStudioBackendName, maxTok)
 	}
 	out := normalizeAssistantContent(data.Choices[0].Message.Content)
 	if out != "" {

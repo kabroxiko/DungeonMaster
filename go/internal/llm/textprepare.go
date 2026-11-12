@@ -5,13 +5,22 @@ import (
 	"strings"
 )
 
-// PrepareWireFormatText mirrors server/utils/llmTextPrepare.js prepareWireFormatText.
-func PrepareWireFormatText(raw string) string {
+// PrepareWireFormatCandidates repairs a model reply into the texts worth parsing, in the order they should be tried.
+//
+// The fully repaired text comes first: rewriting curly quotes to straight ones rescues a reply that used curly quotes
+// as string *delimiters* (`“titleMood”: “x”`). The same text without that rewrite comes second, because the rewrite
+// breaks the opposite case: curly quotes *inside* a double-quoted scalar are valid YAML, and substituting them closes
+// the scalar early — `namingNote: "... avoiding generic “Shadow” or “Night” prefixes"` becomes unparseable, which is
+// how a creative-seed draw came back as CAMPAIGN_STAGE_CREATIVE_SEED_PARSE with a reply that was in fact well formed.
+func PrepareWireFormatCandidates(raw string) []string {
 	t := stripBomAndInvisible(raw)
 	t = stripLlmChannelNoise(t)
 	t = stripMarkdownCodeFence(t)
-	t = normalizeJSONLikeQuotes(t)
-	return t
+	rewritten := normalizeJSONLikeQuotes(t)
+	if rewritten == t {
+		return []string{t}
+	}
+	return []string{rewritten, t}
 }
 
 func normalizeJSONLikeQuotes(s string) string {
