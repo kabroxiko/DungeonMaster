@@ -273,7 +273,7 @@ func (s *Server) handleDebugPrompts(w http.ResponseWriter, r *http.Request, uid 
 	}
 	var doc map[string]interface{}
 	err := s.coll().FindOne(ctx, bson.M{"gameId": gid}, options.FindOne().SetProjection(bson.M{
-		"rawModelRequest": 1, "rawModelOutput": 1, "systemCore": 1,
+		"rawModelRequest": 1, "rawModelOutput": 1, "systemCore": 1, "lastStageError": 1,
 		"llmCallError": 1, "llmFallbackError": 1, "campaignSpec": 1, "gameSetup": 1,
 		"llmCallEnteredAt": 1, "llmCallStartedAt": 1, "llmCallCompletedAt": 1,
 		"llmCallFallbackAt": 1, "llmFallbackModel": 1, "llmFallbackAttemptedAt": 1,
@@ -291,6 +291,7 @@ func (s *Server) handleDebugPrompts(w http.ResponseWriter, r *http.Request, uid 
 		"rawModelRequest": doc["rawModelRequest"],
 		"rawModelOutput":  doc["rawModelOutput"],
 		"systemCore":      doc["systemCore"],
+		"lastStageError":  doc["lastStageError"],
 		"campaignSpec":    doc["campaignSpec"],
 		"gameSetup":       doc["gameSetup"],
 		"diagnostics": map[string]interface{}{

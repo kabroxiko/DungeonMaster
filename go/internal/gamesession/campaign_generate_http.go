@@ -100,7 +100,10 @@ func resolveCampaignCoreStageTimeout() time.Duration {
 			return time.Duration(n) * time.Millisecond
 		}
 	}
-	return 60 * time.Second
+	// A local model's first stage can include loading the model itself, which alone outlives a minute; the lobby path
+	// has always allowed two, so both entry points now agree instead of the generate path failing where the lobby does
+	// not.
+	return 120 * time.Second
 }
 
 func creativeSeedRace(ctx context.Context, d *Deps, gameID, language, hostPremise string) (ok bool, seed map[string]interface{}, raw string, code string) {
@@ -362,21 +365,18 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	stageDur := resolveCampaignCoreStageTimeout()
 
 	if gameID != "" && waitForStages {
-		for _, stName := range []string{"factions", "majorNPCs", "keyLocations"} {
-			st := stName
-			if !runStageWithTimeout(ctx, stageDur, func(c context.Context) bool {
-				return generateCampaignStage(c, d, gameID, st, parsedObj, language)
-			}) {
-				msg := "Failed generating factions stage"
-				code := "CAMPAIGN_STAGE_FACTIONS"
-				if stName == "majorNPCs" {
-					msg = "Failed generating majorNPCs stage"
-					code = "CAMPAIGN_STAGE_NPCS"
-				} else if stName == "keyLocations" {
-					msg = "Failed generating keyLocations stage"
-					code = "CAMPAIGN_STAGE_LOCATIONS"
-				}
-				return 500, map[string]interface{}{"error": msg, "code": code}
+		for _, stage := range []string{"factions", "majorNPCs", "keyLocations"} {
+			var reason string
+			ok := runStageWithTimeout(ctx, stageDur, func(c context.Context) bool {
+				var ok bool
+				ok, reason = generateCampaignStage(c, d, gameID, stage, parsedObj, language)
+				return ok
+			})
+			if !ok {
+				detail := campaignStageFailureDetail(reason, stage, stageDur)
+				recordStageFailure(ctx, d, gameID, stage, detail)
+				msg, code := campaignStageFailureMessage(stage)
+				return 500, map[string]interface{}{"error": msg, "code": code, "detail": detail}
 			}
 		}
 		if !runStageWithTimeout(ctx, stageDur, func(c context.Context) bool {
@@ -431,10 +431,13 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		parsedCopy := parsedObj
 		go func() {
 			bg := context.Background()
-			for _, stName := range []string{"factions", "majorNPCs", "keyLocations"} {
-				st := stName
+			for _, stage := range []string{"factions", "majorNPCs", "keyLocations"} {
 				_ = runStageWithTimeout(bg, stageDur, func(c context.Context) bool {
-					return generateCampaignStage(c, d2, gid, st, parsedCopy, lang)
+					ok, reason := generateCampaignStage(c, d2, gid, stage, parsedCopy, lang)
+					if !ok {
+						recordStageFailure(bg, d2, gid, stage, campaignStageFailureDetail(reason, stage, stageDur))
+					}
+					return ok
 				})
 			}
 			_ = runStageWithTimeout(bg, stageDur, func(c context.Context) bool {

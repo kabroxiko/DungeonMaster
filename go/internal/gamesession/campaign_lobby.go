@@ -224,7 +224,12 @@ func trunc200k(s string) string {
 	return s[:200000]
 }
 
-func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, campaignCore map[string]interface{}, language string) bool {
+// generateCampaignStage writes one campaign stage into the game state.
+//
+// The second return value is the reason a stage produced nothing. A stage used to answer only true or false, which
+// left "Failed generating factions stage" as the entire explanation of a failed campaign: the reason existed here and
+// was thrown away, so neither the log nor the client could say which of the five ways it failed had happened.
+func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, campaignCore map[string]interface{}, language string) (bool, string) {
 	var templateFile string
 	switch stage {
 	case "factions":
@@ -234,7 +239,7 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 	case "keyLocations":
 		templateFile = "templates/campaign/stage_keyLocations.txt"
 	default:
-		return false
+		return false, "unknown campaign stage " + stage
 	}
 	tpl := promptmgr.LoadPrompt(templateFile)
 	conceptText := ""
@@ -269,7 +274,11 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 				data["vellarisPlaces"] = places
 			}
 		}
-		userPrompt, _ = mustache.Render(tpl, data)
+		rendered, renderErr := mustache.Render(tpl, data)
+		if renderErr != nil {
+			return false, "the " + stage + " prompt could not be rendered: " + renderErr.Error()
+		}
+		userPrompt = rendered
 	} else {
 		if stage == "factions" {
 			userPrompt = fmt.Sprintf("Based on this campaignConcept: %s\nReturn ONLY YAML: factions (list of objects)...", conceptText)
@@ -300,14 +309,18 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 		"max_tokens": maxTok, "temperature": 0.8, "gameId": gameID,
 	})
 	if err != nil || aiMessage == "" {
-		return false
+		reason := errString(err)
+		if reason == "" {
+			reason = "the model returned no text"
+		}
+		return false, reason
 	}
 	data, ok := llm.ParseCampaignStageModelOutput(aiMessage)
 	if !ok {
 		_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
 			"rawModelOutput": trunc200k(aiMessage),
 		}}, options.Update().SetUpsert(true))
-		return false
+		return false, "the model reply was not YAML this stage could read (kept as rawModelOutput)"
 	}
 	coerced := llm.CoerceCampaignStageToArray(stage, data)
 	if stage == "keyLocations" && world != nil {
@@ -326,7 +339,7 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 		_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
 			"rawModelOutput": trunc200k(aiMessage),
 		}}, options.Update().SetUpsert(true))
-		return false
+		return false, "the model reply parsed but held no " + stage + " entries this stage could use (kept as rawModelOutput)"
 	}
 	key := "campaignSpec." + stage
 	set := bson.M{
@@ -335,10 +348,44 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 	}
 	_, err = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": set}, options.Update().SetUpsert(true))
 	if err != nil {
-		return false
+		return false, "the " + stage + " entries could not be saved: " + err.Error()
 	}
 	_ = draftparty.ClearDraftPartyTtlIfCampaignNowSubstantive(ctx, d.Coll, gameID)
-	return true
+	return true, ""
+}
+
+// campaignStageFailureMessage names a failed stage in the words the client already reads.
+func campaignStageFailureMessage(stage string) (msg, code string) {
+	switch stage {
+	case "majorNPCs":
+		return "Failed generating majorNPCs stage", "CAMPAIGN_STAGE_NPCS"
+	case "keyLocations":
+		return "Failed generating keyLocations stage", "CAMPAIGN_STAGE_LOCATIONS"
+	default:
+		return "Failed generating " + stage + " stage", "CAMPAIGN_STAGE_" + strings.ToUpper(stage)
+	}
+}
+
+// campaignStageFailureDetail is what to tell the reader when a stage wrote nothing. A stage that never reported a
+// reason ran out of its budget, which is itself the answer — and the budget is the operator's to change.
+func campaignStageFailureDetail(reason, stage string, budget time.Duration) string {
+	if r := strings.TrimSpace(reason); r != "" {
+		return r
+	}
+	return fmt.Sprintf("the %s stage did not finish within %s; raise DM_STAGE_TIMEOUT_MS (and DM_LOBBY_STAGE_TIMEOUT_MS for a lobby start) if the model needs longer", stage, budget)
+}
+
+// recordStageFailure keeps the reason a stage failed on the game, so the next attempt can be read from the database
+// instead of guessed at. The same text is logged, because a stage failure is a server problem before it is the
+// player's.
+func recordStageFailure(ctx context.Context, d *Deps, gameID, stage, detail string) {
+	if d == nil || d.Coll == nil || strings.TrimSpace(gameID) == "" {
+		return
+	}
+	log.Printf("campaign stage %s failed (gameId=%s): %s", stage, gameID, detail)
+	_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
+		"lastStageError": stage + ": " + trunc200k(detail),
+	}}, options.Update().SetUpsert(true))
 }
 
 func sliceFirst(a []interface{}, n int) []interface{} {
@@ -724,18 +771,18 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	}
 	ensureCampaignCoreTitle(parsed)
 	stageMs := resolveLobbyPipelineStageTimeout()
-	for _, st := range []string{"factions", "majorNPCs", "keyLocations"} {
+	for _, stage := range []string{"factions", "majorNPCs", "keyLocations"} {
+		var reason string
 		ok := runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
-			return generateCampaignStage(c, d, gameID, st, parsed, language)
+			var ok bool
+			ok, reason = generateCampaignStage(c, d, gameID, stage, parsed, language)
+			return ok
 		})
 		if !ok {
-			code := "CAMPAIGN_STAGE_FACTIONS"
-			if st == "majorNPCs" {
-				code = "CAMPAIGN_STAGE_NPCS"
-			} else if st == "keyLocations" {
-				code = "CAMPAIGN_STAGE_LOCATIONS"
-			}
-			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed generating " + st + " stage", Code: code}
+			detail := campaignStageFailureDetail(reason, stage, stageMs)
+			recordStageFailure(ctx, d, gameID, stage, detail)
+			msg, code := campaignStageFailureMessage(stage)
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: msg, Code: code, Detail: detail}
 		}
 	}
 	if !runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
