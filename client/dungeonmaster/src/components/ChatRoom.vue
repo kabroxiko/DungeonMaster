@@ -164,12 +164,25 @@
         <header class="chat-room__header">
             <!-- Intentionally no "sync / Sincronizar" control — reload the browser to pull latest state. -->
             <div
-                v-if="campaignTitle || canShareInviteLink || showMapButton"
+                v-if="campaignTitle || canShareInviteLink || showMapButton || showBackgroundButton"
                 class="campaign-heading-row"
                 :class="{ 'campaign-heading-row--no-title': !campaignTitle }"
             >
                 <h2 v-if="campaignTitle" class="campaign-heading">{{ campaignTitle }}</h2>
-                <div v-if="showMapButton || canShareInviteLink" class="campaign-heading-row__tools">
+                <div v-if="showMapButton || showBackgroundButton || canShareInviteLink" class="campaign-heading-row__tools">
+                    <button
+                        v-if="showBackgroundButton"
+                        type="button"
+                        class="app-banner__tool chat-room__background-tool"
+                        :class="{ 'chat-room__background-tool--on': backgroundVisible }"
+                        :aria-pressed="backgroundVisible ? 'true' : 'false'"
+                        :title="backgroundVisible ? $i18n.campaign_background_hide : $i18n.campaign_background_show"
+                        :aria-label="backgroundVisible ? $i18n.campaign_background_hide : $i18n.campaign_background_show"
+                        @click="toggleCampaignBackground"
+                    >
+                        <span class="visually-hidden">{{ backgroundVisible ? $i18n.campaign_background_hide : $i18n.campaign_background_show }}</span>
+                        <FontAwesomeIcon :icon="faScroll" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
+                    </button>
                     <button
                         v-if="showMapButton"
                         type="button"
@@ -337,6 +350,111 @@
         </div>
     </Teleport>
     <Teleport to="body">
+        <div
+            v-if="backgroundVisible"
+            class="campaign-bg-modal__backdrop"
+            role="presentation"
+            @click.self="closeCampaignBackground"
+        >
+            <div
+                class="campaign-bg-modal ui-panel"
+                role="dialog"
+                aria-modal="true"
+                :aria-label="$i18n.campaign_background_title"
+            >
+                <button
+                    type="button"
+                    class="campaign-bg-modal__close"
+                    :aria-label="$i18n.campaign_background_close"
+                    :title="$i18n.campaign_background_close"
+                    @click="closeCampaignBackground"
+                >
+                    <FontAwesomeIcon :icon="faXmark" aria-hidden="true" />
+                </button>
+                <h2 class="campaign-bg-modal__title">{{ campaignTitle || $i18n.campaign_background_title }}</h2>
+                <p v-if="!hasCampaignBackground" class="campaign-bg-modal__empty">{{ $i18n.campaign_background_empty }}</p>
+                <section v-if="campaignConceptText" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_concept_heading }}</h3>
+                    <p class="campaign-bg-modal__prose">{{ campaignConceptText }}</p>
+                </section>
+                <section v-if="campaignToneAndStyle" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_tone_heading }}</h3>
+                    <p class="campaign-bg-modal__prose">{{ campaignToneAndStyle }}</p>
+                </section>
+                <section v-if="campaignMajorConflicts.length" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_conflicts_heading }}</h3>
+                    <ul class="campaign-bg-modal__list">
+                        <li v-for="(conflict, index) in campaignMajorConflicts" :key="'conflict-' + index">{{ conflict }}</li>
+                    </ul>
+                </section>
+                <section v-if="campaignFactions.length" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_factions_heading }}</h3>
+                    <ul class="campaign-bg-modal__cards">
+                        <li v-for="(faction, index) in campaignFactions" :key="'faction-' + index" class="campaign-bg-modal__card">
+                            <h4 v-if="faction.name" class="campaign-bg-modal__card-title">{{ faction.name }}</h4>
+                            <p v-if="faction.goal" class="campaign-bg-modal__card-line">
+                                <span class="campaign-bg-modal__label">{{ $i18n.campaign_faction_goal }}</span>{{ faction.goal }}
+                            </p>
+                            <p v-if="faction.resources" class="campaign-bg-modal__card-line">
+                                <span class="campaign-bg-modal__label">{{ $i18n.campaign_faction_resources }}</span>{{ faction.resources }}
+                            </p>
+                            <p v-if="faction.currentDisposition" class="campaign-bg-modal__card-line">
+                                <span class="campaign-bg-modal__label">{{ $i18n.campaign_faction_disposition }}</span>{{ faction.currentDisposition }}
+                            </p>
+                        </li>
+                    </ul>
+                </section>
+                <section v-if="campaignMajorNpcs.length" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_major_npcs_heading }}</h3>
+                    <ul class="campaign-bg-modal__cards">
+                        <li v-for="(npc, index) in campaignMajorNpcs" :key="'npc-' + index" class="campaign-bg-modal__card">
+                            <h4 v-if="npc.name" class="campaign-bg-modal__card-title">{{ npc.name }}</h4>
+                            <p v-if="npc.role" class="campaign-bg-modal__card-line">
+                                <span class="campaign-bg-modal__label">{{ $i18n.campaign_npc_role }}</span>{{ npc.role }}
+                            </p>
+                            <p v-if="npc.briefDescription" class="campaign-bg-modal__card-line">{{ npc.briefDescription }}</p>
+                        </li>
+                    </ul>
+                </section>
+                <section v-if="campaignKeyLocations.length" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_key_locations_heading }}</h3>
+                    <ul class="campaign-bg-modal__cards">
+                        <li v-for="(location, index) in campaignKeyLocations" :key="'location-' + index" class="campaign-bg-modal__card">
+                            <h4 v-if="location.name" class="campaign-bg-modal__card-title">{{ location.name }}</h4>
+                            <p v-if="location.type" class="campaign-bg-modal__card-line">
+                                <span class="campaign-bg-modal__label">{{ $i18n.campaign_location_type }}</span>{{ location.type }}
+                            </p>
+                            <p v-if="location.significance" class="campaign-bg-modal__card-line">
+                                <span class="campaign-bg-modal__label">{{ $i18n.campaign_location_significance }}</span>{{ location.significance }}
+                            </p>
+                        </li>
+                    </ul>
+                </section>
+                <section v-if="campaignCreativeSeed" class="campaign-bg-modal__section">
+                    <h3 class="campaign-bg-modal__heading">{{ $i18n.campaign_creative_seed_heading }}</h3>
+                    <p v-if="campaignCreativeSeedMood" class="campaign-bg-modal__card-line">
+                        <span class="campaign-bg-modal__label">{{ $i18n.campaign_creative_seed_mood }}</span>{{ campaignCreativeSeedMood }}
+                    </p>
+                    <template v-if="campaignCreativeSeedPrefer.length">
+                        <p class="campaign-bg-modal__sublabel">{{ $i18n.campaign_creative_seed_prefer }}</p>
+                        <ul class="campaign-bg-modal__list">
+                            <li v-for="(angle, index) in campaignCreativeSeedPrefer" :key="'prefer-' + index">{{ angle }}</li>
+                        </ul>
+                    </template>
+                    <template v-if="campaignCreativeSeedAvoid.length">
+                        <p class="campaign-bg-modal__sublabel">{{ $i18n.campaign_creative_seed_avoid }}</p>
+                        <ul class="campaign-bg-modal__list">
+                            <li v-for="(trope, index) in campaignCreativeSeedAvoid" :key="'avoid-' + index">{{ trope }}</li>
+                        </ul>
+                    </template>
+                    <p v-if="campaignCreativeSeedNaming" class="campaign-bg-modal__card-line">
+                        <span class="campaign-bg-modal__label">{{ $i18n.campaign_creative_seed_naming }}</span>{{ campaignCreativeSeedNaming }}
+                    </p>
+                </section>
+            </div>
+        </div>
+    </Teleport>
+    <Teleport to="body">
         <Transition name="invite-toast">
             <div
                 v-if="inviteToastVisible"
@@ -359,11 +477,13 @@ import FloatingCard from '@/ui/FloatingCard.vue';
 import UIButton from '@/ui/Button.vue';
 import SetupForm from '@/components/SetupForm.vue';
 import { absoluteInviteUrl } from '@/utils/inviteLink.js';
+import { hasSubstantiveCampaignSpec } from '@/utils/campaignSpecReady.js';
 import { resolveApiBaseURL, resolveGameStateEventsUrl } from '@/utils/apiBase.js';
 import { fetchGameStateLoad } from '@/utils/fetchGameStateLoad.js';
 import { SESSION_CHAT_TOAST } from '@/setupSession.js';
 import { faUserPlus } from '@fortawesome/free-solid-svg-icons/faUserPlus';
 import { faMap } from '@fortawesome/free-solid-svg-icons/faMap';
+import { faScroll } from '@fortawesome/free-solid-svg-icons/faScroll';
 import { faXmark } from '@fortawesome/free-solid-svg-icons/faXmark';
 import { faDownload } from '@fortawesome/free-solid-svg-icons/faDownload';
 import { faCircleCheck } from '@fortawesome/free-solid-svg-icons/faCircleCheck';
@@ -402,6 +522,7 @@ export default {
             return {
                 faUserPlus,
                 faMap,
+                faScroll,
                 faXmark,
                 faDownload,
                 faCircleCheck,
@@ -424,6 +545,10 @@ export default {
                 lastEncounterState: null,
                 isSending: false,
                 campaignTitle: '',
+                /** The redacted campaignSpec from GET /game-state/load; source for the campaign background modal. */
+                campaignSpec: null,
+                /** Local per-browser view: any player can read the campaign background on their own screen. */
+                backgroundVisible: false,
                 /** campaignSpec.mapImage — marker that this game has a rendered map players can be shown. */
                 campaignMapImage: null,
                 /** campaignSpec.mapImageError — why the rendered map could not be stored, for the host only. */
@@ -749,6 +874,68 @@ export default {
             /** Every member can open the campaign map in their own browser; only a game with a rendered map has one. */
             showMapButton() {
                 return Boolean(this.campaignMapImage) && !this.isPartyLobby;
+            },
+            /** The written campaign background is readable whenever the campaign has content and play has begun. */
+            showBackgroundButton() {
+                return hasSubstantiveCampaignSpec(this.campaignBackgroundSpec) && !this.isPartyLobby;
+            },
+            /** The redacted campaignSpec; empty when the game has no campaign written yet. */
+            campaignBackgroundSpec() {
+                const spec = this.campaignSpec;
+                return spec && typeof spec === 'object' && !Array.isArray(spec) ? spec : {};
+            },
+            campaignConceptText() {
+                const v = this.campaignBackgroundSpec.campaignConcept;
+                return typeof v === 'string' ? v.trim() : '';
+            },
+            campaignToneAndStyle() {
+                const v = this.campaignBackgroundSpec.toneAndStyle;
+                return typeof v === 'string' ? v.trim() : '';
+            },
+            campaignMajorConflicts() {
+                return this.campaignStringList(this.campaignBackgroundSpec.majorConflicts);
+            },
+            campaignFactions() {
+                return this.campaignRecordList(this.campaignBackgroundSpec.factions);
+            },
+            campaignMajorNpcs() {
+                return this.campaignRecordList(this.campaignBackgroundSpec.majorNPCs);
+            },
+            campaignKeyLocations() {
+                return this.campaignRecordList(this.campaignBackgroundSpec.keyLocations);
+            },
+            /** DM steering draw for this run; the server sends it only to the game owner. */
+            campaignCreativeSeed() {
+                const seed = this.campaignBackgroundSpec.creativeSeed;
+                return seed && typeof seed === 'object' && !Array.isArray(seed) ? seed : null;
+            },
+            campaignCreativeSeedMood() {
+                const seed = this.campaignCreativeSeed;
+                return seed && typeof seed.titleMood === 'string' ? seed.titleMood.trim() : '';
+            },
+            campaignCreativeSeedPrefer() {
+                const seed = this.campaignCreativeSeed;
+                return seed ? this.campaignStringList(seed.preferAngles) : [];
+            },
+            campaignCreativeSeedAvoid() {
+                const seed = this.campaignCreativeSeed;
+                return seed ? this.campaignStringList(seed.avoidRepeatedFantasyTropesThisRun) : [];
+            },
+            campaignCreativeSeedNaming() {
+                const seed = this.campaignCreativeSeed;
+                return seed && typeof seed.namingNote === 'string' ? seed.namingNote.trim() : '';
+            },
+            hasCampaignBackground() {
+                return Boolean(
+                    this.campaignTitle ||
+                        this.campaignConceptText ||
+                        this.campaignToneAndStyle ||
+                        this.campaignMajorConflicts.length ||
+                        this.campaignFactions.length ||
+                        this.campaignMajorNpcs.length ||
+                        this.campaignKeyLocations.length ||
+                        this.campaignCreativeSeed
+                );
             },
             /** An <img> cannot send an Authorization header, so the token rides on the query like the SSE stream does. */
             mapImageSrc() {
@@ -1717,6 +1904,22 @@ export default {
                     this.localPlayerCharacter = { ...this.localPlayerCharacter, coinage: cur };
                 }
             },
+            /** Open or close the campaign background on this browser only. */
+            toggleCampaignBackground() {
+                this.backgroundVisible = !this.backgroundVisible;
+            },
+            closeCampaignBackground() {
+                this.backgroundVisible = false;
+            },
+            /** Campaign stage fields are lists of strings or of mappings; keep only the shapes the modal draws. */
+            campaignStringList(value) {
+                if (!Array.isArray(value)) return [];
+                return value.map((item) => (item == null ? '' : String(item).trim())).filter(Boolean);
+            },
+            campaignRecordList(value) {
+                if (!Array.isArray(value)) return [];
+                return value.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+            },
             /** Open or close the campaign map on this browser only; other players' screens are unaffected. */
             toggleMap() {
                 this.mapVisible = !this.mapVisible;
@@ -2446,6 +2649,7 @@ export default {
                     this.systemMessageContentDM = gameState.systemMessageContentDM;
                     this.lastEncounterState = gameState.encounterState || null;
                     const spec = gameState.campaignSpec;
+                    this.campaignSpec = spec && typeof spec === 'object' && !Array.isArray(spec) ? spec : null;
                     this.campaignTitle =
                         spec && typeof spec.title === 'string' && spec.title.trim() ? spec.title.trim() : '';
                     // The map marker and its visibility flag come from the server so every client agrees on both.
@@ -2703,19 +2907,22 @@ export default {
   }
 
   .chat-room__invite-tool,
-  .chat-room__map-tool {
+  .chat-room__map-tool,
+  .chat-room__background-tool {
     width: 36px;
     height: 36px;
     border-radius: 9px;
   }
 
   .chat-room__invite-tool:disabled,
-  .chat-room__map-tool:disabled {
+  .chat-room__map-tool:disabled,
+  .chat-room__background-tool:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
 
-  .chat-room__map-tool--on {
+  .chat-room__map-tool--on,
+  .chat-room__background-tool--on {
     background: rgba(212, 180, 106, 0.28);
     color: #f7e8bd;
     box-shadow: inset 0 0 0 1px rgba(212, 180, 106, 0.55);
@@ -2870,6 +3077,144 @@ export default {
     position: absolute;
     color: #ffc9c0;
     margin: 0;
+  }
+
+  /* Campaign background: the written premise, factions, NPCs and key places behind the map. */
+  .campaign-bg-modal__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+    background: rgba(6, 5, 4, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .campaign-bg-modal {
+    position: relative;
+    width: min(94vw, 880px);
+    max-height: min(90vh, 900px);
+    overflow-y: auto;
+    padding: 1.4rem 1.6rem 1.8rem;
+    border-radius: 12px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+  }
+
+  .campaign-bg-modal__close {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.65rem;
+    z-index: 1;
+    width: 2.35rem;
+    height: 2.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--gm-muted, #9a8f85);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .campaign-bg-modal__close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--gm-text, #e8e4dc);
+  }
+
+  .campaign-bg-modal__title {
+    margin: 0 2.5rem 0.6rem 0;
+    font-family: var(--gm-font-serif, Georgia, serif);
+    font-size: clamp(1.3rem, 3vw, 1.7rem);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    color: var(--gm-text, #e8e4dc);
+  }
+
+  .campaign-bg-modal__empty {
+    margin: 0;
+    color: var(--gm-muted, #9a8f85);
+  }
+
+  .campaign-bg-modal__section {
+    margin-top: 1.1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid rgba(212, 180, 106, 0.16);
+  }
+
+  .campaign-bg-modal__heading {
+    margin: 0 0 0.45rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(212, 180, 106, 0.92);
+  }
+
+  .campaign-bg-modal__sublabel {
+    margin: 0.55rem 0 0.2rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--gm-muted, #9a8f85);
+  }
+
+  .campaign-bg-modal__prose {
+    margin: 0;
+    line-height: 1.5;
+    color: var(--gm-text, #e8e4dc);
+    white-space: pre-line;
+  }
+
+  .campaign-bg-modal__list {
+    margin: 0;
+    padding-left: 1.15rem;
+    line-height: 1.45;
+    color: var(--gm-text, #e8e4dc);
+  }
+
+  .campaign-bg-modal__cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .campaign-bg-modal__card {
+    padding: 0.6rem 0.75rem;
+    border-radius: 9px;
+    border: 1px solid rgba(212, 180, 106, 0.14);
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .campaign-bg-modal__card-title {
+    margin: 0 0 0.3rem;
+    font-size: 1rem;
+    color: var(--gm-text, #e8e4dc);
+  }
+
+  .campaign-bg-modal__card-line {
+    margin: 0.18rem 0;
+    line-height: 1.45;
+    color: var(--gm-text, #e8e4dc);
+  }
+
+  .campaign-bg-modal__label {
+    display: inline-block;
+    margin-right: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgba(212, 180, 106, 0.8);
   }
 
   .campaign-heading {

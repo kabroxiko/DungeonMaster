@@ -158,6 +158,17 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request, uid string) 
 	} else {
 		o["viewerIsGameOwner"] = m[0] == uidNorm
 	}
+	// The creative seed is the DM's steering draw for this run, not player-facing lore, so it stays redacted for
+	// everyone but the host — who uses the campaign background view to see what the campaign was written from.
+	if owner, _ := o["viewerIsGameOwner"].(bool); owner {
+		if rawSpec, ok := doc["campaignSpec"].(map[string]interface{}); ok && rawSpec != nil {
+			if seed, ok := rawSpec["creativeSeed"]; ok && seed != nil {
+				if cs, ok := o["campaignSpec"].(map[string]interface{}); ok && cs != nil {
+					cs["creativeSeed"] = seed
+				}
+			}
+		}
+	}
 	idStrs := map[string]struct{}{}
 	if ownerStr != "" {
 		idStrs[ownerStr] = struct{}{}
