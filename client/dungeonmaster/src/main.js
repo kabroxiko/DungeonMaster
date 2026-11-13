@@ -117,7 +117,7 @@ const translations = {
     chat_waiting_dm_sync:
         'Waiting for the Dungeon Master’s reply. If it takes a while, refresh the page.',
     chat_unlock_input: 'Unlock typing (if the DM seems stuck)',
-    create_character: 'What will you be?',
+    create_character: 'Create character',
     new_game: 'New Game',
     toolbar_aria: 'Account and game actions',
     load_game: 'Load Game',
@@ -155,7 +155,7 @@ const translations = {
     confirm_character_mark_ready: 'Confirm character — ready to play',
     setup_party_lobby_form_title: 'What will you be in this world?',
     setup_party_lobby_form_desc:
-        'Decide what you want to be, then use What will you be? in your row above. When the sheet is saved, use Ready to play in that same row to confirm and mark yourself ready.',
+        'Decide what you want to be, then use Create character in your row above. When the sheet is saved, use Ready to play in that same row to confirm and mark yourself ready.',
     setup_party_late_join_desc:
         'This table is already in play. Decide what you want to be below, then use Join party on the confirmation step to open the shared chat.',
     confirm_secondary_actions_aria: 'Edit or regenerate',
@@ -396,7 +396,7 @@ const translations = {
     chat_waiting_dm_sync:
         'Esperando la respuesta del Maestro de Calabozos. Si tarda, recarga la página.',
     chat_unlock_input: 'Desbloquear escritura (si el DM parece atascado)',
-    create_character: '¿Qué serás?',
+    create_character: 'Crear personaje',
     new_game: 'Nuevo Juego',
     toolbar_aria: 'Cuenta y acciones de partida',
     load_game: 'Cargar Partida',
@@ -436,7 +436,7 @@ const translations = {
     confirm_character_mark_ready: 'Confirmar personaje — listo para jugar',
     setup_party_lobby_form_title: '¿Qué serás en este mundo?',
     setup_party_lobby_form_desc:
-        'Decide qué quieres ser y usa ¿Qué serás? en tu fila de arriba. Cuando la hoja esté guardada, usa Listo para jugar en esa misma fila para confirmar y marcarte listo.',
+        'Decide qué quieres ser y usa Crear personaje en tu fila de arriba. Cuando la hoja esté guardada, usa Listo para jugar en esa misma fila para confirmar y marcarte listo.',
     setup_party_late_join_desc:
         'La mesa ya está en juego. Decide abajo qué quieres ser y luego usa Unirse al grupo en el paso de confirmación para abrir el chat compartido.',
     character_ready_join_party_playing:

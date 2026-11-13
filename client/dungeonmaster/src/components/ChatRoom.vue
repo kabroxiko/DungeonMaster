@@ -662,7 +662,7 @@ export default {
                 lobbyRosterConfirmPosting: false,
                 /** The roster cell's Regenerate is rolling a sheet; the cell is the only place that reports it. */
                 lobbyRosterRegeneratePosting: false,
-                /** The roster cell's “What will you be?” is rolling the first sheet. */
+                /** The roster cell's Create character is rolling the first sheet. */
                 lobbyRosterCreatePosting: false,
                 /** Long action the inline character panel is running ('character' | 'regenerate' | …), for the cell. */
                 lobbyInlineBusyAction: null,
@@ -1233,7 +1233,7 @@ export default {
             },
             /**
              * The inline panel is on its creation form, which no longer submits itself: the row carries the
-             * “What will you be?” button for exactly this state (including a reopened edit form).
+             * Create character button for exactly this state (including a reopened edit form).
              */
             lobbyCellCreating() {
                 return this.showLobbyCharacterSetupPanel && !this.lobbyInlineConfirmSheet;
@@ -1679,7 +1679,7 @@ export default {
                 this.lobbyCharacterEditorOpen = true;
             },
             /**
-             * The roster cell's “What will you be?” button: the panel's form no longer submits itself in the lobby, so
+             * The roster cell's Create character button: the panel's form no longer submits itself in the lobby, so
              * this runs the same generation the form's own button used to.
              */
             async triggerLobbyCreateCharacter() {
