@@ -230,6 +230,7 @@ export default {
     lobby_ready_waiting: 'Not yet',
     lobby_starting: 'Starting the adventure…',
     lobby_generating_world: 'Generating the world…',
+    lobby_generating_world_hint: 'The map is being drawn. You can decide what you will be meanwhile.',
     lobby_saving_ready_then_start: 'Saving…',
     lobby_setup_section_aria: 'Choosing what you will be, and confirmation',
     lobby_character_sheet_section_aria: 'Your character sheet',

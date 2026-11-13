@@ -29,6 +29,22 @@
                 </button>
             </div>
         </header>
+        <!-- One world for the table, so its progress belongs to the table rather than to any player's row. -->
+        <section v-if="partyGeneratingWorld" class="party-lobby__world" role="status" aria-live="polite">
+            <div class="party-lobby__world-art" aria-hidden="true">
+                <svg class="party-lobby__world-svg" viewBox="0 0 240 64" preserveAspectRatio="none">
+                    <path
+                        class="party-lobby__world-coast"
+                        d="M6 44 C 34 14, 62 56, 96 34 S 150 10, 178 26 S 214 46, 234 24"
+                    />
+                </svg>
+                <FontAwesomeIcon :icon="faFeather" class="party-lobby__world-quill" />
+            </div>
+            <div class="party-lobby__world-copy">
+                <p class="party-lobby__world-title">{{ $i18n.lobby_generating_world }}</p>
+                <p class="party-lobby__world-hint">{{ $i18n.lobby_generating_world_hint }}</p>
+            </div>
+        </section>
         <details v-if="partyLobbyDebugEnabled" class="party-lobby__debug" open>
             <summary class="party-lobby__debug-summary">Party lobby debug</summary>
             <p class="party-lobby__debug-hint">
@@ -121,17 +137,7 @@
                                     </UIButton>
                                 </template>
                             </div>
-                            <!-- The world is written for the whole table, so it is named here too — but your own controls stay
-                                 usable while it runs: a sheet requested now waits for the map rather than being refused. -->
-                            <span
-                                v-if="partyGeneratingWorld"
-                                class="party-lobby__badge party-lobby__badge--starting"
-                                role="status"
-                                aria-live="polite"
-                            >
-                                <span class="party-lobby__spin" aria-hidden="true"></span>
-                                <span>{{ $i18n.lobby_generating_world }}</span>
-                            </span>
+                            <!-- The world is named once, above the roster: a row only ever describes its own player. -->
                             <span
                                 v-else-if="partyPhase === 'starting'"
                                 class="party-lobby__badge party-lobby__badge--starting"
@@ -172,15 +178,6 @@
                                 </UIButton>
                             </div>
                         </div>
-                        <span
-                            v-else-if="partyGeneratingWorld"
-                            class="party-lobby__badge party-lobby__badge--starting"
-                            role="status"
-                            aria-live="polite"
-                        >
-                            <span class="party-lobby__spin" aria-hidden="true"></span>
-                            <span>{{ $i18n.lobby_generating_world }}</span>
-                        </span>
                         <span
                             v-else-if="row.isGenerating"
                             class="party-lobby__badge party-lobby__badge--starting"
@@ -578,6 +575,7 @@ import { faXmark } from '@fortawesome/free-solid-svg-icons/faXmark';
 import { faDownload } from '@fortawesome/free-solid-svg-icons/faDownload';
 import { faCircleCheck } from '@fortawesome/free-solid-svg-icons/faCircleCheck';
 import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons/faHourglassHalf';
+import { faFeather } from '@fortawesome/free-solid-svg-icons/faFeather';
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
 // Force markdown renderer to emit paragraphs with zero margin to avoid CSS spacing issues
@@ -617,6 +615,7 @@ export default {
                 faDownload,
                 faCircleCheck,
                 faHourglassHalf,
+                faFeather,
                 // summaryPrompt removed from client; server composes summary instruction
                 // Initial state for the component
                 newMessage: "", // Holds the current message being typed
@@ -3756,6 +3755,133 @@ export default {
     white-space: pre-wrap;
     word-break: break-word;
     color: #e4f4ff;
+  }
+
+  /* The table's own wait: a quill tracing a coastline while the world is written. One banner for everyone, because
+     one map is being made for everyone. */
+  .party-lobby__world {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.8rem 1rem;
+    border-radius: 16px;
+    border: 1px solid rgba(212, 180, 106, 0.32);
+    background: linear-gradient(180deg, rgba(255, 248, 235, 0.07) 0%, rgba(24, 20, 18, 0.62) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Fixed size so the SVG's coordinates and the quill's motion path are the same space. */
+  .party-lobby__world-art {
+    position: relative;
+    flex: 0 0 auto;
+    width: 240px;
+    height: 64px;
+  }
+
+  .party-lobby__world-svg {
+    width: 240px;
+    height: 64px;
+    overflow: visible;
+  }
+
+  .party-lobby__world-coast {
+    fill: none;
+    stroke: rgba(240, 223, 168, 0.8);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-dasharray: 300;
+    stroke-dashoffset: 300;
+    animation: party-lobby-draw 5.6s ease-in-out infinite;
+  }
+
+  .party-lobby__world-quill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 0.95rem;
+    height: 0.95rem;
+    color: var(--gm-gold-bright, #f0dfa8);
+    offset-path: path('M6 44 C 34 14, 62 56, 96 34 S 150 10, 178 26 S 214 46, 234 24');
+    offset-rotate: auto 55deg;
+    offset-distance: 0%;
+    opacity: 0;
+    animation: party-lobby-quill 5.6s ease-in-out infinite;
+  }
+
+  @keyframes party-lobby-draw {
+    0% {
+      stroke-dashoffset: 300;
+    }
+    55% {
+      stroke-dashoffset: 0;
+    }
+    85% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: 0;
+      opacity: 0;
+    }
+  }
+
+  @keyframes party-lobby-quill {
+    0% {
+      offset-distance: 0%;
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    55% {
+      offset-distance: 100%;
+      opacity: 1;
+    }
+    70% {
+      offset-distance: 100%;
+      opacity: 0;
+    }
+    100% {
+      offset-distance: 100%;
+      opacity: 0;
+    }
+  }
+
+  .party-lobby__world-copy {
+    min-width: 0;
+  }
+
+  .party-lobby__world-title {
+    margin: 0;
+    font-family: var(--gm-font-serif, Georgia, serif);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--gm-gold-bright, #f0dfa8);
+  }
+
+  .party-lobby__world-hint {
+    margin: 0.15rem 0 0;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: var(--gm-muted, #9a8f85);
+  }
+
+  @media (max-width: 560px) {
+    .party-lobby__world-art {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .party-lobby__world-coast {
+      animation: none;
+      stroke-dashoffset: 0;
+    }
+    .party-lobby__world-quill {
+      animation: none;
+      opacity: 0;
+    }
   }
 
   .party-lobby__roster {
