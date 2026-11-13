@@ -138,7 +138,8 @@ Set `DM_VELLARIS_URL` to the map service. Campaign generation (`generate-campaig
    `assets/world-settings.json`) or a `worldSettings` document sent with the request. The file holds the short document —
    the choices the Vellaris generator panel offers (dimension, world size, land shape, region count, city frequency, art
    pack, city icons, books) plus the rendering a campaign map must always have (political region boundaries and colours,
-   a border, shaded shores, a hex grid) — so it describes the kind of map, and Vellaris invents the rest around it.
+   a border, shaded shores, a hex grid, and ocean waves drawn as `ConcentricWaves` via `oceanEffect`) — so it describes the
+   kind of map, and Vellaris invents the rest around it.
    Settings from the file get a fresh seed per campaign, so each table gets its own map; settings you send may be either
    the short document or a full one, and a full one keeps its seed, which pins one world.
    The map is generated **in the game's language** (`language` is stamped from `gameSetup.language`, so a Spanish game
