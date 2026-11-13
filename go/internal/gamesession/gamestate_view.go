@@ -19,6 +19,8 @@ func GameStateDocForClient(doc map[string]interface{}) map[string]interface{} {
 		return nil
 	}
 	o := cloneMapShallow(doc)
+	// Redaction runs first and drops the world itself, so ask the stored document rather than the redacted copy.
+	worldStored := storedWorld(doc) != nil
 	if cs, ok := o["campaignSpec"].(map[string]interface{}); ok && cs != nil {
 		o["campaignSpec"] = campaignspec.RedactCampaignSpecForClient(cs)
 	}
@@ -42,6 +44,21 @@ func GameStateDocForClient(doc map[string]interface{}) map[string]interface{} {
 		gs = cloneMapShallow(gs)
 		delete(gs, "generatedCharacter")
 		o["gameSetup"] = gs
+	}
+	// A lobby's world step is cleared by the goroutine that runs it, so a restart in the middle leaves the stage behind
+	// after the world is already stored. The world is the truth: with nothing left to draw there is nothing to wait for.
+	if worldStored {
+		if gs, ok := o["gameSetup"].(map[string]interface{}); ok && gs != nil {
+			if p, ok := gs["party"].(map[string]interface{}); ok && p != nil {
+				if stage, _ := p["stage"].(string); strings.TrimSpace(stage) == "world" {
+					nextParty := cloneMapShallow(p)
+					nextParty["stage"] = ""
+					nextSetup := cloneMapShallow(gs)
+					nextSetup["party"] = nextParty
+					o["gameSetup"] = nextSetup
+				}
+			}
+		}
 	}
 	return o
 }

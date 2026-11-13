@@ -14,6 +14,7 @@ import (
 
 	"github.com/deckofdmthings/gmai/internal/campaignspec"
 	"github.com/deckofdmthings/gmai/internal/draftparty"
+	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/promptmgr"
 )
 
@@ -23,6 +24,10 @@ import (
 // waits for that world and reads it back. Two players who press "generate" at the same moment must not each invent a
 // different map for the same party, which is what a plain "ask the map service if there is no world yet" would do.
 var campaignWorldLocks sync.Map
+
+// worldPrepInFlight marks the games whose world step this process is already running, so a second caller (a reload
+// during the wait, a resumed load) joins the run that is going instead of queueing another world behind it.
+var worldPrepInFlight sync.Map
 
 func lockCampaignWorld(gameID string) func() {
 	value, _ := campaignWorldLocks.LoadOrStore(gameID, &sync.Mutex{})
@@ -47,7 +52,11 @@ func PrepareWorldInBackground(d *Deps, gameID, language string) {
 		return
 	}
 	gid := strings.TrimSpace(gameID)
+	if _, running := worldPrepInFlight.LoadOrStore(gid, struct{}{}); running {
+		return
+	}
 	go func() {
+		defer worldPrepInFlight.Delete(gid)
 		// The request that started this has already answered, so the work carries its own deadline.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
@@ -65,6 +74,34 @@ func PrepareWorldInBackground(d *Deps, gameID, language string) {
 	}()
 }
 
+// EnsureLobbyWorld resumes a world step that nothing is running any more.
+//
+// The stage is written by the goroutine that generates the world and cleared by that same goroutine when it finishes,
+// so a restart in the middle - a deploy while the map was being drawn - leaves the stage behind with nobody left to
+// clear it, and the table watches a banner for work that will never finish. The stored world is the truth: when it is
+// there the stage is dropped, and when it is not the step is started again.
+func EnsureLobbyWorld(ctx context.Context, d *Deps, doc map[string]interface{}, language string) {
+	if d == nil || d.Coll == nil || doc == nil {
+		return
+	}
+	gameID := str(doc["gameId"])
+	if gameID == "" {
+		return
+	}
+	p := party.GetParty(toMap(doc["gameSetup"]))
+	if ph, _ := p["phase"].(string); strings.TrimSpace(ph) != "lobby" {
+		return
+	}
+	if stage, _ := p["stage"].(string); strings.TrimSpace(stage) != "world" {
+		return
+	}
+	if storedWorld(doc) != nil {
+		clearLobbyStage(ctx, d, gameID, "world")
+		return
+	}
+	PrepareWorldInBackground(d, gameID, language)
+}
+
 // storedCampaignWorld returns the world already stored for a game, or nil when there is none yet.
 func storedCampaignWorld(ctx context.Context, d *Deps, gameID string) map[string]interface{} {
 	if d == nil || d.Coll == nil || strings.TrimSpace(gameID) == "" {
@@ -74,7 +111,12 @@ func storedCampaignWorld(ctx context.Context, d *Deps, gameID string) map[string
 	if err := d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&row); err != nil || row == nil {
 		return nil
 	}
-	spec, _ := row["campaignSpec"].(map[string]interface{})
+	return storedWorld(row)
+}
+
+// storedWorld reads the world out of a game document, or returns nil when the game has none yet.
+func storedWorld(doc map[string]interface{}) map[string]interface{} {
+	spec, _ := doc["campaignSpec"].(map[string]interface{})
 	if spec == nil {
 		return nil
 	}

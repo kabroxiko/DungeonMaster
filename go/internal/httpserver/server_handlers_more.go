@@ -142,6 +142,15 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request, uid string) 
 			s.Hub.NotifyGameStateUpdated(gid)
 			_ = s.coll().FindOne(ctx, bson.M{"gameId": gid}).Decode(&doc)
 		}
+		// The world step is run by a goroutine that a restart kills without clearing its stage. A load is the moment
+		// every client asks what to show, so it is also the moment to notice nothing is left running the step.
+		lang := "English"
+		if gs, ok := doc["gameSetup"].(map[string]interface{}); ok {
+			if l, ok := gs["language"].(string); ok && strings.TrimSpace(l) != "" {
+				lang = strings.TrimSpace(l)
+			}
+		}
+		gamesession.EnsureLobbyWorld(ctx, s.GS, doc, lang)
 	}
 	o := gamesession.GameStateDocForClient(doc)
 	m := memberOIDStrings(doc)
