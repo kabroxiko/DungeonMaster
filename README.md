@@ -118,6 +118,24 @@ Optional: `DM_FRONTEND_URL`, `DM_CORS_ORIGINS`, and `DM_API_BASE` (client `main.
 
 - **Go API**: from `go/`, run `go test ./...` and `go build ./cmd/gmai-server`. CI runs the same on every push.
 
+### Docker image
+
+CI builds a production image after the Go job passes and publishes it to `ghcr.io/<owner>/dungeonmaster` on every
+push to `main` (`latest` and `sha-*`) and on `v*` tags. The image bundles both halves of the app: nginx serves the
+Vue client on port 8080 and proxies `/api` (including SSE and WebSocket routes) to `gmai-server` on localhost.
+
+`VUE_APP_DM_GOOGLE_CLIENT_ID` is compiled into the SPA, so it is a build argument. Set it as a repository variable
+(or secret) with that exact name in GitHub, or pass it to a local build:
+
+```bash
+docker build --build-arg VUE_APP_DM_GOOGLE_CLIENT_ID=... -t dungeonmaster .
+docker run --rm -p 8080:8080 --env-file .env dungeonmaster
+```
+
+The container forces `NODE_ENV=production`. Provide `DM_MONGODB_URI`, `DM_GOOGLE_CLIENT_ID`, `DM_JWT_SECRET` and
+`DM_FRONTEND_URL` (the URL users actually open) through the environment or `.env`; the value of
+`DM_GOOGLE_CLIENT_ID` must match the client ID baked into the image.
+
 ### Debugging LLM calls
 
 - **Process logs**: set `DM_DEBUG_LLM=true` in `.env` and rebuild/restart `gmai-server`. Each call logs a short `llm-debug call …` line, then each request message on its own `llm-debug request msg[i]| …` lines (full body, newline-split, long lines chunked by runes—no `%q` ellipsis), then `llm-debug ok …` and the full assistant output on `llm-debug out| …` lines. Disable in production; prompts may contain user text and volume is high.

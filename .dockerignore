@@ -1,0 +1,15 @@
+.git
+.github
+.cursor
+.gitignore
+.DS_Store
+**/node_modules
+**/dist
+.env
+.env.*
+client/dungeonmaster/.env
+client/dungeonmaster/.env.*
+tmp
+*.log
+docs
+assets/prompt_flow.png
