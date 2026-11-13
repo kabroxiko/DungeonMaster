@@ -227,6 +227,7 @@ export default {
     lobby_ready_confirmed: 'Marcó listo',
     lobby_ready_waiting: 'Pendiente',
     lobby_starting: 'Iniciando la aventura…',
+    lobby_generating_world: 'Generando el mundo…',
     lobby_saving_ready_then_start: 'Guardando…',
     lobby_setup_section_aria: 'Elegir qué serás y confirmación',
     lobby_character_sheet_section_aria: 'Tu hoja de personaje',

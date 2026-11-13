@@ -13,6 +13,7 @@ import (
 func DefaultParty() map[string]interface{} {
 	return map[string]interface{}{
 		"phase":                               "lobby",
+		"stage":                               "",
 		"readyUserIds":                        []interface{}{},
 		"characterBusyUntil":                  map[string]interface{}{},
 		"hostPremise":                         "",

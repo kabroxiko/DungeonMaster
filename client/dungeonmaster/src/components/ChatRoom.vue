@@ -128,7 +128,7 @@
                                 aria-live="polite"
                             >
                                 <span class="party-lobby__spin" aria-hidden="true"></span>
-                                <span>{{ $i18n.lobby_starting }}</span>
+                                <span>{{ partyGeneratingWorld ? $i18n.lobby_generating_world : $i18n.lobby_starting }}</span>
                             </span>
                             <span v-else class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok">
                                 <FontAwesomeIcon
@@ -158,6 +158,15 @@
                                 </UIButton>
                             </div>
                         </div>
+                        <span
+                            v-else-if="partyGeneratingWorld"
+                            class="party-lobby__badge party-lobby__badge--starting"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="party-lobby__spin" aria-hidden="true"></span>
+                            <span>{{ $i18n.lobby_generating_world }}</span>
+                        </span>
                         <span
                             v-else-if="row.isGenerating"
                             class="party-lobby__badge party-lobby__badge--starting"
@@ -1093,6 +1102,16 @@ export default {
                     if (!readyNorm.has(id)) return false;
                 }
                 return true;
+            },
+            /** Which long step the table is on while the party starts: 'world' (campaign text) or 'opening' (first scene). */
+            partyStage() {
+                const p = this.$store.state.gameSetup && this.$store.state.gameSetup.party;
+                const stage = p && p.stage != null ? String(p.stage).trim() : '';
+                return stage;
+            },
+            /** The world is being written for everyone at once, so every row says so instead of naming its own state. */
+            partyGeneratingWorld() {
+                return this.partyStage === 'world';
             },
             /** Lobby toolbar + inline setup: no further ready toggles while starting or everyone is ready. */
             partyLobbyActionsFrozen() {

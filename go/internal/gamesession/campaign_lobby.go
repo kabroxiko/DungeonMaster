@@ -784,6 +784,8 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 			return LobbyCampaignOutcome{OK: false, Status: 500, Error: msg, Code: code, Detail: detail}
 		}
 	}
+	// The world's text is written; what remains is the opening scene, which is a different wait for the table.
+	setPartyStage(ctx, d, gameID, "opening")
 	if !runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
 		return generateCampaignOpeningFrameStage(c, d, gameID, language)
 	}) {

@@ -23,6 +23,7 @@ func revertPartyLobbyPhaseOnly(ctx context.Context, coll *mongo.Collection, game
 	gs, _ := doc["gameSetup"].(map[string]interface{})
 	next := party.MergeParty(gs, map[string]interface{}{
 		"phase":          "lobby",
+		"stage":          "",
 		"lastStartError": strings.TrimSpace(errMsg)[:min(2000, len(strings.TrimSpace(errMsg)))],
 		"lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	})
@@ -36,6 +37,7 @@ func rollbackPartyStartAfterOpeningFailure(ctx context.Context, coll *mongo.Coll
 	gs, _ := doc["gameSetup"].(map[string]interface{})
 	next := party.MergeParty(gs, map[string]interface{}{
 		"phase":          "lobby",
+		"stage":          "",
 		"lastStartError": strings.TrimSpace(errMsg)[:min(2000, len(strings.TrimSpace(errMsg)))],
 		"lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	})
@@ -93,6 +95,28 @@ func adventureAlreadyStarted(doc map[string]interface{}) bool {
 	return false
 }
 
+// setPartyStage records which long step the lobby is on, so every open client can name the wait it is in instead of
+// showing one vague "starting". Only a table that is already starting has stages; a solo campaign must not gain a party
+// object it never had.
+func setPartyStage(ctx context.Context, d *Deps, gameID, stage string) {
+	if d == nil || d.Coll == nil || gameID == "" {
+		return
+	}
+	var doc map[string]interface{}
+	if err := d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc); err != nil {
+		return
+	}
+	p := party.GetParty(toMap(doc["gameSetup"]))
+	if ph, _ := p["phase"].(string); strings.TrimSpace(ph) != "starting" {
+		return
+	}
+	next := party.MergeParty(toMap(doc["gameSetup"]), map[string]interface{}{"stage": stage})
+	_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{"gameSetup": next}})
+	if d.Hub != nil {
+		d.Hub.NotifyGameStateUpdated(gameID)
+	}
+}
+
 // HandleStartPartyAdventure mirrors POST /start-party-adventure.
 func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, userID string, body map[string]interface{}) (status int, payload map[string]interface{}) {
 	gameID := strings.TrimSpace(fmt.Sprint(body["gameId"]))
@@ -146,11 +170,16 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		},
 	}, bson.M{"$set": bson.M{
 		"gameSetup.party.phase":          "starting",
+		"gameSetup.party.stage":          "world",
 		"gameSetup.party.lastStartError": nil,
 		"gameSetup.party.lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	}})
 	if err != nil {
 		return 500, map[string]interface{}{"error": err.Error()}
+	}
+	if hub != nil {
+		// Everyone still sees the lobby: say which long step it is on before the world pipeline holds the request.
+		hub.NotifyGameStateUpdated(gameID)
 	}
 	if res.MatchedCount == 0 {
 		var cur map[string]interface{}
@@ -289,6 +318,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 	gs3, _ := afterBoot["gameSetup"].(map[string]interface{})
 	playingSetup := party.MergeParty(gs3, map[string]interface{}{
 		"phase":          "playing",
+		"stage":          "",
 		"lastStartError": nil,
 		"lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	})
