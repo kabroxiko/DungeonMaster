@@ -252,7 +252,7 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		}
 		return 422, map[string]interface{}{
 			"error": "The model did not return valid JSON with a top-level playerCharacter object. Check server logs for a preview.",
-			"code": "INVALID_MODEL_JSON", "preview": preview, "previewLength": len(aiMessage),
+			"code":  "INVALID_MODEL_JSON", "preview": preview, "previewLength": len(aiMessage),
 		}
 	}
 	pcRaw, ok := parsed["playerCharacter"].(map[string]interface{})
@@ -377,7 +377,11 @@ func persistGeneratedCharacter(ctx context.Context, coll *mongo.Collection, hub 
 	nextSetup["language"] = langToSet
 	nextSetup["playerCharacters"] = nextMap
 	delete(nextSetup, "generatedCharacter")
-	nextSetup = party.MergeParty(nextSetup, map[string]interface{}{})
+	/* A stored sheet is the outcome the busy marker was announcing, so this player stops being busy here rather than
+	   waiting for the browser's own notice: a closed tab or a lost request would otherwise leave every row spinning. */
+	busyStamps := party.CharacterBusyUntil(party.GetParty(baseSetup))
+	delete(busyStamps, party.NormalizeUserIDString(uidStr))
+	nextSetup = party.MergeParty(nextSetup, map[string]interface{}{"characterBusyUntil": busyStamps})
 	var camp map[string]interface{}
 	if existing != nil {
 		camp, _ = existing["campaignSpec"].(map[string]interface{})
@@ -392,7 +396,8 @@ func persistGeneratedCharacter(ctx context.Context, coll *mongo.Collection, hub 
 	if existing != nil {
 		_, err = coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
 			fmt.Sprintf("gameSetup.playerCharacters.%s", uidStr): normalized,
-			"gameSetup.language": langToSet,
+			"gameSetup.language":                 langToSet,
+			"gameSetup.party.characterBusyUntil": busyStamps,
 		}, "$unset": bson.M{"gameSetup.generatedCharacter": ""}})
 		if err != nil {
 			return err

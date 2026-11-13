@@ -1271,6 +1271,9 @@ export default {
             /** True while a sheet is being rolled, from either the cell or the inline panel that it drives. */
             lobbyCellGenerating() {
                 if (this.lobbyRosterCreatePosting || this.lobbyRosterRegeneratePosting) return true;
+                /* The panel is the only source of the second kind of roll, so its last word stops counting the moment it
+                   leaves the screen; a destroyed panel cannot withdraw it. */
+                if (!this.showLobbyCharacterSetupPanel) return false;
                 const action = this.lobbyInlineBusyAction;
                 return action === 'character' || action === 'regenerate';
             },            /**
@@ -2429,6 +2432,9 @@ export default {
             /** Normal party lobby: after generate/regenerate, leave “edit character” so embedded sheet matches refresh. */
             onLobbyInlineAfterCharacterSaved() {
                 this.lobbyCharacterEditorOpen = false;
+                /* The roll that produced this sheet is over, so the row stops saying it is still running even if the
+                   panel's own report is late or never comes. */
+                this.lobbyInlineBusyAction = null;
             },
 
             /**
@@ -2440,17 +2446,25 @@ export default {
                     (this.$store.state.gameId && String(this.$store.state.gameId).trim()) ||
                     (this.$route.params.id ? String(this.$route.params.id).trim() : '');
                 if (!gid) return;
-                try {
-                    await axios.post('/api/game-state/party-character-busy', {
-                        gameId: gid,
-                        busy: busy === true,
+                /* Both notices are fire-and-forget and a roll can end quickly: chaining them keeps the last word last, so a
+                   slow “busy” can never land after the “done” that ended it and re-arm the marker for two minutes. */
+                this._lobbyBusyPublish = (this._lobbyBusyPublish || Promise.resolve())
+                    .catch(() => {})
+                    .then(() =>
+                        axios.post('/api/game-state/party-character-busy', {
+                            gameId: gid,
+                            busy: busy === true,
+                        })
+                    )
+                    .then(() => {
+                        /* The hub fans this out to everyone, including us: skip the reload it would otherwise trigger
+                           while the roll is still running. */
+                        this.lastGameStateLoadCompletedAt = Date.now();
+                    })
+                    .catch(() => {
+                        /* Best effort: the marker expires on its own, and the row works without it. */
                     });
-                    /* The hub fans this out to everyone, including us: skip the reload it would otherwise trigger while
-                       the roll is still running. */
-                    this.lastGameStateLoadCompletedAt = Date.now();
-                } catch (e) {
-                    /* Best effort: the marker expires on its own, and the row works without it. */
-                }
+                return this._lobbyBusyPublish;
             },
             logPartyLobbyDebug(reason) {
                 if (!this.partyLobbyDebugEnabled) return;

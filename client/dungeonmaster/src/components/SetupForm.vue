@@ -692,6 +692,8 @@
             if (this.lobbyInline) {
                 this.$emit('lobby-inline-wizard-hold', false);
                 this.$emit('lobby-inline-confirm-sheet', null);
+                /* Unmounting ends any roll this panel was reporting, and it cannot take that back once it is gone. */
+                this.$emit('lobby-inline-busy', null);
             }
             if (typeof this._unwatchGameId === 'function') {
                 this._unwatchGameId();
