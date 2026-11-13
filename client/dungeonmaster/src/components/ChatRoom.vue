@@ -29,62 +29,10 @@
                 </button>
             </div>
         </header>
-        <!-- One world for the table, so its progress belongs to the table rather than to any player's row. The quill
-             follows the island contour itself (animateMotion + mpath), so the shape is drawn as it travels. -->
+        <!-- One world for the table, so its progress belongs to the table rather than to any player's row. The animation
+             is a decorative asset, so it lives in CSS as the art box's background and stays out of the a11y tree. -->
         <section v-if="partyGeneratingWorld" class="party-lobby__world" role="status" aria-live="polite">
-            <div class="party-lobby__world-art" aria-hidden="true">
-                <svg class="party-lobby__world-svg" viewBox="0 0 240 96">
-                    <defs>
-                        <path
-                            id="party-lobby-island"
-                            d="M64 44 Q 78 32 96 34 Q 114 30 128 38 L 150 30 Q 166 32 170 44 Q 176 56 160 58 L 140 54 Q 132 62 138 70 Q 126 74 118 64 L 108 52 Q 94 60 82 54 Q 70 56 64 44 Z"
-                        />
-                    </defs>
-                    <!-- Open water, two islets and a third rock: what turns the outline into an island rather than a shape. -->
-                    <path
-                        class="party-lobby__world-sea"
-                        d="M26 22 q 6 -3 12 0 q 6 3 12 0 M32 33 q 5 -2.5 10 0 q 5 2.5 10 0 M182 76 q 6 -3 12 0 q 6 3 12 0 M42 76 q 5 -2.5 10 0 q 5 2.5 10 0"
-                    />
-                    <path class="party-lobby__world-islet" d="M30 46 q 6 -5 11 0 q 4 5 -4 6 q -8 1 -7 -6 Z" />
-                    <path class="party-lobby__world-islet" d="M194 58 q 5 -4 9 0 q 3 5 -3 5 q -7 0 -6 -5 Z" />
-                    <path class="party-lobby__world-islet" d="M190 26 q 4 -3 7 0 q 2 4 -2 4 q -6 0 -5 -4 Z" />
-                    <!-- A ridge and the river running from it into the bay: inland detail that appears once the coast closes. -->
-                    <path class="party-lobby__world-mark" d="M94 46 l 7 -9 l 7 9" />
-                    <path class="party-lobby__world-mark" d="M101 37 C 108 40, 114 45, 120 48 C 124 50, 127 51, 129 52" />
-                    <use class="party-lobby__world-coast" href="#party-lobby-island" />
-                    <!-- The quill keeps its own angle while it slides along the coast (a hand does not spin the pen), and its
-                         nib stays on the point the coast is being drawn at, because animateMotion moves the group origin. -->
-                    <g class="party-lobby__world-quill">
-                        <animateMotion
-                            dur="6s"
-                            repeatCount="indefinite"
-                            keyPoints="0;1;1"
-                            keyTimes="0;0.66;1"
-                            calcMode="linear"
-                        >
-                            <mpath href="#party-lobby-island" />
-                        </animateMotion>
-                        <animate
-                            attributeName="opacity"
-                            values="0;1;1;0;0"
-                            keyTimes="0;0.05;0.62;0.72;1"
-                            dur="6s"
-                            repeatCount="indefinite"
-                        />
-                        <g transform="rotate(-145)">
-                            <path
-                                class="party-lobby__world-shaft"
-                                d="M0 0 Q 30 0 58 -2"
-                            />
-                            <path
-                                class="party-lobby__world-vane"
-                                d="M10 0 C 16 -5, 30 -7, 44 -4 L 55 -2 C 44 2, 28 6, 14 3 Z"
-                            />
-                            <path class="party-lobby__world-barbs" d="M18 -1 L24 -5 M26 0 L32 -5.5 M34 -1 L40 -5 M18 1 L24 4.5 M26 2 L32 5.5" />
-                        </g>
-                    </g>
-                </svg>
-            </div>
+            <div class="party-lobby__world-art" aria-hidden="true"></div>
             <div class="party-lobby__world-copy">
                 <p class="party-lobby__world-title">{{ $i18n.lobby_generating_world }}</p>
                 <p class="party-lobby__world-hint">{{ $i18n.lobby_generating_world_hint }}</p>
@@ -3815,120 +3763,13 @@ export default {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* Fixed size, so the drawing's own coordinates are also its on-screen pixels. */
+  /* The animation is 420x240, so the box keeps that ratio: 192x110 shows the island and the quill at a readable size. */
   .party-lobby__world-art {
     flex: 0 0 auto;
-    width: 240px;
-    height: 96px;
-  }
-
-  .party-lobby__world-svg {
-    width: 240px;
-    height: 96px;
-    overflow: visible;
-  }
-
-  /* The island: an outline traced once per cycle (its path measures ~265 units), then held long enough to be read.
-     The fill cannot follow a dash offset, so it stays clear until the coast has closed. */
-  .party-lobby__world-coast {
-    fill: rgba(240, 223, 168, 0.14);
-    stroke: rgba(240, 223, 168, 0.95);
-    stroke-width: 1.5;
-    stroke-linejoin: round;
-    stroke-linecap: round;
-    stroke-dasharray: 270;
-    stroke-dashoffset: 270;
-    animation: party-lobby-draw 6s ease-in-out infinite;
-  }
-
-  /* Open water: present from the start, so the shape under the quill is already at sea. */
-  .party-lobby__world-sea {
-    fill: none;
-    stroke: rgba(240, 223, 168, 0.34);
-    stroke-width: 0.9;
-    stroke-linecap: round;
-  }
-
-  /* Smaller neighbours, which appear with the inland detail and make the outline read as one island among others. */
-  .party-lobby__world-islet {
-    fill: rgba(240, 223, 168, 0.11);
-    stroke: rgba(240, 223, 168, 0.62);
-    stroke-width: 1.1;
-    stroke-linejoin: round;
-    opacity: 0;
-    animation: party-lobby-mark 6s ease-in-out infinite;
-  }
-
-  /* A ridge, a lake and its river: inland details that appear once the coast has closed. */
-  .party-lobby__world-mark {
-    fill: none;
-    stroke: rgba(240, 223, 168, 0.55);
-    stroke-width: 1;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    opacity: 0;
-    animation: party-lobby-mark 6s ease-in-out infinite;
-  }
-
-  /* The quill: a shaft, a filled vane and a few barbs. All three are needed — shaft and vane alone read as a leaf. */
-  .party-lobby__world-shaft,
-  .party-lobby__world-barbs {
-    fill: none;
-    stroke: var(--gm-gold-bright, #f0dfa8);
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .party-lobby__world-shaft {
-    stroke-width: 1.2;
-  }
-
-  .party-lobby__world-barbs {
-    stroke-width: 0.8;
-  }
-
-  .party-lobby__world-vane {
-    fill: var(--gm-gold-bright, #f0dfa8);
-  }
-
-  @keyframes party-lobby-draw {
-    0% {
-      stroke-dashoffset: 270;
-      opacity: 1;
-      fill-opacity: 0;
-    }
-    58% {
-      fill-opacity: 0;
-    }
-    66% {
-      stroke-dashoffset: 0;
-      opacity: 1;
-      fill-opacity: 1;
-    }
-    88% {
-      stroke-dashoffset: 0;
-      opacity: 1;
-      fill-opacity: 1;
-    }
-    100% {
-      stroke-dashoffset: 0;
-      opacity: 0;
-      fill-opacity: 0;
-    }
-  }
-
-  @keyframes party-lobby-mark {
-    0%,
-    60% {
-      opacity: 0;
-    }
-    70%,
-    88% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+    width: 192px;
+    height: 110px;
+    border-radius: 8px;
+    background: url('../assets/world-quill.webp') center / contain no-repeat;
   }
 
   .party-lobby__world-copy {
@@ -3957,18 +3798,9 @@ export default {
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .party-lobby__world-coast {
-      animation: none;
-      stroke-dashoffset: 0;
-      fill-opacity: 1;
-    }
-    .party-lobby__world-islet,
-    .party-lobby__world-mark {
-      animation: none;
-      opacity: 1;
-    }
-    /* SMIL cannot be switched off from CSS, so the travelling quill is simply not shown. */
-    .party-lobby__world-quill {
+    /* An animated webp cannot be paused from CSS, and a frozen frame of a drawing is just a picture, so the banner
+       keeps its words and drops the art. */
+    .party-lobby__world-art {
       display: none;
     }
   }
