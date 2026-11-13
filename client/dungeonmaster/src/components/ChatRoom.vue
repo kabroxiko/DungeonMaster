@@ -111,11 +111,6 @@
                                             {{ $i18n.lobby_saving_ready_then_start }}
                                         </span>
                                         <span v-else class="party-lobby__roster-ready-btn__inner">
-                                            <FontAwesomeIcon
-                                                :icon="faCircleCheck"
-                                                class="party-lobby__badge-icon"
-                                                aria-hidden="true"
-                                            />
                                             {{ $i18n.lobby_roster_ready_short }}
                                         </span>
                                     </UIButton>
@@ -3548,8 +3543,9 @@ export default {
   .party-lobby {
     --party-lobby-gutter: 12px;
     /* One status column for every row and every state: the cell owns a fixed width, so no label, chip or alert can
-       resize it (or push the identity column around) between states. */
-    --party-lobby-status-width: 16rem;
+       resize it (or push the identity column around) between states. Kept to the chip width the states were designed
+       around — two chips split it, one chip or badge spans it. */
+    --party-lobby-status-width: 12rem;
     /* Match .app-layout-root / .app-banner column (theme.css). */
     --party-lobby-max: 100%;
     width: 100%;
