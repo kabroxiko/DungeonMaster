@@ -69,23 +69,29 @@
                                     v-if="row.hasSheet && showLobbyRosterRegenerate"
                                     type="button"
                                     class="party-lobby__roster-regenerate-btn"
-                                    :disabled="lobbyRosterConfirmPosting"
+                                    :disabled="lobbyRosterConfirmPosting || lobbyRosterRegeneratePosting"
+                                    :aria-busy="lobbyRosterRegeneratePosting ? 'true' : 'false'"
                                     :aria-label="$i18n.regenerate_character"
                                     @click="triggerLobbyRegenerate"
                                 >
-                                    {{ $i18n.lobby_roster_regenerate_short }}
+                                    <span v-if="lobbyRosterRegeneratePosting" class="party-lobby__roster-ready-btn__busy">
+                                        <span class="party-lobby__spin" aria-hidden="true"></span>
+                                        {{ $i18n.generating_character }}
+                                    </span>
+                                    <span v-else>{{ $i18n.lobby_roster_regenerate_short }}</span>
                                 </UIButton>
                                 <UIButton
                                     v-if="row.hasSheet"
                                     class="party-lobby__roster-ready-btn"
-                                    :disabled="lobbyRosterConfirmPosting"
+                                    :disabled="lobbyRosterConfirmPosting || lobbyRosterRegeneratePosting"
                                     :aria-busy="lobbyRosterConfirmPosting ? 'true' : 'false'"
                                     :aria-label="$i18n.lobby_roster_ready_aria"
                                     @click="confirmReadyFromRosterCell"
                                 >
-                                    <span v-if="lobbyRosterConfirmPosting" class="party-lobby__roster-ready-btn__busy">{{
-                                        $i18n.lobby_saving_ready_then_start
-                                    }}</span>
+                                    <span v-if="lobbyRosterConfirmPosting" class="party-lobby__roster-ready-btn__busy">
+                                        <span class="party-lobby__spin" aria-hidden="true"></span>
+                                        {{ $i18n.lobby_saving_ready_then_start }}
+                                    </span>
                                     <span v-else class="party-lobby__roster-ready-btn__inner">
                                         <FontAwesomeIcon
                                             :icon="faCircleCheck"
@@ -117,11 +123,7 @@
                                 role="status"
                                 aria-live="polite"
                             >
-                                <FontAwesomeIcon
-                                    :icon="faHourglassHalf"
-                                    class="party-lobby__badge-icon"
-                                    aria-hidden="true"
-                                />
+                                <span class="party-lobby__spin" aria-hidden="true"></span>
                                 <span>{{ $i18n.lobby_starting }}</span>
                             </span>
                             <span v-else class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok">
@@ -648,6 +650,8 @@ export default {
                 /** From GET /game-state/load: Mongo user id string → trimmed nickname (lobby roster). */
                 memberNicknamesByUserId: {},
                 lobbyRosterConfirmPosting: false,
+                /** The roster cell's Regenerate is rolling a sheet; the cell is the only place that reports it. */
+                lobbyRosterRegeneratePosting: false,
                 /** Guards the retry control while a failed lobby start is being repeated. */
                 lobbyRetryPosting: false,
                 /** Synced from SetupForm on the inline confirm step — roster cannot rely on Vuex alone. */
@@ -1649,14 +1653,22 @@ export default {
              * regenerate, so the sheet being reviewed is what gets replaced; otherwise it opens the character flow.
              */
             async triggerLobbyRegenerate() {
+                if (this.lobbyRosterRegeneratePosting) return;
                 const setup = this.$refs.lobbyInlineSetup;
-                if (setup && setup.setupPhase === 'confirm_character' && typeof setup.regenerateCharacter === 'function') {
-                    /* The inline step owns the button state, so its own busy guard is what stops a second roll. */
-                    if (setup.isStarting || setup.setupBusyAction) return;
-                    await setup.regenerateCharacter();
-                    return;
+                const ownsInlineConfirmStep =
+                    setup && setup.setupPhase === 'confirm_character' && typeof setup.regenerateCharacter === 'function';
+                /* The inline step owns the button state, so its own busy guard is what stops a second roll. */
+                if (ownsInlineConfirmStep && (setup.isStarting || setup.setupBusyAction)) return;
+                this.lobbyRosterRegeneratePosting = true;
+                try {
+                    if (ownsInlineConfirmStep) {
+                        await setup.regenerateCharacter();
+                        return;
+                    }
+                    this.openLobbyCharacterEditor();
+                } finally {
+                    this.lobbyRosterRegeneratePosting = false;
                 }
-                this.openLobbyCharacterEditor();
             },
             /**
              * Passed to inline SetupForm: after /generate-character persists, run the same GET /load as a full refresh
@@ -3651,24 +3663,30 @@ export default {
   .party-lobby__ready-actions {
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
+    /* Regenerate + Ready to play share one line: a second line would make the row taller than its badge state. */
+    flex-wrap: nowrap;
     align-items: stretch;
     justify-content: flex-end;
     gap: 0.35rem 0.45rem;
-    width: auto;
+    width: 100%;
     max-width: 100%;
     margin-left: auto;
     box-sizing: border-box;
+  }
+
+  /* Alone, a chip keeps the column's chip width; alongside another it shrinks so both fit on one line. */
+  .party-lobby__ready-actions > :only-child {
+    min-width: var(--party-lobby-roster-cta-width);
   }
 
   .party-lobby__roster-ready-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: var(--party-lobby-roster-cta-width);
-    min-width: var(--party-lobby-roster-cta-width);
+    width: auto;
+    min-width: 0;
     max-width: var(--party-lobby-roster-cta-width);
-    flex: 0 0 var(--party-lobby-roster-cta-width);
+    flex: 0 1 auto;
     min-height: 2.2rem;
     box-sizing: border-box;
     font-size: 0.68rem;
@@ -3682,10 +3700,10 @@ export default {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: var(--party-lobby-roster-cta-width);
-    min-width: var(--party-lobby-roster-cta-width);
+    width: auto;
+    min-width: 0;
     max-width: var(--party-lobby-roster-cta-width);
-    flex: 0 0 var(--party-lobby-roster-cta-width);
+    flex: 0 1 auto;
     min-height: 2.2rem;
     box-sizing: border-box;
     font-size: 0.66rem;
@@ -3787,11 +3805,30 @@ export default {
     text-align: center;
     border: 1px solid transparent;
     min-height: 2.2rem;
-    width: var(--party-lobby-roster-cta-width);
+    /* Grows for a longer label instead of wrapping to a second line, so the row keeps one height. */
+    width: auto;
     min-width: var(--party-lobby-roster-cta-width);
-    max-width: var(--party-lobby-roster-cta-width);
-    flex: 0 0 var(--party-lobby-roster-cta-width);
+    max-width: 100%;
+    flex: 0 1 auto;
     box-sizing: border-box;
+  }
+
+  /* Same busy ring the setup buttons use, for the states that now report from the roster cell. */
+  .party-lobby__spin {
+    width: 0.85em;
+    height: 0.85em;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: party-lobby-spin 0.7s linear infinite;
+  }
+
+  @keyframes party-lobby-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .party-lobby__badge-icon {
