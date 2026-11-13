@@ -111,6 +111,11 @@
                                             {{ $i18n.lobby_saving_ready_then_start }}
                                         </span>
                                         <span v-else class="party-lobby__roster-ready-btn__inner">
+                                            <FontAwesomeIcon
+                                                :icon="faCircleCheck"
+                                                class="party-lobby__badge-icon"
+                                                aria-hidden="true"
+                                            />
                                             {{ $i18n.lobby_roster_ready_short }}
                                         </span>
                                     </UIButton>
@@ -3542,9 +3547,8 @@ export default {
 
   .party-lobby {
     --party-lobby-gutter: 12px;
-    /* One status column for every row and every state: the cell owns a fixed width, so no label, chip or alert can
-       resize it (or push the identity column around) between states. Kept to the chip width the states were designed
-       around — two chips split it, one chip or badge spans it. */
+    /* Every state's chip or badge is this wide, and the status cell is only as wide as its contents: the two-chip
+       actions are wider than a badge, and nothing is padded out to a shared width. */
     --party-lobby-status-width: 12rem;
     /* Match .app-layout-root / .app-banner column (theme.css). */
     --party-lobby-max: 100%;
@@ -3691,10 +3695,10 @@ export default {
     box-shadow: none;
   }
 
-  /* Avatar | player | ready (single status column) */
+  /* Avatar | player | ready (status cell hugs its contents) */
   .party-lobby__item {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) var(--party-lobby-status-width);
+    grid-template-columns: 44px minmax(0, 1fr) auto;
     column-gap: 10px;
     row-gap: 6px;
     align-items: center;
@@ -3711,7 +3715,7 @@ export default {
     align-items: center;
   }
 
-  /* The sole chip in a state fills the column; two chips split it evenly, so the cell never changes size. */
+  /* The state's own chips set the cell's width: one chip is one chip wide, two chips sit side by side. */
   .party-lobby__ready-actions {
     display: flex;
     flex-direction: row;
@@ -3720,7 +3724,7 @@ export default {
     align-items: stretch;
     justify-content: flex-end;
     gap: 0.35rem 0.45rem;
-    width: 100%;
+    width: auto;
     max-width: 100%;
     margin-left: auto;
     box-sizing: border-box;
@@ -3730,10 +3734,10 @@ export default {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: auto;
+    width: var(--party-lobby-status-width);
     min-width: 0;
     max-width: 100%;
-    flex: 1 1 0;
+    flex: 0 0 auto;
     min-height: 2.2rem;
     box-sizing: border-box;
     font-size: 0.68rem;
@@ -3747,10 +3751,10 @@ export default {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: auto;
+    width: var(--party-lobby-status-width);
     min-width: 0;
     max-width: 100%;
-    flex: 1 1 0;
+    flex: 0 0 auto;
     min-height: 2.2rem;
     box-sizing: border-box;
     font-size: 0.66rem;
@@ -3837,11 +3841,11 @@ export default {
     text-align: center;
     border: 1px solid transparent;
     min-height: 2.2rem;
-    /* The cell's full width, whatever the label: a longer state must not widen the column. */
-    width: 100%;
-    min-width: 0;
+    /* One chip wide by default; a longer label takes the room it needs instead of wrapping. */
+    width: auto;
+    min-width: var(--party-lobby-status-width);
     max-width: 100%;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     box-sizing: border-box;
   }
 
