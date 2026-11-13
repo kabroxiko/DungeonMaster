@@ -3763,13 +3763,15 @@ export default {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* The animation is 420x240, so the box keeps that ratio: 192x110 shows the island and the quill at a readable size. */
+  /* The animation is a 420x240, 15-second APNG with a transparent background, so the box keeps its 7:4 ratio and supplies
+     the paper the black quill is drawn on. */
   .party-lobby__world-art {
     flex: 0 0 auto;
     width: 192px;
     height: 110px;
     border-radius: 8px;
-    background: url('../assets/world-quill.webp') center / contain no-repeat;
+    border: 1px solid rgba(212, 180, 106, 0.35);
+    background: #f8f3e7 url('../assets/world-quill.png') center / contain no-repeat;
   }
 
   .party-lobby__world-copy {
@@ -3798,7 +3800,7 @@ export default {
   }
 
   @media (prefers-reduced-motion: reduce) {
-    /* An animated webp cannot be paused from CSS, and a frozen frame of a drawing is just a picture, so the banner
+    /* An animated PNG cannot be paused from CSS, and a frozen frame of a drawing is just a picture, so the banner
        keeps its words and drops the art. */
     .party-lobby__world-art {
       display: none;
