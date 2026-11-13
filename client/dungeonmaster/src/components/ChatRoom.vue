@@ -45,7 +45,6 @@
                     v-for="row in lobbyMemberRows"
                     :key="row.id"
                     class="party-lobby__item"
-                    :class="{ 'party-lobby__item--alert': row.isYou && lastStartError }"
                 >
                     <span
                         class="party-lobby__avatar"
@@ -3548,8 +3547,9 @@ export default {
 
   .party-lobby {
     --party-lobby-gutter: 12px;
-    /* Roster CTAs + status chips: one width (matches primary “Ready to play” / ES “Listo para jugar”). */
-    --party-lobby-roster-cta-width: 12rem;
+    /* One status column for every row and every state: the cell owns a fixed width, so no label, chip or alert can
+       resize it (or push the identity column around) between states. */
+    --party-lobby-status-width: 16rem;
     /* Match .app-layout-root / .app-banner column (theme.css). */
     --party-lobby-max: 100%;
     width: 100%;
@@ -3698,7 +3698,7 @@ export default {
   /* Avatar | player | ready (single status column) */
   .party-lobby__item {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) minmax(10.5rem, 1.25fr);
+    grid-template-columns: 44px minmax(0, 1fr) var(--party-lobby-status-width);
     column-gap: 10px;
     row-gap: 6px;
     align-items: center;
@@ -3708,11 +3708,6 @@ export default {
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  /* A row carrying the start failure gives its status column the room the message needs. */
-  .party-lobby__item--alert {
-    grid-template-columns: 44px minmax(0, 1fr) minmax(16rem, 1.6fr);
-  }
-
   .party-lobby__ready-cell {
     min-width: 0;
     display: flex;
@@ -3720,10 +3715,11 @@ export default {
     align-items: center;
   }
 
+  /* The sole chip in a state fills the column; two chips split it evenly, so the cell never changes size. */
   .party-lobby__ready-actions {
     display: flex;
     flex-direction: row;
-    /* Regenerate + Ready to play share one line: a second line would make the row taller than its badge state. */
+    /* One line only: a second line would make the row taller than its single-chip states. */
     flex-wrap: nowrap;
     align-items: stretch;
     justify-content: flex-end;
@@ -3734,19 +3730,14 @@ export default {
     box-sizing: border-box;
   }
 
-  /* Alone, a chip keeps the column's chip width; alongside another it shrinks so both fit on one line. */
-  .party-lobby__ready-actions > :only-child {
-    min-width: var(--party-lobby-roster-cta-width);
-  }
-
   .party-lobby__roster-ready-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: auto;
     min-width: 0;
-    max-width: var(--party-lobby-roster-cta-width);
-    flex: 0 1 auto;
+    max-width: 100%;
+    flex: 1 1 0;
     min-height: 2.2rem;
     box-sizing: border-box;
     font-size: 0.68rem;
@@ -3762,8 +3753,8 @@ export default {
     justify-content: center;
     width: auto;
     min-width: 0;
-    max-width: var(--party-lobby-roster-cta-width);
-    flex: 0 1 auto;
+    max-width: 100%;
+    flex: 1 1 0;
     min-height: 2.2rem;
     box-sizing: border-box;
     font-size: 0.66rem;
@@ -3850,11 +3841,11 @@ export default {
     text-align: center;
     border: 1px solid transparent;
     min-height: 2.2rem;
-    /* Grows for a longer label instead of wrapping to a second line, so the row keeps one height. */
-    width: auto;
-    min-width: var(--party-lobby-roster-cta-width);
+    /* The cell's full width, whatever the label: a longer state must not widen the column. */
+    width: 100%;
+    min-width: 0;
     max-width: 100%;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     box-sizing: border-box;
   }
 
@@ -3998,9 +3989,7 @@ export default {
   }
 
   @media (max-width: 560px) {
-    /* The alert row keeps the two-column mobile stack: its wider desktop column would overflow here. */
-    .party-lobby__item,
-    .party-lobby__item--alert {
+    .party-lobby__item {
       grid-template-columns: 44px 1fr;
       grid-template-rows: auto auto;
     }
