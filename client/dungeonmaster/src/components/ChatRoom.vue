@@ -29,7 +29,6 @@
                 </button>
             </div>
         </header>
-        <p v-if="lobbyError" class="party-lobby__err" role="alert">{{ lobbyError }}</p>
         <details v-if="partyLobbyDebugEnabled" class="party-lobby__debug" open>
             <summary class="party-lobby__debug-summary">Party lobby debug</summary>
             <p class="party-lobby__debug-hint">
@@ -42,7 +41,12 @@
         <section v-if="lobbyMemberRows.length" class="party-lobby__roster" aria-labelledby="party-lobby-roster-title">
             <h3 id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
             <ul class="party-lobby__list">
-                <li v-for="row in lobbyMemberRows" :key="row.id" class="party-lobby__item">
+                <li
+                    v-for="row in lobbyMemberRows"
+                    :key="row.id"
+                    class="party-lobby__item"
+                    :class="{ 'party-lobby__item--alert': row.isYou && lastStartError }"
+                >
                     <span
                         class="party-lobby__avatar"
                         :class="{ 'party-lobby__avatar--two': row.initial.length > 1 }"
@@ -52,15 +56,22 @@
                         <span class="party-lobby__name">{{ row.display }}</span>
                         <span v-if="row.detailsLine" class="party-lobby__meta">{{ row.detailsLine }}</span>
                     </div>
+                    <!-- One slot per row, and the viewer's own slot owns everything about their lobby state:
+                         regenerate, ready / starting, and the start failure with its retry. Nothing about the viewer's
+                         party status belongs anywhere else on the page. -->
                     <div class="party-lobby__ready-cell">
-                        <template v-if="row.isYou && !row.isReady && !partyLobbyRosterOwnRowFrozen">
-                            <div class="party-lobby__ready-actions">
+                        <div v-if="row.isYou" class="party-lobby__ready-stack">
+                            <div
+                                v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen"
+                                class="party-lobby__ready-actions"
+                            >
                                 <UIButton
-                                    v-if="showLobbyCharacterEditCta"
+                                    v-if="row.hasSheet && showLobbyRosterRegenerate"
                                     type="button"
                                     class="party-lobby__roster-regenerate-btn"
+                                    :disabled="lobbyRosterConfirmPosting"
                                     :aria-label="$i18n.regenerate_character"
-                                    @click="openLobbyCharacterEditor"
+                                    @click="triggerLobbyRegenerate"
                                 >
                                     {{ $i18n.lobby_roster_regenerate_short }}
                                 </UIButton>
@@ -100,7 +111,43 @@
                                     </span>
                                 </UIButton>
                             </div>
-                        </template>
+                            <span
+                                v-else-if="partyPhase === 'starting'"
+                                class="party-lobby__badge party-lobby__badge--starting"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <FontAwesomeIcon
+                                    :icon="faHourglassHalf"
+                                    class="party-lobby__badge-icon"
+                                    aria-hidden="true"
+                                />
+                                <span>{{ $i18n.lobby_starting }}</span>
+                            </span>
+                            <span v-else class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok">
+                                <FontAwesomeIcon
+                                    :icon="faCircleCheck"
+                                    class="party-lobby__badge-icon"
+                                    aria-hidden="true"
+                                />
+                                <span>{{ $i18n.lobby_ready_confirmed }}</span>
+                            </span>
+                            <!-- Deliberately not gated on partyLobbyActionsFrozen: a failed start leaves everyone marked
+                                 ready (that is why it was attempted), so that flag is true exactly when this is needed. -->
+                            <div v-if="lastStartError" class="party-lobby__alert" role="alert">
+                                <span class="party-lobby__alert-text">
+                                    {{ $i18n.lobby_last_error }}: {{ lastStartError }}
+                                </span>
+                                <UIButton
+                                    class="party-lobby__retry-btn"
+                                    :aria-label="$i18n.lobby_retry_start"
+                                    :disabled="lobbyRetryPosting || partyPhase === 'starting'"
+                                    @click="retryPartyStart"
+                                >
+                                    {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
+                                </UIButton>
+                            </div>
+                        </div>
                         <span
                             v-else
                             class="party-lobby__badge party-lobby__badge--ready"
@@ -134,19 +181,6 @@
                 @lobby-inline-after-character-saved="onLobbyInlineAfterCharacterSaved"
             />
         </section>
-        <div v-if="lastStartError" class="party-lobby__warn party-lobby__warn--retry">
-            <span class="party-lobby__warn-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
-            <!-- Deliberately not gated on partyLobbyActionsFrozen: a failed start leaves everyone marked ready (that is
-                 why it was attempted), so that flag is true exactly when this control is needed. -->
-            <UIButton
-                class="party-lobby__retry-btn"
-                :aria-label="$i18n.lobby_retry_start"
-                :disabled="lobbyRetryPosting || partyPhase === 'starting'"
-                @click="retryPartyStart"
-            >
-                {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
-            </UIButton>
-        </div>
         <!-- In-flow sheet (embedded): uses theme .floating-card--embedded width:100% — avoids fixed FAB 492px cap. -->
         <section
             v-if="showPartyLobbyEmbeddedCharacterSheet"
@@ -597,8 +631,6 @@ export default {
                 inviteToastMessage: '',
                 inviteToastVariant: 'success',
                 inviteToastTimer: null,
-                /** The lobby start notice must not time out; it is hidden when the party phase leaves 'starting'. */
-                lobbyStartingNoticeSticky: false,
                 inviteLoading: false,
                 /** Poll load while server may still be finishing /generate (backup if SSE misses). */
                 pendingReplyPollTimer: null,
@@ -626,7 +658,6 @@ export default {
                  * saved sheet, show sheet-only (refresh) without requiring sessionStorage or party.readyUserIds.
                  */
                 lobbyInlineWizardHold: false,
-                lobbyError: '',
                 lobbyStartingPollTimer: null,
                 /** Multiplayer: this client submitted; DM runs only after every member acts. */
                 partyRoundWaitingOthers: false,
@@ -1163,14 +1194,12 @@ export default {
                 if (this.lobbyCharacterEditorOpen) return true;
                 return !this.lobbyCharacterFlowDoneForGame;
             },
-            showLobbyCharacterEditCta() {
-                if (
-                    !this.isPartyLobby ||
-                    !this.lobbyCharacterFlowDoneForGame ||
-                    this.lobbyCharacterEditorOpen
-                ) {
-                    return false;
-                }
+            /**
+             * Roster regenerate is the only regenerate control in the lobby: it sits in the viewer's ready cell, so it
+             * must stay available while the inline confirm step is open (that step no longer carries its own button).
+             */
+            showLobbyRosterRegenerate() {
+                if (!this.isPartyLobby) return false;
                 if (this.partyLobbyActionsFrozen) return false;
                 if (this.viewerLobbyMarkedReady) return false;
                 return true;
@@ -1309,9 +1338,9 @@ export default {
                 immediate: true,
                 handler(ph) {
                     if (ph === 'starting') {
-                        /* start-party-adventure answers only once the opening scene is written, so this notice stays
-                         * up until the phase leaves 'starting' instead of timing out mid-wait. */
-                        this.showInviteToast(this.$i18n.lobby_starting, 'success', 0);
+                        /* The viewer's roster cell shows "Starting the adventure…" for as long as the phase holds, so
+                         * this branch only keeps the fallback poll alive. start-party-adventure answers once the
+                         * opening scene is written, and the cell stays on that label until the phase changes. */
                         if (this.lobbyStartingPollTimer) clearInterval(this.lobbyStartingPollTimer);
                         this.lobbyStartingPollTimer = null;
                         /* SSE delivers game-state-updated; poll only if push is down (rare safety). */
@@ -1330,10 +1359,6 @@ export default {
                             }
                         }, lobbyPollMs);
                     } else {
-                        if (this.lobbyStartingNoticeSticky) {
-                            this.lobbyStartingNoticeSticky = false;
-                            this.hideInviteToast();
-                        }
                         if (this.lobbyStartingPollTimer) {
                             clearInterval(this.lobbyStartingPollTimer);
                             this.lobbyStartingPollTimer = null;
@@ -1618,6 +1643,20 @@ export default {
                 }
                 this.lobbyInlineWizardHold = true;
                 this.lobbyCharacterEditorOpen = true;
+            },
+            /**
+             * The roster cell's Regenerate button. While the inline confirm step is on screen it runs that step's own
+             * regenerate, so the sheet being reviewed is what gets replaced; otherwise it opens the character flow.
+             */
+            async triggerLobbyRegenerate() {
+                const setup = this.$refs.lobbyInlineSetup;
+                if (setup && setup.setupPhase === 'confirm_character' && typeof setup.regenerateCharacter === 'function') {
+                    /* The inline step owns the button state, so its own busy guard is what stops a second roll. */
+                    if (setup.isStarting || setup.setupBusyAction) return;
+                    await setup.regenerateCharacter();
+                    return;
+                }
+                this.openLobbyCharacterEditor();
             },
             /**
              * Passed to inline SetupForm: after /generate-character persists, run the same GET /load as a full refresh
@@ -2162,8 +2201,8 @@ export default {
                 }
             },
             /**
-             * Shows a toast. A positive duration hides it on its own; durationMs = 0 keeps it up until the next toast
-             * or hideInviteToast(), which is what the lobby start uses while the server is still writing the opening.
+             * Shows a toast that hides itself after the given duration. Nothing in the lobby depends on it staying up:
+             * the party start reports through the viewer's roster cell, not through a floating notice.
              */
             showInviteToast(message, variant = 'success', durationMs = 3200) {
                 if (this.inviteToastTimer) {
@@ -2173,20 +2212,11 @@ export default {
                 this.inviteToastMessage = message;
                 this.inviteToastVariant = variant;
                 this.inviteToastVisible = true;
-                this.lobbyStartingNoticeSticky = durationMs === 0;
-                if (durationMs === 0) return;
                 const ms = typeof durationMs === 'number' && durationMs > 0 ? durationMs : 3200;
                 this.inviteToastTimer = setTimeout(() => {
                     this.inviteToastVisible = false;
                     this.inviteToastTimer = null;
                 }, ms);
-            },
-            hideInviteToast() {
-                if (this.inviteToastTimer) {
-                    clearTimeout(this.inviteToastTimer);
-                    this.inviteToastTimer = null;
-                }
-                this.inviteToastVisible = false;
             },
             flushSessionChatToast() {
                 try {
@@ -3517,18 +3547,6 @@ export default {
     margin-top: 0.15rem;
   }
 
-  .party-lobby__err {
-    width: 100%;
-    box-sizing: border-box;
-    margin: 0;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(180, 60, 50, 0.2);
-    border: 1px solid rgba(255, 140, 120, 0.35);
-    color: #ffc9c0;
-    font-size: 0.92rem;
-  }
-
   .party-lobby__debug {
     width: 100%;
     box-sizing: border-box;
@@ -3616,6 +3634,11 @@ export default {
     border-radius: 10px;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* A row carrying the start failure gives its status column the room the message needs. */
+  .party-lobby__item--alert {
+    grid-template-columns: 44px minmax(0, 1fr) minmax(16rem, 1.6fr);
   }
 
   .party-lobby__ready-cell {
@@ -3790,25 +3813,43 @@ export default {
     color: var(--gm-muted, #9a8f85);
   }
 
-  .party-lobby__warn {
-    width: 100%;
-    box-sizing: border-box;
-    margin: 0;
-    font-size: 0.85rem;
-    opacity: 0.9;
-    color: #f0c674;
+  .party-lobby__badge--starting {
+    background: rgba(212, 180, 106, 0.16);
+    border-color: rgba(212, 180, 106, 0.4);
+    color: var(--gm-gold-bright, #f0dfa8);
   }
 
-  /* The failure message and its retry control share a row, wrapping on narrow screens. */
-  .party-lobby__warn--retry {
+  /* The viewer's own cell stacks regenerate + ready/starting and, below them, any start failure. */
+  .party-lobby__ready-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .party-lobby__alert {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem 0.75rem;
+    justify-content: flex-end;
+    gap: 0.35rem 0.5rem;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.45rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 140, 120, 0.42);
+    background: rgba(44, 26, 24, 0.92);
+    color: #ffd4ce;
+    font-size: 0.7rem;
+    line-height: 1.3;
+    text-align: start;
   }
 
-  .party-lobby__warn-text {
-    flex: 1 1 16rem;
+  .party-lobby__alert-text {
+    flex: 1 1 100%;
     min-width: 0;
   }
 
@@ -3875,7 +3916,9 @@ export default {
   }
 
   @media (max-width: 560px) {
-    .party-lobby__item {
+    /* The alert row keeps the two-column mobile stack: its wider desktop column would overflow here. */
+    .party-lobby__item,
+    .party-lobby__item--alert {
       grid-template-columns: 44px 1fr;
       grid-template-rows: auto auto;
     }

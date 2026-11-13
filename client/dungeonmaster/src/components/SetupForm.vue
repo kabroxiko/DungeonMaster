@@ -71,6 +71,7 @@
                   <span v-else>{{ $i18n.confirm_character_mark_ready }}</span>
                 </button>
                 <div
+                  v-if="!lobbyInline"
                   class="confirm-actions__secondary-row confirm-actions__secondary-row--single"
                   role="group"
                   :aria-label="$i18n.confirm_regenerate_action_aria"

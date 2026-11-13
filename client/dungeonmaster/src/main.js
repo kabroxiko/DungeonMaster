@@ -167,7 +167,7 @@ const translations = {
     character_ready_party_room:
         'Review the sheet above. The main button confirms your character and marks you ready in one step, then returns you to the party room. When everyone with a character is ready, the table starts the adventure. Use Regenerate below if you want a different sheet.',
     character_ready_party_room_roster_only:
-        'Use the Ready to play button in your row in the party table above to confirm your character and mark yourself ready. Use Regenerate below if you want a different sheet.',
+        'Use the Ready to play button in your row above to confirm your character and mark yourself ready. Regenerate in that same row rolls a different sheet.',
     join_redirect_character_setup: 'Creating your character…',
     join_loading_campaign: 'Loading this campaign…',
     join_load_failed: 'Could not load this game. Try again or use your invite link again.',
@@ -445,7 +445,7 @@ const translations = {
     character_ready_party_room:
         'Revisa la hoja de arriba. El botón principal confirma el personaje y te marca listo en un solo paso, y te devuelve a la sala. Cuando todos los que tienen personaje estén listos, la mesa inicia la aventura. Usa Regenerar personaje abajo si quieres otra hoja.',
     character_ready_party_room_roster_only:
-        'Para confirmarte y marcarte listo, usa el botón Listo para jugar en tu fila de la tabla de arriba. Usa Regenerar personaje abajo si quieres otra hoja.',
+        'Para confirmarte y marcarte listo, usa el botón Listo para jugar en tu fila de arriba. Regenerar en esa misma fila genera otra hoja.',
     join_redirect_character_setup: 'Creando tu personaje…',
     join_loading_campaign: 'Cargando esta campaña…',
     join_load_failed: 'No se pudo cargar la partida. Vuelve a intentarlo o usa otra vez el enlace de invitación.',
