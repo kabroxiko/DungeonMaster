@@ -168,6 +168,16 @@ func clearLobbyStage(ctx context.Context, d *Deps, gameID, stage string) {
 	}
 }
 
+// startStageForWorld names the first long step of a start. The lobby already writes the table's world, so a game that
+// has one is writing the campaign text on it; announcing the map again would show the players a second
+// "generating the world" wait for work that is already done. Only a game without a world waits on one.
+func startStageForWorld(world map[string]interface{}) string {
+	if world == nil {
+		return "world"
+	}
+	return "campaign"
+}
+
 // HandleStartPartyAdventure mirrors POST /start-party-adventure.
 func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, userID string, body map[string]interface{}) (status int, payload map[string]interface{}) {
 	gameID := strings.TrimSpace(fmt.Sprint(body["gameId"]))
@@ -213,6 +223,8 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 			"code":  "PARTY_NOT_READY",
 		}
 	}
+	// The lobby already writes the table's world, so a start that finds one is writing the campaign text on it.
+	startStage := startStageForWorld(storedCampaignWorld(ctx, d, gameID))
 	res, err := d.Coll.UpdateOne(ctx, bson.M{
 		"gameId": gameID,
 		"$or": []interface{}{
@@ -221,7 +233,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		},
 	}, bson.M{"$set": bson.M{
 		"gameSetup.party.phase":          "starting",
-		"gameSetup.party.stage":          "world",
+		"gameSetup.party.stage":          startStage,
 		"gameSetup.party.lastStartError": nil,
 		"gameSetup.party.lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	}})

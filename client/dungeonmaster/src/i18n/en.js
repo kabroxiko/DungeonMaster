@@ -231,6 +231,8 @@ export default {
     lobby_starting: 'Starting the adventure…',
     lobby_generating_world: 'Generating the world…',
     lobby_generating_world_hint: 'The map is being drawn. You can decide what you will be meanwhile.',
+    lobby_generating_campaign: 'Generating the adventure…',
+    lobby_generating_campaign_hint: 'The campaign is being written on your world. The opening scene comes next.',
     lobby_saving_ready_then_start: 'Saving…',
     lobby_setup_section_aria: 'Choosing what you will be, and confirmation',
     lobby_character_sheet_section_aria: 'Your character sheet',

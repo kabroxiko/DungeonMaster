@@ -56,3 +56,14 @@ func TestAdventureAlreadyStartedUsesThePartyPhase(t *testing.T) {
 		}
 	}
 }
+
+// The lobby draws the table's world before anyone can start, so a start on a game that already carries a world is
+// writing the campaign, and must not show "generating the world" a second time.
+func TestStartStageNamesTheWorkStillAhead(t *testing.T) {
+	if got := startStageForWorld(nil); got != "world" {
+		t.Fatalf("a game without a world must wait on the world, got %q", got)
+	}
+	if got := startStageForWorld(map[string]interface{}{"regions": []interface{}{}}); got != "campaign" {
+		t.Fatalf("a game that already carries its world must wait on the campaign, got %q", got)
+	}
+}
