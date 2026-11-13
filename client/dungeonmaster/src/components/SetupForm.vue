@@ -17,9 +17,9 @@
         <p v-if="joinTokenConsumeBusy" class="join-flow-status" role="status">{{ $i18n.join_redirect_character_setup }}</p>
         <p v-if="joinInitBusy && joinGameIdFromRoute" class="join-flow-status" role="status">{{ $i18n.join_loading_campaign }}</p>
         <p v-if="joinFlowError" class="join-flow-error" role="alert">{{ joinFlowError }}</p>
-        <!-- The lobby row above already shows what to press, so the panel is only its title plus the form. -->
+        <!-- Party screens show the action next to the heading; only the host wizard keeps an intro line. -->
         <h4
-          v-if="!lobbyInline && setupPhase === 'form' && !(joinGameIdFromRoute && joinInitBusy)"
+          v-if="!lobbyInline && setupPhase === 'form' && setupHeadingDesc && !(joinGameIdFromRoute && joinInitBusy)"
           class="form-description"
         >{{ setupHeadingDesc }}</h4>
 
@@ -572,14 +572,12 @@
                 if (this.joinUiActive && this.setupPhase === 'form') return this.$i18n.setup_join_title;
                 return this.setupPhase === 'confirm_character' ? this.$i18n.setup_confirm_title : this.$i18n.setup_title;
             },
+            /**
+             * Only the host's own wizard still needs an intro line: every party screen (join, late join, lobby) shows the
+             * action beside the heading, so a paragraph there only restates it.
+             */
             setupHeadingDesc() {
-                if (this.partyLateJoinInviteePlaying && this.setupPhase === 'form') {
-                    return this.$i18n.setup_party_late_join_desc;
-                }
-                if (this.usePartyRoomConfirmUi && this.setupPhase === 'form') {
-                    return this.$i18n.setup_join_desc;
-                }
-                if (this.joinUiActive && this.setupPhase === 'form') return this.$i18n.setup_join_desc;
+                if (this.usePartyRoomConfirmUi || this.joinUiActive) return '';
                 return this.$i18n.setup_desc;
             },
             characterReadyConfirmText() {

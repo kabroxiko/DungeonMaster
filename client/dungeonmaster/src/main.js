@@ -147,15 +147,11 @@ const translations = {
     setup_confirm_title: 'Review your character',
     setup_desc: 'Select the building blocks of your character and story.',
     setup_join_title: 'Join the party',
-    setup_join_desc:
-        'Decide what you want to be in this campaign. The host has already set the world; your choices put your hero at the table.',
     character_ready_confirm_join:
         'Your character is ready. Use Join party to open the shared chat with the group.',
     confirm_character_join_game: 'Join party',
     confirm_character_mark_ready: 'Confirm character — ready to play',
     setup_party_lobby_form_title: 'What will you be in this world?',
-    setup_party_late_join_desc:
-        'This table is already in play. Decide what you want to be below, then use Join party on the confirmation step to open the shared chat.',
     confirm_secondary_actions_aria: 'Edit or regenerate',
     confirm_regenerate_action_aria: 'Regenerate character',
     character_ready_join_party_playing:
@@ -424,8 +420,6 @@ const translations = {
     setup_confirm_title: 'Revisa tu personaje',
     setup_desc: 'Selecciona los elementos básicos de tu personaje y la historia.',
     setup_join_title: 'Unirse al grupo',
-    setup_join_desc:
-        'Decide qué quieres ser en esta campaña. El anfitrión ya definió el mundo; tus elecciones ponen a tu héroe en la mesa.',
     confirm_secondary_actions_aria: 'Editar o regenerar',
     confirm_regenerate_action_aria: 'Regenerar personaje',
     character_ready_confirm_join:
@@ -433,8 +427,6 @@ const translations = {
     confirm_character_join_game: 'Unirse al grupo',
     confirm_character_mark_ready: 'Confirmar personaje — listo para jugar',
     setup_party_lobby_form_title: '¿Qué serás en este mundo?',
-    setup_party_late_join_desc:
-        'La mesa ya está en juego. Decide abajo qué quieres ser y luego usa Unirse al grupo en el paso de confirmación para abrir el chat compartido.',
     character_ready_join_party_playing:
         'La aventura ya ha empezado. Revisa la hoja de arriba y únete al grupo para entrar al chat. Unirse al grupo solo está disponible cuando la partida está en marcha.',
     join_party_only_when_playing:
