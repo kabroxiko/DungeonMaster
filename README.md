@@ -137,43 +137,57 @@ The container forces `NODE_ENV=production`.
 
 #### Docker Compose (app + MongoDB)
 
-`docker-compose.yml` runs the app and the MongoDB it stores games in, on one network. The app reaches Mongo at
-`mongo:27017`; a URI with `localhost` would point at the app container itself and fail with `Connection refused`.
+`docker-compose.yml` runs the app and the MongoDB it stores games in, on one network. Compose reads `.env` from the
+repository root and builds the app's URI as `mongo:27017`; a URI with `localhost` would point at the app container
+itself and fail with `Connection refused`.
 
-Get the two files without cloning:
+In an existing checkout, add the compose-only values to the development `.env` (the app settings are already there):
+
+```dotenv
+MONGO_ROOT_USER=dungeonmaster
+MONGO_ROOT_PASSWORD=change-me
+DM_MONGO_DB=dungeonmaster
+MONGO_DATA_VOLUME=
+DM_PORT=8080
+```
+
+On a deployment host without a checkout, download the compose file and the template, then copy the template to
+`.env`:
 
 ```bash
 curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/kabroxiko/DungeonMaster/main/docker-compose.yml
 curl -fsSL --create-dirs -o docker/.env.example https://raw.githubusercontent.com/kabroxiko/DungeonMaster/main/docker/.env.example
+cp docker/.env.example .env       # then fill in the password, JWT secret, Google client ID, AI key
 ```
 
-Then start the stack:
+Start the stack:
 
 ```bash
-cp docker/.env.example docker/.env       # Mongo password, JWT secret, Google client ID, AI key
-docker compose --env-file docker/.env up -d
-docker compose --env-file docker/.env logs -f dungeonmaster
+docker compose up -d
+docker compose logs -f dungeonmaster
 ```
 
-`--env-file` keeps deployment settings in `docker/.env`, separate from the repository's development `.env`. Compose
-refuses to start while `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`, `DM_GOOGLE_CLIENT_ID` or `DM_JWT_SECRET` are empty,
-so a half-configured stack fails immediately instead of booting an app that cannot sign users in.
+Compose refuses to start while `MONGO_ROOT_PASSWORD`, `DM_GOOGLE_CLIENT_ID` or `DM_JWT_SECRET` are empty, so a
+half-configured stack fails immediately instead of booting an app that cannot sign users in.
 
 The database lives in the `dungeonmaster_mongo_data` volume. To reuse an existing volume, set `MONGO_DATA_VOLUME` to
-its name before the first start. To inspect the database:
+its name and set `MONGO_ROOT_USER` / `MONGO_ROOT_PASSWORD` to the credentials it was created with before the first
+start; stop the old Mongo container first. To inspect the database:
 
 ```bash
-docker compose --env-file docker/.env exec mongo \
-  mongosh -u dungeonmaster -p '<password>' --authenticationDatabase admin dungeonmaster --quiet \
+docker compose exec mongo \
+  mongosh -u <MONGO_ROOT_USER> -p '<MONGO_ROOT_PASSWORD>' --authenticationDatabase admin <DM_MONGO_DB> --quiet \
   --eval 'print("games:", db.gamestates.countDocuments()); print("users:", db.users.countDocuments())'
 ```
 
 Update to the latest image:
 
 ```bash
-docker compose --env-file docker/.env pull dungeonmaster
-docker compose --env-file docker/.env up -d
+docker compose pull dungeonmaster
+docker compose up -d
 ```
+
+`DM_PORT` is the host port; change it when 8080 is already taken, and point the reverse proxy at the new port.
 
 The Google client's authorized JavaScript origin must match `DM_FRONTEND_URL`. When a reverse proxy (Nginx Proxy
 Manager, Caddy, Traefik) terminates TLS in front of the stack, set `DM_PUBLIC_URL` to the same public URL and
