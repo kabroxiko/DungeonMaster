@@ -3763,15 +3763,13 @@ export default {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* The animation is a 420x240, 15-second APNG with a transparent background, so the box keeps its 7:4 ratio and supplies
-     the paper the black quill is drawn on. */
+  /* The animation is a 420x240, 15-second APNG, so the box keeps its 7:4 ratio. Its background is transparent and stays
+     that way: the island and the quill sit directly on the banner instead of on a paper plate. */
   .party-lobby__world-art {
     flex: 0 0 auto;
     width: 192px;
     height: 110px;
-    border-radius: 8px;
-    border: 1px solid rgba(212, 180, 106, 0.35);
-    background: #f8f3e7 url('../assets/world-quill.png') center / contain no-repeat;
+    background: url('../assets/world-quill.png') center / contain no-repeat;
   }
 
   .party-lobby__world-copy {
