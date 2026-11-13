@@ -135,6 +135,61 @@ docker run --rm -p 8080:8080 --env-file .env dungeonmaster
 
 The container forces `NODE_ENV=production`.
 
+#### Docker Compose (app + MongoDB)
+
+`docker-compose.yml` runs the app and the MongoDB it stores games in, on one network. The app reaches Mongo at
+`mongo:27017`; a URI with `localhost` would point at the app container itself and fail with `Connection refused`.
+
+Get the two files without cloning:
+
+```bash
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/kabroxiko/DungeonMaster/main/docker-compose.yml
+curl -fsSL --create-dirs -o docker/.env.example https://raw.githubusercontent.com/kabroxiko/DungeonMaster/main/docker/.env.example
+```
+
+Then start the stack:
+
+```bash
+cp docker/.env.example docker/.env       # Mongo password, JWT secret, Google client ID, AI key
+docker compose --env-file docker/.env up -d
+docker compose --env-file docker/.env logs -f dungeonmaster
+```
+
+`--env-file` keeps deployment settings in `docker/.env`, separate from the repository's development `.env`. Compose
+refuses to start while `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`, `DM_GOOGLE_CLIENT_ID` or `DM_JWT_SECRET` are empty,
+so a half-configured stack fails immediately instead of booting an app that cannot sign users in.
+
+The database lives in the `dungeonmaster_mongo_data` volume. To reuse an existing volume, set `MONGO_DATA_VOLUME` to
+its name before the first start. To inspect the database:
+
+```bash
+docker compose --env-file docker/.env exec mongo \
+  mongosh -u dungeonmaster -p '<password>' --authenticationDatabase admin dungeonmaster --quiet \
+  --eval 'print("games:", db.gamestates.countDocuments()); print("users:", db.users.countDocuments())'
+```
+
+Update to the latest image:
+
+```bash
+docker compose --env-file docker/.env pull dungeonmaster
+docker compose --env-file docker/.env up -d
+```
+
+The Google client's authorized JavaScript origin must match `DM_FRONTEND_URL`. When a reverse proxy (Nginx Proxy
+Manager, Caddy, Traefik) terminates TLS in front of the stack, set `DM_PUBLIC_URL` to the same public URL and
+`DM_TRUST_PROXY=true`, and forward to the published `DM_PORT`. The bundled nginx already disables buffering for the
+SSE route and allows the long campaign-generation calls, so the outer proxy only needs to pass them through (the
+paste-ready NPM block in `env.example` still applies).
+
+The GHCR package is private by default. If `docker compose pull` reports `unauthorized`, sign in once with a GitHub
+token that has `read:packages`:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+```
+
+Only the web app port is published; Mongo stays on the compose network.
+
 ### Debugging LLM calls
 
 - **Process logs**: set `DM_DEBUG_LLM=true` in `.env` and rebuild/restart `gmai-server`. Each call logs a short `llm-debug call …` line, then each request message on its own `llm-debug request msg[i]| …` lines (full body, newline-split, long lines chunked by runes—no `%q` ellipsis), then `llm-debug ok …` and the full assistant output on `llm-debug out| …` lines. Disable in production; prompts may contain user text and volume is high.

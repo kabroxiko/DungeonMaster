@@ -7,6 +7,8 @@
 **/dist
 .env
 .env.*
+docker/.env
+docker-compose.yml
 client/dungeonmaster/.env
 client/dungeonmaster/.env.*
 tmp

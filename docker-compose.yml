@@ -1,0 +1,67 @@
+# DungeonMaster + MongoDB on one Docker network.
+#
+# Start the stack with:
+#   cp docker/.env.example docker/.env   # then fill in the values
+#   docker compose --env-file docker/.env up -d
+#
+# `--env-file` is deliberate: the repository root `.env` is the local development file (it points Mongo at
+# localhost and enables the Vue dev server), while docker/.env describes a deployment. Inside a container,
+# localhost is the container itself, so the app must reach the database by its service name, `mongo`.
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      # Created in the admin database on the first start of the volume.
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in docker/.env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in docker/.env}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - dungeonmaster
+
+  dungeonmaster:
+    # Build from this repository instead with `build: .` when running a local checkout.
+    image: ghcr.io/kabroxiko/dungeonmaster:${DM_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "${DM_PORT:-8080}:8080"
+    # Every DM_* setting lives in docker/.env; the container overrides below are the only exceptions.
+    env_file:
+      - docker/.env
+    environment:
+      # Assembled here so the password never has to be written twice. `mongo` is the compose service name.
+      DM_MONGODB_URI: "mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in docker/.env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in docker/.env}@mongo:27017/${DM_MONGO_DB:-dungeonmaster}?authSource=admin"
+      # Required deployment values: fail before the container starts rather than serving an unusable app.
+      DM_GOOGLE_CLIENT_ID: ${DM_GOOGLE_CLIENT_ID:?set DM_GOOGLE_CLIENT_ID in docker/.env}
+      DM_JWT_SECRET: ${DM_JWT_SECRET:?set DM_JWT_SECRET in docker/.env}
+      # The production image runs gmai-server and nginx; it must not try to spawn a Vue dev server.
+      DM_SPAWN_VUE_DEV: "false"
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/meta"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - dungeonmaster
+
+networks:
+  dungeonmaster:
+
+volumes:
+  # Reuse the volume an existing `docker run` Mongo wrote to by setting MONGO_DATA_VOLUME to its name; otherwise the
+  # stack starts with an empty database.
+  mongo_data:
+    name: ${MONGO_DATA_VOLUME:-dungeonmaster_mongo_data}
