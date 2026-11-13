@@ -37,28 +37,29 @@
                     <defs>
                         <path
                             id="party-lobby-island"
-                            d="M44 70 C 36 58, 42 44, 58 36 C 72 29, 84 34, 92 28 C 102 20, 120 20, 132 26 C 146 33, 150 30, 162 28 C 176 26, 188 34, 190 46 C 192 58, 182 64, 170 62 C 158 60, 152 68, 140 74 C 126 81, 108 74, 96 78 C 80 84, 60 82, 44 70 Z"
+                            d="M64 44 Q 78 32 96 34 Q 114 30 128 38 L 150 30 Q 166 32 170 44 Q 176 56 160 58 L 140 54 Q 132 62 138 70 Q 126 74 118 64 L 108 52 Q 94 60 82 54 Q 70 56 64 44 Z"
                         />
                     </defs>
-                    <!-- Islets and inland marks appear once the main contour closes, so the drawing reads as a map. -->
+                    <!-- Open water, two islets and a third rock: what turns the outline into an island rather than a shape. -->
                     <path
-                        class="party-lobby__world-islet"
-                        d="M194 36 C 200 32, 207 34, 206 39 C 205 43, 198 43, 195 41 C 193 39, 193 37, 194 36 Z"
+                        class="party-lobby__world-sea"
+                        d="M26 22 q 6 -3 12 0 q 6 3 12 0 M32 33 q 5 -2.5 10 0 q 5 2.5 10 0 M182 76 q 6 -3 12 0 q 6 3 12 0 M42 76 q 5 -2.5 10 0 q 5 2.5 10 0"
                     />
-                    <path
-                        class="party-lobby__world-islet"
-                        d="M30 34 C 34 32, 37 35, 35 38 C 33 41, 29 40, 29 37 C 29 36, 29 35, 30 34 Z"
-                    />
-                    <path class="party-lobby__world-mark" d="M96 50 l 9 -12 l 9 12" />
-                    <path class="party-lobby__world-mark" d="M104 60 C 112 52, 120 50, 130 44" />
+                    <path class="party-lobby__world-islet" d="M30 46 q 6 -5 11 0 q 4 5 -4 6 q -8 1 -7 -6 Z" />
+                    <path class="party-lobby__world-islet" d="M194 58 q 5 -4 9 0 q 3 5 -3 5 q -7 0 -6 -5 Z" />
+                    <path class="party-lobby__world-islet" d="M190 26 q 4 -3 7 0 q 2 4 -2 4 q -6 0 -5 -4 Z" />
+                    <!-- A ridge and the river running from it into the bay: inland detail that appears once the coast closes. -->
+                    <path class="party-lobby__world-mark" d="M94 46 l 7 -9 l 7 9" />
+                    <path class="party-lobby__world-mark" d="M101 37 C 108 40, 114 45, 120 48 C 124 50, 127 51, 129 52" />
                     <use class="party-lobby__world-coast" href="#party-lobby-island" />
+                    <!-- The quill keeps its own angle while it slides along the coast (a hand does not spin the pen), and its
+                         nib stays on the point the coast is being drawn at, because animateMotion moves the group origin. -->
                     <g class="party-lobby__world-quill">
                         <animateMotion
                             dur="6s"
                             repeatCount="indefinite"
-                            rotate="auto"
                             keyPoints="0;1;1"
-                            keyTimes="0;0.62;1"
+                            keyTimes="0;0.66;1"
                             calcMode="linear"
                         >
                             <mpath href="#party-lobby-island" />
@@ -66,11 +67,21 @@
                         <animate
                             attributeName="opacity"
                             values="0;1;1;0;0"
-                            keyTimes="0;0.05;0.58;0.66;1"
+                            keyTimes="0;0.05;0.62;0.72;1"
                             dur="6s"
                             repeatCount="indefinite"
                         />
-                        <path d="M0 0 C 5 -5 13 -6 18 -2 C 13 3 5 5 0 0 Z" />
+                        <g transform="rotate(-145)">
+                            <path
+                                class="party-lobby__world-shaft"
+                                d="M0 0 Q 30 0 58 -2"
+                            />
+                            <path
+                                class="party-lobby__world-vane"
+                                d="M10 0 C 16 -5, 30 -7, 44 -4 L 55 -2 C 44 2, 28 6, 14 3 Z"
+                            />
+                            <path class="party-lobby__world-barbs" d="M18 -1 L24 -5 M26 0 L32 -5.5 M34 -1 L40 -5 M18 1 L24 4.5 M26 2 L32 5.5" />
+                        </g>
                     </g>
                 </svg>
             </div>
@@ -3817,71 +3828,103 @@ export default {
     overflow: visible;
   }
 
-  /* The island: an outline traced once per cycle, then held long enough for the shape to be read. */
+  /* The island: an outline traced once per cycle (its path measures ~265 units), then held long enough to be read.
+     The fill cannot follow a dash offset, so it stays clear until the coast has closed. */
   .party-lobby__world-coast {
-    fill: rgba(240, 223, 168, 0.06);
-    stroke: rgba(240, 223, 168, 0.85);
-    stroke-width: 1.7;
+    fill: rgba(240, 223, 168, 0.14);
+    stroke: rgba(240, 223, 168, 0.95);
+    stroke-width: 1.5;
     stroke-linejoin: round;
-    stroke-dasharray: 420;
-    stroke-dashoffset: 420;
+    stroke-linecap: round;
+    stroke-dasharray: 270;
+    stroke-dashoffset: 270;
     animation: party-lobby-draw 6s ease-in-out infinite;
   }
 
-  /* Two islets appear once the main contour closes, so the drawing reads as a map rather than a scribble. */
-  .party-lobby__world-islet {
-    fill: rgba(240, 223, 168, 0.06);
-    stroke: rgba(240, 223, 168, 0.6);
-    stroke-width: 1.2;
-    stroke-linejoin: round;
-    opacity: 0;
-    animation: party-lobby-islet 6s ease-in-out infinite;
+  /* Open water: present from the start, so the shape under the quill is already at sea. */
+  .party-lobby__world-sea {
+    fill: none;
+    stroke: rgba(240, 223, 168, 0.34);
+    stroke-width: 0.9;
+    stroke-linecap: round;
   }
 
-  /* A mountain ridge and a river, inland details that make the outline read as land. */
+  /* Smaller neighbours, which appear with the inland detail and make the outline read as one island among others. */
+  .party-lobby__world-islet {
+    fill: rgba(240, 223, 168, 0.11);
+    stroke: rgba(240, 223, 168, 0.62);
+    stroke-width: 1.1;
+    stroke-linejoin: round;
+    opacity: 0;
+    animation: party-lobby-mark 6s ease-in-out infinite;
+  }
+
+  /* A ridge, a lake and its river: inland details that appear once the coast has closed. */
   .party-lobby__world-mark {
     fill: none;
-    stroke: rgba(240, 223, 168, 0.5);
-    stroke-width: 1.1;
+    stroke: rgba(240, 223, 168, 0.55);
+    stroke-width: 1;
     stroke-linecap: round;
     stroke-linejoin: round;
     opacity: 0;
-    animation: party-lobby-islet 6s ease-in-out infinite;
+    animation: party-lobby-mark 6s ease-in-out infinite;
   }
 
-  /* The quill is a path in the drawing's coordinates and rides the contour through animatemotion, so the shape needs
-     only one definition. */
-  .party-lobby__world-quill {
+  /* The quill: a shaft, a filled vane and a few barbs. All three are needed — shaft and vane alone read as a leaf. */
+  .party-lobby__world-shaft,
+  .party-lobby__world-barbs {
+    fill: none;
+    stroke: var(--gm-gold-bright, #f0dfa8);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .party-lobby__world-shaft {
+    stroke-width: 1.2;
+  }
+
+  .party-lobby__world-barbs {
+    stroke-width: 0.8;
+  }
+
+  .party-lobby__world-vane {
     fill: var(--gm-gold-bright, #f0dfa8);
   }
 
   @keyframes party-lobby-draw {
     0% {
-      stroke-dashoffset: 420;
+      stroke-dashoffset: 270;
       opacity: 1;
+      fill-opacity: 0;
     }
-    62% {
+    58% {
+      fill-opacity: 0;
+    }
+    66% {
       stroke-dashoffset: 0;
       opacity: 1;
+      fill-opacity: 1;
     }
     88% {
       stroke-dashoffset: 0;
       opacity: 1;
+      fill-opacity: 1;
     }
     100% {
       stroke-dashoffset: 0;
       opacity: 0;
+      fill-opacity: 0;
     }
   }
 
-  @keyframes party-lobby-islet {
+  @keyframes party-lobby-mark {
     0%,
-    55% {
+    60% {
       opacity: 0;
     }
-    65%,
+    70%,
     88% {
-      opacity: 0.9;
+      opacity: 1;
     }
     100% {
       opacity: 0;
@@ -3917,10 +3960,12 @@ export default {
     .party-lobby__world-coast {
       animation: none;
       stroke-dashoffset: 0;
+      fill-opacity: 1;
     }
-    .party-lobby__world-islet {
+    .party-lobby__world-islet,
+    .party-lobby__world-mark {
       animation: none;
-      opacity: 0.9;
+      opacity: 1;
     }
     /* SMIL cannot be switched off from CSS, so the travelling quill is simply not shown. */
     .party-lobby__world-quill {
