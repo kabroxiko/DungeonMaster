@@ -122,6 +122,7 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/debug/{gameId}/prompts", s.withAuthBearer(s.handleDebugPrompts))
 		r.Post("/create-party", s.withAuthBearer(s.handleCreateParty))
 		r.Post("/party-ready", s.withAuthBearer(s.handlePartyReady))
+		r.Post("/party-character-busy", s.withAuthBearer(s.handlePartyCharacterBusy))
 		r.Patch("/party-premise", s.withAuthBearer(s.handlePartyPremise))
 		r.Get("/mine", s.withAuthBearer(s.handleMine))
 		r.Delete("/mine/{gameId}", s.withAuthBearer(s.handleDeleteMine))

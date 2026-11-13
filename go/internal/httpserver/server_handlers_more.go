@@ -432,6 +432,54 @@ func (s *Server) handlePartyReady(w http.ResponseWriter, r *http.Request, uid st
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handlePartyCharacterBusy records that a player is rolling a character sheet. Only that player's browser knows a roll
+// is in flight — the sheet itself appears only when it finishes — so the table learns it from this short-lived marker,
+// which the hub then pushes to every open lobby.
+func (s *Server) handlePartyCharacterBusy(w http.ResponseWriter, r *http.Request, uid string) {
+	var body map[string]interface{}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	gid := strings.TrimSpace(fmt.Sprint(body["gameId"]))
+	if gid == "" {
+		writeJSONCoded(w, r, http.StatusBadRequest, "GAME_ID_REQUIRED", "gameId required")
+		return
+	}
+	ctx := r.Context()
+	if _, err := gameaccess.AssertGameMember(ctx, s.coll(), uid, gid); err != nil {
+		sendAccessError(w, r, err)
+		return
+	}
+	busy := body["busy"] == true || body["busy"] == "true"
+	uidNorm := party.NormalizeUserIDString(uid)
+	var doc map[string]interface{}
+	err := s.coll().FindOne(ctx, bson.M{"gameId": gid}).Decode(&doc)
+	if err == mongo.ErrNoDocuments {
+		writeJSONCoded(w, r, http.StatusNotFound, "GAME_NOT_FOUND", "Game not found")
+		return
+	}
+	if err != nil {
+		writeJSONCoded(w, r, http.StatusInternalServerError, "DB_ERROR", "db error")
+		return
+	}
+	now := time.Now().UnixMilli()
+	stamps := party.CharacterBusyUntil(party.GetParty(toMap(doc["gameSetup"])))
+	if busy {
+		stamps[uidNorm] = now + party.CharacterBusyTTLMs
+	} else {
+		delete(stamps, uidNorm)
+	}
+	for id, v := range stamps {
+		if ms, ok := v.(int64); !ok || ms <= now {
+			delete(stamps, id)
+		}
+	}
+	nextSetup := party.MergeParty(toMap(doc["gameSetup"]), map[string]interface{}{"characterBusyUntil": stamps})
+	_, _ = s.coll().UpdateOne(ctx, bson.M{"gameId": gid}, bson.M{"$set": bson.M{"gameSetup": nextSetup}})
+	s.Hub.NotifyGameStateUpdated(gid)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "characterBusyUntil": stamps})
+}
+
 func (s *Server) handlePartyPremise(w http.ResponseWriter, r *http.Request, uid string) {
 	var body map[string]interface{}
 	if !readJSON(w, r, &body) {

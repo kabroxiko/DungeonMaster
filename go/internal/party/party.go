@@ -14,12 +14,60 @@ func DefaultParty() map[string]interface{} {
 	return map[string]interface{}{
 		"phase":                               "lobby",
 		"readyUserIds":                        []interface{}{},
+		"characterBusyUntil":                  map[string]interface{}{},
 		"hostPremise":                         "",
 		"pendingNarrativeIntroductionUserIds": []interface{}{},
 		"narrativeIntroducedUserIds":          []interface{}{},
 		"lastStartError":                      nil,
 		"lastStartAt":                         nil,
 	}
+}
+
+// CharacterBusyTTLMs bounds how long "this player is rolling a character" survives without being cleared. The rolling
+// browser clears the marker when its request settles; the deadline is what stops a closed tab leaving the row spinning.
+const CharacterBusyTTLMs int64 = 120000
+
+// CharacterBusyUntil normalizes party.characterBusyUntil (user id → epoch milliseconds) from whatever Mongo decoded it as.
+func CharacterBusyUntil(p map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	if p == nil {
+		return out
+	}
+	src := map[string]interface{}{}
+	switch m := p["characterBusyUntil"].(type) {
+	case map[string]interface{}:
+		src = m
+	case primitive.M:
+		src = map[string]interface{}(m)
+	default:
+		return out
+	}
+	for k, v := range src {
+		id := NormalizeUserIDString(k)
+		if id == "" {
+			continue
+		}
+		if ms, ok := epochMillis(v); ok {
+			out[id] = ms
+		}
+	}
+	return out
+}
+
+func epochMillis(v interface{}) (int64, bool) {
+	switch t := v.(type) {
+	case int64:
+		return t, true
+	case int32:
+		return int64(t), true
+	case int:
+		return int64(t), true
+	case float64:
+		return int64(t), true
+	case primitive.DateTime:
+		return t.Time().UnixMilli(), true
+	}
+	return 0, false
 }
 
 // GetParty merges gameSetup.party with defaults.

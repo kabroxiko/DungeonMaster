@@ -159,6 +159,15 @@
                             </div>
                         </div>
                         <span
+                            v-else-if="row.isGenerating"
+                            class="party-lobby__badge party-lobby__badge--starting"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="party-lobby__spin" aria-hidden="true"></span>
+                            <span>{{ $i18n.generating_character }}</span>
+                        </span>
+                        <span
                             v-else
                             class="party-lobby__badge party-lobby__badge--ready"
                             :class="row.isReady ? 'party-lobby__badge--ok' : 'party-lobby__badge--wait'"
@@ -668,6 +677,9 @@ export default {
                 lobbyInlineBusyAction: null,
                 /** The character panel's own failure, shown in the viewer's row instead of inside the panel. */
                 lobbyInlineProgress: '',
+                /** Clock the roster reads party.characterBusyUntil against; the timer below keeps it moving. */
+                lobbyBusyNowMs: 0,
+                lobbyBusyTimer: null,
                 /** Guards the retry control while a failed lobby start is being repeated. */
                 lobbyRetryPosting: false,
                 /** Synced from SetupForm on the inline confirm step — roster cannot rely on Vuex alone. */
@@ -1140,6 +1152,8 @@ export default {
                     }
                     return a.localeCompare(b);
                 });
+                const busyRaw = gs && gs.party ? gs.party.characterBusyUntil : null;
+                const busyNow = this.lobbyBusyNowMs;
                 return ids.map((id) => {
                     const isYou = Boolean(uid && this.normalizeLobbyUserIdKey(id) === this.normalizeLobbyUserIdKey(uid));
                     const sheet = isYou
@@ -1175,6 +1189,8 @@ export default {
                         detailsLine,
                         hasSheet,
                         isReady: ready.has(this.normalizeLobbyUserIdKey(id)),
+                        /** Another player's roll is in flight: their sheet only appears when it lands. */
+                        isGenerating: this.memberBusyUntilMs(busyRaw, id) > busyNow,
                         initial,
                         isYou,
                         isHost,
@@ -1230,8 +1246,7 @@ export default {
                 if (this.lobbyRosterCreatePosting || this.lobbyRosterRegeneratePosting) return true;
                 const action = this.lobbyInlineBusyAction;
                 return action === 'character' || action === 'regenerate';
-            },
-            /**
+            },            /**
              * The inline panel is on its creation form, which no longer submits itself: the row carries the
              * Create character button for exactly this state (including a reopened edit form).
              */
@@ -1368,6 +1383,11 @@ export default {
                 if (!this.partyLobbyDebugEnabled || !this.isPartyLobby) return;
                 this.logPartyLobbyDebug('watch');
             },
+            /** A roll starting or ending is the only change the rest of the table has to be told about. */
+            lobbyCellGenerating(busy) {
+                if (!this.isPartyLobby) return;
+                void this.publishCharacterBusy(busy);
+            },
             partyPhase: {
                 immediate: true,
                 handler(ph) {
@@ -1456,6 +1476,12 @@ export default {
                     this.logPartyLobbyDebug('mounted');
                 }
             });
+            /* The roster compares party.characterBusyUntil against this clock, so a marker nobody cleared still expires. */
+            this.lobbyBusyNowMs = Date.now();
+            this.lobbyBusyTimer = setInterval(() => {
+                if (!this.isPartyLobby) return;
+                this.lobbyBusyNowMs = Date.now();
+            }, 2000);
         },
 
         beforeUnmount() {
@@ -1477,6 +1503,10 @@ export default {
             if (this.lobbyStartingPollTimer) {
                 clearInterval(this.lobbyStartingPollTimer);
                 this.lobbyStartingPollTimer = null;
+            }
+            if (this.lobbyBusyTimer) {
+                clearInterval(this.lobbyBusyTimer);
+                this.lobbyBusyTimer = null;
             }
             if (this.inviteToastTimer) {
                 clearTimeout(this.inviteToastTimer);
@@ -1550,6 +1580,21 @@ export default {
             normalizeLobbyUserIdKey(raw) {
                 if (raw == null) return '';
                 return String(raw).trim().toLowerCase();
+            },
+            /**
+             * party.characterBusyUntil is user id → epoch ms. Anything already past is treated as not generating: the
+             * rolling browser clears it, and the deadline covers the tab that closed mid-roll.
+             */
+            memberBusyUntilMs(raw, memberId) {
+                if (!raw || typeof raw !== 'object') return 0;
+                const want = this.normalizeLobbyUserIdKey(memberId);
+                if (!want) return 0;
+                for (const key of Object.keys(raw)) {
+                    if (this.normalizeLobbyUserIdKey(key) !== want) continue;
+                    const ms = Number(raw[key]);
+                    return Number.isFinite(ms) ? ms : 0;
+                }
+                return 0;
             },
             /** True when the sheet is usable for lobby roster / ready (name, summary line, or core stats). */
             lobbySheetIsCommitted(sheet) {
@@ -2359,6 +2404,27 @@ export default {
                 this.lobbyCharacterEditorOpen = false;
             },
 
+            /**
+             * Tells the table that this player is rolling a sheet. Only this browser knows a roll is in flight, and the
+             * sheet only appears once it lands, so other rows would otherwise sit on “Not yet” with no sign of activity.
+             */
+            async publishCharacterBusy(busy) {
+                const gid =
+                    (this.$store.state.gameId && String(this.$store.state.gameId).trim()) ||
+                    (this.$route.params.id ? String(this.$route.params.id).trim() : '');
+                if (!gid) return;
+                try {
+                    await axios.post('/api/game-state/party-character-busy', {
+                        gameId: gid,
+                        busy: busy === true,
+                    });
+                    /* The hub fans this out to everyone, including us: skip the reload it would otherwise trigger while
+                       the roll is still running. */
+                    this.lastGameStateLoadCompletedAt = Date.now();
+                } catch (e) {
+                    /* Best effort: the marker expires on its own, and the row works without it. */
+                }
+            },
             logPartyLobbyDebug(reason) {
                 if (!this.partyLobbyDebugEnabled) return;
                 const payload = this.partyLobbyDebugPayload;
