@@ -69,6 +69,16 @@
               {{ saveBusy ? $i18n.sending : $i18n.settings_save }}
             </UIButton>
           </div>
+          <button
+            v-if="authenticated"
+            type="button"
+            class="settings-modal__signout"
+            :disabled="saveBusy"
+            @click="requestSignOut"
+          >
+            <FontAwesomeIcon :icon="faRightFromBracket" class="settings-modal__signout-icon" aria-hidden="true" />
+            {{ $i18n.sign_out }}
+          </button>
         </footer>
       </div>
     </UIModal>
@@ -78,6 +88,7 @@
 <script>
 import UIModal from '@/ui/Modal.vue';
 import UIButton from '@/ui/Button.vue';
+import { faRightFromBracket } from '@fortawesome/free-solid-svg-icons/faRightFromBracket';
 
 export default {
   name: 'SettingsModal',
@@ -86,9 +97,10 @@ export default {
     modelValue: { type: Boolean, default: false },
     authenticated: { type: Boolean, default: false },
   },
-  emits: ['update:modelValue', 'language', 'nickname-saved'],
+  emits: ['update:modelValue', 'language', 'nickname-saved', 'sign-out'],
   data() {
     return {
+      faRightFromBracket,
       titleId: 'dm-settings-title',
       draftLanguage: 'English',
       localNickname: '',
@@ -134,6 +146,11 @@ export default {
     },
     close() {
       this.$emit('update:modelValue', false);
+    },
+    /** Signing out is the caller's job (it owns the route change and the store reset). */
+    requestSignOut() {
+      if (this.saveBusy) return;
+      this.$emit('sign-out');
     },
     syncNickname() {
       const u = this.$store.state.user;
@@ -390,6 +407,54 @@ export default {
   padding-top: 0.65rem;
   padding-bottom: 0.65rem;
   font-size: 0.9rem;
+}
+
+/* Account action: separated from Apply/Save so it never reads as another way to keep the settings. */
+.settings-modal__signout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.9rem;
+  min-height: 2.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--gm-radius, 10px);
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 140, 120, 0.38);
+  color: #ffd4ce;
+  transition: transform 0.1s ease, border-color 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+}
+
+.settings-modal__signout:hover:not(:disabled) {
+  border-color: rgba(255, 140, 120, 0.62);
+  background: rgba(255, 140, 120, 0.1);
+  transform: translateY(-1px);
+}
+
+.settings-modal__signout:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.settings-modal__signout:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 140, 120, 0.4);
+}
+
+.settings-modal__signout:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.settings-modal__signout-icon {
+  width: 0.95rem;
+  height: 0.95rem;
 }
 
 @media (max-width: 360px) {

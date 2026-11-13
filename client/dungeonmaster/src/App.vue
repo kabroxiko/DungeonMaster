@@ -20,16 +20,6 @@
               <button
                 type="button"
                 class="app-banner__tool"
-                :title="$i18n.sign_out"
-                :aria-label="$i18n.sign_out"
-                @click="signOut"
-              >
-                <span class="visually-hidden">{{ $i18n.sign_out }}</span>
-                <FontAwesomeIcon :icon="faRightFromBracket" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                class="app-banner__tool"
                 :title="$i18n.new_game"
                 :aria-label="$i18n.new_game"
                 @click="onPlusToolbarClick"
@@ -90,6 +80,7 @@
     :authenticated="isAuthenticated"
     @language="setLanguage"
     @nickname-saved="onNicknameSavedFromSettings"
+    @sign-out="onSignOutFromSettings"
   />
 </template>
 
@@ -97,7 +88,6 @@
 import { faCirclePlus } from '@fortawesome/free-solid-svg-icons/faCirclePlus';
 import { faFolderOpen } from '@fortawesome/free-solid-svg-icons/faFolderOpen';
 import { faGear } from '@fortawesome/free-solid-svg-icons/faGear';
-import { faRightFromBracket } from '@fortawesome/free-solid-svg-icons/faRightFromBracket';
 import GMTheme from "@/ui/Theme.vue";
 import SettingsModal from "@/components/SettingsModal.vue";
 import axios from "axios";
@@ -114,7 +104,6 @@ export default {
   data() {
     return {
       settingsOpen: false,
-      faRightFromBracket,
       faCirclePlus,
       faFolderOpen,
       faGear,
@@ -309,6 +298,11 @@ export default {
         // eslint-disable-next-line no-console
         console.warn('language-changed event dispatch failed', e);
       }
+    },
+    /** Settings owns the sign-out action now; close it first so it is not painted over the route it signs out of. */
+    onSignOutFromSettings() {
+      this.settingsOpen = false;
+      void this.signOut();
     },
     async signOut() {
       // Leave /chat-room before clearing auth. Otherwise authTick remounts the tree while the route
