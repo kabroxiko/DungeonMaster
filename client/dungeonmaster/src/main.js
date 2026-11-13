@@ -326,7 +326,7 @@ const translations = {
     lobby_roster_heading: 'Who is at the table',
     lobby_col_player: 'Player',
     lobby_desc:
-        'Decide what you want to be in this new world below, or edit your hero. When the sheet is saved, confirm and mark yourself ready with the button in your row under Ready to start. When everyone with a character is ready, the table launches the adventure.',
+        'Decide what you want to be in this new world below. When the sheet is saved, confirm and mark yourself ready with the button in your row under Ready to start. When everyone with a character is ready, the table launches the adventure.',
     lobby_roster_need_character_aria:
         'Decide what you want to be first; the Ready to start control unlocks after the sheet is saved.',
     lobby_col_table: 'Ready to start',
@@ -598,7 +598,7 @@ const translations = {
     lobby_roster_heading: 'Quién está en la mesa',
     lobby_col_player: 'Jugador',
     lobby_desc:
-        'Decide abajo qué quieres ser en este mundo nuevo, o edita tu héroe. Cuando la hoja esté guardada, confirma y márcate listo con el botón de tu fila en Listo para empezar. Cuando todos los que tienen personaje estén listos, la mesa inicia la aventura.',
+        'Decide abajo qué quieres ser en este mundo nuevo. Cuando la hoja esté guardada, confirma y márcate listo con el botón de tu fila en Listo para empezar. Cuando todos los que tienen personaje estén listos, la mesa inicia la aventura.',
     lobby_roster_need_character_aria:
         'Primero decide qué quieres ser; el control Listo para empezar se activa cuando la hoja esté guardada.',
     lobby_col_table: 'Listo para empezar',
