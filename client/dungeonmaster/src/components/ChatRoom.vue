@@ -29,16 +29,50 @@
                 </button>
             </div>
         </header>
-        <!-- One world for the table, so its progress belongs to the table rather than to any player's row. -->
+        <!-- One world for the table, so its progress belongs to the table rather than to any player's row. The quill
+             follows the island contour itself (animateMotion + mpath), so the shape is drawn as it travels. -->
         <section v-if="partyGeneratingWorld" class="party-lobby__world" role="status" aria-live="polite">
             <div class="party-lobby__world-art" aria-hidden="true">
-                <svg class="party-lobby__world-svg" viewBox="0 0 240 64" preserveAspectRatio="none">
+                <svg class="party-lobby__world-svg" viewBox="0 0 240 96">
+                    <defs>
+                        <path
+                            id="party-lobby-island"
+                            d="M44 70 C 36 58, 42 44, 58 36 C 72 29, 84 34, 92 28 C 102 20, 120 20, 132 26 C 146 33, 150 30, 162 28 C 176 26, 188 34, 190 46 C 192 58, 182 64, 170 62 C 158 60, 152 68, 140 74 C 126 81, 108 74, 96 78 C 80 84, 60 82, 44 70 Z"
+                        />
+                    </defs>
+                    <!-- Islets and inland marks appear once the main contour closes, so the drawing reads as a map. -->
                     <path
-                        class="party-lobby__world-coast"
-                        d="M6 44 C 34 14, 62 56, 96 34 S 150 10, 178 26 S 214 46, 234 24"
+                        class="party-lobby__world-islet"
+                        d="M194 36 C 200 32, 207 34, 206 39 C 205 43, 198 43, 195 41 C 193 39, 193 37, 194 36 Z"
                     />
+                    <path
+                        class="party-lobby__world-islet"
+                        d="M30 34 C 34 32, 37 35, 35 38 C 33 41, 29 40, 29 37 C 29 36, 29 35, 30 34 Z"
+                    />
+                    <path class="party-lobby__world-mark" d="M96 50 l 9 -12 l 9 12" />
+                    <path class="party-lobby__world-mark" d="M104 60 C 112 52, 120 50, 130 44" />
+                    <use class="party-lobby__world-coast" href="#party-lobby-island" />
+                    <g class="party-lobby__world-quill">
+                        <animateMotion
+                            dur="6s"
+                            repeatCount="indefinite"
+                            rotate="auto"
+                            keyPoints="0;1;1"
+                            keyTimes="0;0.62;1"
+                            calcMode="linear"
+                        >
+                            <mpath href="#party-lobby-island" />
+                        </animateMotion>
+                        <animate
+                            attributeName="opacity"
+                            values="0;1;1;0;0"
+                            keyTimes="0;0.05;0.58;0.66;1"
+                            dur="6s"
+                            repeatCount="indefinite"
+                        />
+                        <path d="M0 0 C 5 -5 13 -6 18 -2 C 13 3 5 5 0 0 Z" />
+                    </g>
                 </svg>
-                <FontAwesomeIcon :icon="faFeather" class="party-lobby__world-quill" />
             </div>
             <div class="party-lobby__world-copy">
                 <p class="party-lobby__world-title">{{ $i18n.lobby_generating_world }}</p>
@@ -575,7 +609,6 @@ import { faXmark } from '@fortawesome/free-solid-svg-icons/faXmark';
 import { faDownload } from '@fortawesome/free-solid-svg-icons/faDownload';
 import { faCircleCheck } from '@fortawesome/free-solid-svg-icons/faCircleCheck';
 import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons/faHourglassHalf';
-import { faFeather } from '@fortawesome/free-solid-svg-icons/faFeather';
 
 const md = new MarkdownIt({ html: false, linkify: true, typographer: true });
 // Force markdown renderer to emit paragraphs with zero margin to avoid CSS spacing issues
@@ -615,7 +648,6 @@ export default {
                 faDownload,
                 faCircleCheck,
                 faHourglassHalf,
-                faFeather,
                 // summaryPrompt removed from client; server composes summary instruction
                 // Initial state for the component
                 newMessage: "", // Holds the current message being typed
@@ -3757,8 +3789,8 @@ export default {
     color: #e4f4ff;
   }
 
-  /* The table's own wait: a quill tracing a coastline while the world is written. One banner for everyone, because
-     one map is being made for everyone. */
+  /* The table's own wait: a quill drawing an island while the world is written. One banner for everyone, because one
+     map is being made for everyone. */
   .party-lobby__world {
     display: flex;
     align-items: center;
@@ -3772,53 +3804,69 @@ export default {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* Fixed size so the SVG's coordinates and the quill's motion path are the same space. */
+  /* Fixed size, so the drawing's own coordinates are also its on-screen pixels. */
   .party-lobby__world-art {
-    position: relative;
     flex: 0 0 auto;
     width: 240px;
-    height: 64px;
+    height: 96px;
   }
 
   .party-lobby__world-svg {
     width: 240px;
-    height: 64px;
+    height: 96px;
     overflow: visible;
   }
 
+  /* The island: an outline traced once per cycle, then held long enough for the shape to be read. */
   .party-lobby__world-coast {
-    fill: none;
-    stroke: rgba(240, 223, 168, 0.8);
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-dasharray: 300;
-    stroke-dashoffset: 300;
-    animation: party-lobby-draw 5.6s ease-in-out infinite;
+    fill: rgba(240, 223, 168, 0.06);
+    stroke: rgba(240, 223, 168, 0.85);
+    stroke-width: 1.7;
+    stroke-linejoin: round;
+    stroke-dasharray: 420;
+    stroke-dashoffset: 420;
+    animation: party-lobby-draw 6s ease-in-out infinite;
   }
 
-  .party-lobby__world-quill {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 0.95rem;
-    height: 0.95rem;
-    color: var(--gm-gold-bright, #f0dfa8);
-    offset-path: path('M6 44 C 34 14, 62 56, 96 34 S 150 10, 178 26 S 214 46, 234 24');
-    offset-rotate: auto 55deg;
-    offset-distance: 0%;
+  /* Two islets appear once the main contour closes, so the drawing reads as a map rather than a scribble. */
+  .party-lobby__world-islet {
+    fill: rgba(240, 223, 168, 0.06);
+    stroke: rgba(240, 223, 168, 0.6);
+    stroke-width: 1.2;
+    stroke-linejoin: round;
     opacity: 0;
-    animation: party-lobby-quill 5.6s ease-in-out infinite;
+    animation: party-lobby-islet 6s ease-in-out infinite;
+  }
+
+  /* A mountain ridge and a river, inland details that make the outline read as land. */
+  .party-lobby__world-mark {
+    fill: none;
+    stroke: rgba(240, 223, 168, 0.5);
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0;
+    animation: party-lobby-islet 6s ease-in-out infinite;
+  }
+
+  /* The quill is a path in the drawing's coordinates and rides the contour through animatemotion, so the shape needs
+     only one definition. */
+  .party-lobby__world-quill {
+    fill: var(--gm-gold-bright, #f0dfa8);
   }
 
   @keyframes party-lobby-draw {
     0% {
-      stroke-dashoffset: 300;
+      stroke-dashoffset: 420;
+      opacity: 1;
     }
-    55% {
+    62% {
       stroke-dashoffset: 0;
+      opacity: 1;
     }
-    85% {
+    88% {
       stroke-dashoffset: 0;
+      opacity: 1;
     }
     100% {
       stroke-dashoffset: 0;
@@ -3826,24 +3874,16 @@ export default {
     }
   }
 
-  @keyframes party-lobby-quill {
-    0% {
-      offset-distance: 0%;
-      opacity: 0;
-    }
-    8% {
-      opacity: 1;
-    }
+  @keyframes party-lobby-islet {
+    0%,
     55% {
-      offset-distance: 100%;
-      opacity: 1;
-    }
-    70% {
-      offset-distance: 100%;
       opacity: 0;
+    }
+    65%,
+    88% {
+      opacity: 0.9;
     }
     100% {
-      offset-distance: 100%;
       opacity: 0;
     }
   }
@@ -3878,9 +3918,13 @@ export default {
       animation: none;
       stroke-dashoffset: 0;
     }
-    .party-lobby__world-quill {
+    .party-lobby__world-islet {
       animation: none;
-      opacity: 0;
+      opacity: 0.9;
+    }
+    /* SMIL cannot be switched off from CSS, so the travelling quill is simply not shown. */
+    .party-lobby__world-quill {
+      display: none;
     }
   }
 
