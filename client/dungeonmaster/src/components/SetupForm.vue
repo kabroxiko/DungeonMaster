@@ -17,7 +17,11 @@
         <p v-if="joinTokenConsumeBusy" class="join-flow-status" role="status">{{ $i18n.join_redirect_character_setup }}</p>
         <p v-if="joinInitBusy && joinGameIdFromRoute" class="join-flow-status" role="status">{{ $i18n.join_loading_campaign }}</p>
         <p v-if="joinFlowError" class="join-flow-error" role="alert">{{ joinFlowError }}</p>
-        <h4 v-if="setupPhase === 'form' && !(joinGameIdFromRoute && joinInitBusy)" class="form-description">{{ setupHeadingDesc }}</h4>
+        <!-- The lobby row above already shows what to press, so the panel is only its title plus the form. -->
+        <h4
+          v-if="!lobbyInline && setupPhase === 'form' && !(joinGameIdFromRoute && joinInitBusy)"
+          class="form-description"
+        >{{ setupHeadingDesc }}</h4>
 
         <template v-if="setupPhase === 'confirm_character'">
           <div class="character-confirm-block" role="region" :aria-label="$i18n.setup_confirm_title">
@@ -573,7 +577,7 @@
                     return this.$i18n.setup_party_late_join_desc;
                 }
                 if (this.usePartyRoomConfirmUi && this.setupPhase === 'form') {
-                    return this.$i18n.setup_party_lobby_form_desc;
+                    return this.$i18n.setup_join_desc;
                 }
                 if (this.joinUiActive && this.setupPhase === 'form') return this.$i18n.setup_join_desc;
                 return this.$i18n.setup_desc;

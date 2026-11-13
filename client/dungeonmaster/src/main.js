@@ -154,8 +154,6 @@ const translations = {
     confirm_character_join_game: 'Join party',
     confirm_character_mark_ready: 'Confirm character — ready to play',
     setup_party_lobby_form_title: 'What will you be in this world?',
-    setup_party_lobby_form_desc:
-        'Decide what you want to be, then use Create character in your row above. When the sheet is saved, use Ready to play in that same row to confirm and mark yourself ready.',
     setup_party_late_join_desc:
         'This table is already in play. Decide what you want to be below, then use Join party on the confirmation step to open the shared chat.',
     confirm_secondary_actions_aria: 'Edit or regenerate',
@@ -435,8 +433,6 @@ const translations = {
     confirm_character_join_game: 'Unirse al grupo',
     confirm_character_mark_ready: 'Confirmar personaje — listo para jugar',
     setup_party_lobby_form_title: '¿Qué serás en este mundo?',
-    setup_party_lobby_form_desc:
-        'Decide qué quieres ser y usa Crear personaje en tu fila de arriba. Cuando la hoja esté guardada, usa Listo para jugar en esa misma fila para confirmar y marcarte listo.',
     setup_party_late_join_desc:
         'La mesa ya está en juego. Decide abajo qué quieres ser y luego usa Unirse al grupo en el paso de confirmación para abrir el chat compartido.',
     character_ready_join_party_playing:
