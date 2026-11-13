@@ -18,6 +18,10 @@ export function ensureGsiInitialized(clientId, onCredential) {
     window.google.accounts.id.initialize({
       client_id: clientId,
       callback: onCredential,
+      // Use FedCM for the button where the browser supports it. The popup fallback posts the credential back through
+      // window.opener, which browsers flag when Google's sign-in page sends a COOP header. FedCM avoids that path;
+      // browsers without it keep using the popup automatically.
+      use_fedcm_for_button: true,
     });
     initializedForClientId = clientId;
   }
