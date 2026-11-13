@@ -239,7 +239,7 @@ export default {
     lobby_retry_start: 'Reintentar inicio',
     lobby_retry_busy: 'Reintentando…',
     auth_env_hint:
-      'Inicio de sesión no configurado: define VUE_APP_DM_GOOGLE_CLIENT_ID en el cliente y DM_GOOGLE_CLIENT_ID (y DM_JWT_SECRET) en el servidor.',
+      'Inicio de sesión no configurado: define DM_GOOGLE_CLIENT_ID (y DM_JWT_SECRET) en el servidor.',
     public_hero_title: 'Juego de fantasía en grupo con IA (un jugador o muchos)',
     public_intro_p1:
       'Dungeon Master es una aplicación web donde una IA guía la narración al estilo de rol en mesa. Campañas, personajes y partidas son privados para usuarios identificados.',

@@ -121,7 +121,7 @@ export default {
       return n || '';
     },
     googleClientId() {
-      return process.env.VUE_APP_DM_GOOGLE_CLIENT_ID || '';
+      return this.$store.state.googleClientId || '';
     },
     authTick() {
       return this.$store.state.authTick;

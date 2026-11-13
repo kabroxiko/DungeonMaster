@@ -6,7 +6,7 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
-| GET | `/api/meta` | No | `{ api, deployMarker }` deploy probe |
+| GET | `/api/meta` | No | `{ api, deployMarker, googleClientId }`; `googleClientId` is the public OAuth Web client ID from `DM_GOOGLE_CLIENT_ID` |
 
 ## Auth (`/api/auth`)
 

@@ -164,20 +164,21 @@ const AUTH_UI_MUTATIONS = new Set([
 ]);
 
 let appVm;
-store
-  .dispatch('loadCharacterCatalog')
-  .catch(() => {})
-  .finally(() => {
-    appVm = app.mount('#app');
-    store.subscribe((mutation) => {
-      if (!AUTH_UI_MUTATIONS.has(mutation.type)) return;
-      queueMicrotask(() => {
-        try {
-          appVm.$forceUpdate();
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.warn('store.subscribe auth UI refresh failed', e);
-        }
-      });
+// Runtime config (OAuth client ID) and the character catalog both come from the API, so mount after they resolve.
+Promise.all([
+  store.dispatch('loadCharacterCatalog').catch(() => {}),
+  store.dispatch('loadRuntimeConfig').catch(() => {}),
+]).finally(() => {
+  appVm = app.mount('#app');
+  store.subscribe((mutation) => {
+    if (!AUTH_UI_MUTATIONS.has(mutation.type)) return;
+    queueMicrotask(() => {
+      try {
+        appVm.$forceUpdate();
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('store.subscribe auth UI refresh failed', e);
+      }
     });
   });
+});

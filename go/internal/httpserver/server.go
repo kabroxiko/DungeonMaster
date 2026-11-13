@@ -95,6 +95,9 @@ func (s *Server) Handler() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"api":          "gmai",
 			"deployMarker": "2026-03-31-generate-character-no-campaign-gate",
+			// The public OAuth client ID the SPA needs to start Google Sign-In. Serving it from the API lets a
+			// built client be deployed against any environment without rebuilding it.
+			"googleClientId": s.Cfg.GoogleClientID,
 		})
 	})
 

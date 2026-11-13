@@ -38,17 +38,6 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
-      # The SPA bakes this into the bundle, so a production image cannot be built without it. PRs build the image as a
-      # Dockerfile check and may leave it empty; pushes cannot publish a sign-in-broken image.
-      - name: Verify SPA build inputs
-        if: github.event_name != 'pull_request'
-        env:
-          VUE_APP_DM_GOOGLE_CLIENT_ID: ${{ vars.VUE_APP_DM_GOOGLE_CLIENT_ID || secrets.VUE_APP_DM_GOOGLE_CLIENT_ID }}
-        run: |
-          if [ -z "$VUE_APP_DM_GOOGLE_CLIENT_ID" ]; then
-            echo "::error::Set the repository variable VUE_APP_DM_GOOGLE_CLIENT_ID (or a secret with the same name) so the SPA can start Google Sign-In."
-            exit 1
-          fi
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
@@ -78,8 +67,6 @@ jobs:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            VUE_APP_DM_GOOGLE_CLIENT_ID=${{ vars.VUE_APP_DM_GOOGLE_CLIENT_ID || secrets.VUE_APP_DM_GOOGLE_CLIENT_ID }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Record image name

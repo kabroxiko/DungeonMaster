@@ -19,7 +19,7 @@ export default {
   name: 'HomePath',
   computed: {
     googleClientId() {
-      return process.env.VUE_APP_DM_GOOGLE_CLIENT_ID || '';
+      return this.$store.state.googleClientId || '';
     },
     featureLines() {
       const f = this.$i18n.public_features;

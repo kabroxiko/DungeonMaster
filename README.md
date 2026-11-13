@@ -103,8 +103,8 @@ For proper functioning of the application, you must set up the following environ
 - **API** (`.env` in the repository root; copy from [`env.example`](env.example)):
   - `DM_GOOGLE_CLIENT_ID` — Web application client ID from [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (OAuth 2.0 Client IDs, type **Web**). Under that client, **Authorized JavaScript origins** must list the **exact** origin you use in the browser (scheme + host + port). Examples: `http://localhost:8080` and `http://127.0.0.1:8080` are **different** — add both if you switch. If this is wrong, the browser console shows `The given origin is not allowed for the given client ID` and requests to `accounts.google.com/gsi/button` return **403**.
   - `DM_JWT_SECRET` — Long random string used only to sign **app session JWTs** (e.g. `openssl rand -hex 32`). **Do not** reuse your Google OAuth **client secret** here.
-- **Client** (`client/dungeonmaster/.env`; copy from [`client/dungeonmaster/env.example`](client/dungeonmaster/env.example)):
-  - `VUE_APP_DM_GOOGLE_CLIENT_ID` — Same value as `DM_GOOGLE_CLIENT_ID` (the public Web client ID).
+- **Client**: the SPA reads the public client ID from `GET /api/meta`, which returns the server's `DM_GOOGLE_CLIENT_ID`,
+  so the same build works in every environment and changing the client ID does not need a rebuild.
 
 Optional: `DM_FRONTEND_URL`, `DM_CORS_ORIGINS`, and `DM_API_BASE` (client `main.js`) for non-default hosts (see env examples).
 
@@ -124,17 +124,16 @@ CI builds a production image after the Go job passes and publishes it to `ghcr.i
 push to `main` (`latest` and `sha-*`) and on `v*` tags. The image bundles both halves of the app: nginx serves the
 Vue client on port 8080 and proxies `/api` (including SSE and WebSocket routes) to `gmai-server` on localhost.
 
-`VUE_APP_DM_GOOGLE_CLIENT_ID` is compiled into the SPA, so it is a build argument. Set it as a repository variable
-(or secret) with that exact name in GitHub, or pass it to a local build:
+The image contains no deployment configuration, so the same tag can be promoted across environments. Supply
+`DM_MONGODB_URI`, `DM_GOOGLE_CLIENT_ID`, `DM_JWT_SECRET` and `DM_FRONTEND_URL` (the URL users actually open) when
+the container starts:
 
 ```bash
-docker build --build-arg VUE_APP_DM_GOOGLE_CLIENT_ID=... -t dungeonmaster .
+docker build -t dungeonmaster .
 docker run --rm -p 8080:8080 --env-file .env dungeonmaster
 ```
 
-The container forces `NODE_ENV=production`. Provide `DM_MONGODB_URI`, `DM_GOOGLE_CLIENT_ID`, `DM_JWT_SECRET` and
-`DM_FRONTEND_URL` (the URL users actually open) through the environment or `.env`; the value of
-`DM_GOOGLE_CLIENT_ID` must match the client ID baked into the image.
+The container forces `NODE_ENV=production`.
 
 ### Debugging LLM calls
 

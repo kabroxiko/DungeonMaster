@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.4
 # Production image: the Vue client is built by Vue CLI, the Go API is built with the module's toolchain, and nginx
-# serves the SPA while proxying /api to gmai-server on localhost.
-#
-# VUE_APP_DM_GOOGLE_CLIENT_ID is compiled into the SPA, so it is a build argument rather than a runtime variable.
+# serves the SPA while proxying /api to gmai-server on localhost. Deployment values such as DM_GOOGLE_CLIENT_ID are
+# supplied at run time; the client reads the OAuth client ID from GET /api/meta.
 
 ########################
 # Frontend build stage
@@ -10,8 +9,6 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /src/client/dungeonmaster
 
-ARG VUE_APP_DM_GOOGLE_CLIENT_ID=""
-ENV VUE_APP_DM_GOOGLE_CLIENT_ID=${VUE_APP_DM_GOOGLE_CLIENT_ID}
 # Vue CLI/webpack can exceed the default heap while minifying.
 ENV NODE_OPTIONS=--max-old-space-size=4096
 

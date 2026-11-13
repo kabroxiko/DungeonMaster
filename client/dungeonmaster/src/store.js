@@ -45,6 +45,8 @@ export default createStore({
         characterCatalog: null,
         /** Bumped when characterCatalog updates so $i18n recomputes. */
         characterCatalogVersion: 0,
+        /** Public OAuth client ID from GET /api/meta (the server's DM_GOOGLE_CLIENT_ID). */
+        googleClientId: '',
 
     },
     mutations: {
@@ -147,6 +149,9 @@ export default createStore({
             state.characterCatalog = payload && typeof payload === 'object' ? payload : null;
             state.characterCatalogVersion = (state.characterCatalogVersion || 0) + 1;
         },
+        setGoogleClientId(state, clientId) {
+            state.googleClientId = clientId != null ? String(clientId).trim() : '';
+        },
 
     },
     actions: {
@@ -176,6 +181,17 @@ export default createStore({
             }
             commit('setUser', { ...state.user, ...u });
             commit('bumpAuthTick');
+        },
+        /** Runtime configuration from the API, so builds do not bake deployment values such as the OAuth client ID. */
+        async loadRuntimeConfig({ commit }) {
+            try {
+                const { data } = await axios.get('/api/meta');
+                commit('setGoogleClientId', data && data.googleClientId);
+            } catch (e) {
+                // eslint-disable-next-line no-console
+                console.warn('loadRuntimeConfig failed', e && e.message);
+                commit('setGoogleClientId', '');
+            }
         },
         /** Merge server profile (nickname, etc.) after reload or when JWT may be stale. */
         async loadCharacterCatalog({ commit, state }) {

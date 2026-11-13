@@ -243,7 +243,7 @@ export default {
     lobby_retry_start: 'Retry start',
     lobby_retry_busy: 'Retrying…',
     auth_env_hint:
-      'Sign-in is not configured: set VUE_APP_DM_GOOGLE_CLIENT_ID for the client and DM_GOOGLE_CLIENT_ID (and DM_JWT_SECRET) on the server.',
+      'Sign-in is not configured: set DM_GOOGLE_CLIENT_ID and DM_JWT_SECRET on the server.',
     public_hero_title: 'AI-powered party fantasy play (one player or a full group)',
     public_intro_p1:
       'Dungeon Master is a web app where an AI guides the narration for tabletop-style play. Campaigns, characters, and play sessions are private to signed-in players.',
