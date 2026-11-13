@@ -107,10 +107,61 @@ func setPartyStage(ctx context.Context, d *Deps, gameID, stage string) {
 		return
 	}
 	p := party.GetParty(toMap(doc["gameSetup"]))
-	if ph, _ := p["phase"].(string); strings.TrimSpace(ph) != "starting" {
+	// A stage describes a table that has not begun play: the lobby while its world is written, and the start pipeline's
+	// own steps. Once play has begun there is no long wait left to name.
+	if ph, _ := p["phase"].(string); strings.TrimSpace(ph) == "playing" {
 		return
 	}
 	next := party.MergeParty(toMap(doc["gameSetup"]), map[string]interface{}{"stage": stage})
+	_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{"gameSetup": next}})
+	if d.Hub != nil {
+		d.Hub.NotifyGameStateUpdated(gameID)
+	}
+}
+
+// setLobbyStage names a long step on a table that is still in the lobby, such as its world being written. It refuses
+// once the party has started, so a world step that is still running cannot rename the start pipeline's own stage.
+// Returns false when the stage was not taken and therefore must not be cleared either.
+func setLobbyStage(ctx context.Context, d *Deps, gameID, stage string) bool {
+	if d == nil || d.Coll == nil || gameID == "" {
+		return false
+	}
+	var doc map[string]interface{}
+	if err := d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc); err != nil {
+		return false
+	}
+	p := party.GetParty(toMap(doc["gameSetup"]))
+	if ph, _ := p["phase"].(string); strings.TrimSpace(ph) != "lobby" {
+		return false
+	}
+	next := party.MergeParty(toMap(doc["gameSetup"]), map[string]interface{}{"stage": stage})
+	if _, err := d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{"gameSetup": next}}); err != nil {
+		return false
+	}
+	if d.Hub != nil {
+		d.Hub.NotifyGameStateUpdated(gameID)
+	}
+	return true
+}
+
+// clearLobbyStage drops a lobby stage only while that same stage is still showing and the table is still in the lobby:
+// once the party starts, the start pipeline owns party.stage and a late-finishing world step must not wipe it.
+func clearLobbyStage(ctx context.Context, d *Deps, gameID, stage string) {
+	if d == nil || d.Coll == nil || gameID == "" {
+		return
+	}
+	var doc map[string]interface{}
+	if err := d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc); err != nil {
+		return
+	}
+	p := party.GetParty(toMap(doc["gameSetup"]))
+	if ph, _ := p["phase"].(string); strings.TrimSpace(ph) != "lobby" {
+		return
+	}
+	if cur := strings.TrimSpace(fmt.Sprint(p["stage"])); cur != stage {
+		return
+	}
+	next := party.MergeParty(toMap(doc["gameSetup"]), map[string]interface{}{"stage": ""})
 	_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{"gameSetup": next}})
 	if d.Hub != nil {
 		d.Hub.NotifyGameStateUpdated(gameID)

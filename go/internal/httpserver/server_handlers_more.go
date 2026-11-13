@@ -351,6 +351,9 @@ func (s *Server) handleCreateParty(w http.ResponseWriter, r *http.Request, uid s
 	s.Hub.NotifyGameStateUpdated(gameID)
 	var created map[string]interface{}
 	_ = s.coll().FindOne(ctx, bson.M{"gameId": gameID}).Decode(&created)
+	// The table's world is not a character's business: it starts now, so the lobby opens on a map being written while
+	// the players pick what they will be.
+	gamesession.PrepareWorldInBackground(s.GS, gameID, lang)
 	writeJSON(w, http.StatusCreated, gamesession.GameStateDocForClient(created))
 }
 

@@ -677,7 +677,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	if worldSettings != nil {
 		worldBody["worldSettings"] = worldSettings
 	}
-	world, worldMapCh, st, code, problem := prepareCampaignWorld(ctx, d, gameID, worldBody, language)
+	world, worldMapCh, st, code, problem := campaignWorldWithLock(ctx, d, gameID, worldBody, language)
 	if problem != "" {
 		return LobbyCampaignOutcome{OK: false, Status: st, Error: problem, Code: code}
 	}

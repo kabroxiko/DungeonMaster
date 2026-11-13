@@ -121,6 +121,17 @@
                                     </UIButton>
                                 </template>
                             </div>
+                            <!-- The world is written for the whole table, so it is named here too — but your own controls stay
+                                 usable while it runs: a sheet requested now waits for the map rather than being refused. -->
+                            <span
+                                v-if="partyGeneratingWorld"
+                                class="party-lobby__badge party-lobby__badge--starting"
+                                role="status"
+                                aria-live="polite"
+                            >
+                                <span class="party-lobby__spin" aria-hidden="true"></span>
+                                <span>{{ $i18n.lobby_generating_world }}</span>
+                            </span>
                             <span
                                 v-else-if="partyPhase === 'starting'"
                                 class="party-lobby__badge party-lobby__badge--starting"
@@ -128,9 +139,12 @@
                                 aria-live="polite"
                             >
                                 <span class="party-lobby__spin" aria-hidden="true"></span>
-                                <span>{{ partyGeneratingWorld ? $i18n.lobby_generating_world : $i18n.lobby_starting }}</span>
+                                <span>{{ $i18n.lobby_starting }}</span>
                             </span>
-                            <span v-else class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok">
+                            <span
+                                v-else-if="row.isReady || partyLobbyRosterOwnRowFrozen"
+                                class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok"
+                            >
                                 <FontAwesomeIcon
                                     :icon="faCircleCheck"
                                     class="party-lobby__badge-icon"

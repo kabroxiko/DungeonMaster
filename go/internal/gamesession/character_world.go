@@ -2,8 +2,10 @@ package gamesession
 
 import (
 	"context"
+	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cbroglie/mustache"
 	"go.mongodb.org/mongo-driver/bson"
@@ -27,6 +29,40 @@ func lockCampaignWorld(gameID string) func() {
 	mutex := value.(*sync.Mutex)
 	mutex.Lock()
 	return mutex.Unlock
+}
+
+// campaignWorldWithLock creates the world under the game's lock, so an overlapping caller reuses the one being made
+// instead of inventing a second map for the same table.
+func campaignWorldWithLock(ctx context.Context, d *Deps, gameID string, body map[string]interface{}, language string) (campaignWorld, <-chan string, int, string, string) {
+	unlock := lockCampaignWorld(gameID)
+	defer unlock()
+	return prepareCampaignWorld(ctx, d, gameID, body, language)
+}
+
+// PrepareWorldInBackground writes the table's world as soon as the party exists, instead of leaving it to the first
+// character request. The lobby keeps opening while the map is made, every client sees party.stage = "world", and a
+// sheet requested in the meantime waits on the same lock rather than being written on a world that does not exist yet.
+func PrepareWorldInBackground(d *Deps, gameID, language string) {
+	if d == nil || d.Coll == nil || strings.TrimSpace(gameID) == "" {
+		return
+	}
+	gid := strings.TrimSpace(gameID)
+	go func() {
+		// The request that started this has already answered, so the work carries its own deadline.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if !setLobbyStage(ctx, d, gid, "world") {
+			// The table already started: its start pipeline names the wait, and the world is made for it instead.
+			return
+		}
+		defer clearLobbyStage(context.Background(), d, gid, "world")
+		if world := storedCampaignWorld(ctx, d, gid); world != nil {
+			return
+		}
+		if _, _, status, code, problem := campaignWorldWithLock(ctx, d, gid, map[string]interface{}{}, language); problem != "" {
+			log.Printf("party world: game %s has no world (%d %s): %s", gid, status, code, problem)
+		}
+	}()
 }
 
 // storedCampaignWorld returns the world already stored for a game, or nil when there is none yet.
