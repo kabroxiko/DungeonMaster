@@ -153,7 +153,7 @@ anything is stored: a name the map knows keeps the map's spelling, an invented o
 settlement name, and a location with no map name left is dropped. Each name also carries what it really is — a region
 is a territory, a settlement has streets and markets, a lake or river is water — and the prompts require the story to
 respect that (never “the market of <region>”). The opening narration is rendered from the stored campaign
-(`templates/dm/inject_initial.txt`) with its key locations reconciled to the map again, so even a campaign generated
+(`templates/dm/inject_initial.md`) with its key locations reconciled to the map again, so even a campaign generated
 before this rule existed opens on places the players can find on their map.
 
 Every player gets a map button in the chat header and opens the campaign map in their own browser; opening or closing
@@ -183,8 +183,8 @@ curl -s -X POST localhost:5001/api/game-session/measure-travel \
 
 With no `DM_VELLARIS_URL`, send an already-measured leg as `"leg": {...}` and nothing is called.
 
-Once a world exists (generated during campaign creation or imported), `rules/vellaris_world.txt` and
-`templates/dm/world_vellaris.txt` are injected into every `/generate` turn, and the campaign's key locations are placed
+Once a world exists (generated during campaign creation or imported), `rules/vellaris_world.md` and
+`templates/dm/world_vellaris.md` are injected into every `/generate` turn, and the campaign's key locations are placed
 inside the world's real regions. The world itself is DM-only: clients only receive the rendered map image.
 
 ### Usage

@@ -420,7 +420,7 @@ func renderCampaignWorldContext(world map[string]interface{}) string {
 	if normalized == nil {
 		return ""
 	}
-	template := promptmgr.LoadPrompt("templates/campaign/world_context.txt")
+	template := promptmgr.LoadPrompt("templates/campaign/world_context.md")
 	if template == "" {
 		return ""
 	}
@@ -452,7 +452,7 @@ func campaignWorldSystemBlock(world map[string]interface{}, maxPlaces int) strin
 	if context == "" {
 		return ""
 	}
-	rules := promptmgr.LoadPrompt("rules/vellaris_world.txt")
+	rules := promptmgr.LoadPrompt("rules/vellaris_world.md")
 	if rules != "" {
 		context = rules + "\n\n" + context
 	}

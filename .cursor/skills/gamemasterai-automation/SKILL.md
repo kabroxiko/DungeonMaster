@@ -34,9 +34,9 @@ The repository currently contains the following notable items and conventions
 that this skill must respect and extend:
 
 - Prompts (embedded at build): `go/internal/prompts/promptfiles/` grouped as `core/`, `rules/`, `skills/`, `templates/dm/`, `templates/campaign/`.
-  - Campaign core: `templates/campaign/generator.txt` (build block + `---` + Mustache user slice); load via `promptmgr.LoadCampaignGeneratorParts()` in Go.
-  - Guards: `rules/json_output_guard.txt`, `rules/no_prefatory_guard.txt`, etc.
-  - DM injections: `templates/dm/inject_explore.txt`, `templates/dm/inject_combat.txt`, etc.
+  - Campaign core: `templates/campaign/generator.md` (build block + `---` + Mustache user slice); load via `promptmgr.LoadCampaignGeneratorParts()` in Go.
+  - Guards: `rules/json_output_guard.md`, `rules/no_prefatory_guard.md`, etc.
+  - DM injections: `templates/dm/inject_explore.md`, `templates/dm/inject_combat.md`, etc.
 - API implementation: `go/internal/httpserver/` (routes), `go/internal/gamesession/` (LLM flows)
   - Endpoints: `/generate`, `/generate-campaign-core`, `/generate-character`, `/start-party-adventure`
   - Game state: `POST /api/game-state/create-party`, `POST /api/game-state/party-ready`, `PATCH /api/game-state/party-premise`
@@ -45,9 +45,9 @@ that this skill must respect and extend:
 - MongoDB `GameState` documents have `campaignSpec` and
   `rawModelOutput` fields (DM-only selectors on some)
   - Client: `App.vue` “New game” → `POST /api/game-state/create-party` → `ChatRoom` lobby (premise, ready, character link); `SetupForm` is character-only when joining or when `gameSetup.party.phase` is `lobby`/`starting`.
-  - Optional host seed: `gameSetup.party.hostPremise` → Mustache `{{hostPremise}}` in `templates/campaign/generator.txt`.
-  - Late join after play: `gameSetup.party.pendingNarrativeIntroductionUserIds` + DM block `templates/dm/party_arrival.txt` (alias `dm_party_arrival.txt`); cleared on next successful `/generate` persist (`go/internal/persist/`).
-  - Party context: `templates/dm/party_context.txt` (alias `dm_party_context.txt`).
+  - Optional host seed: `gameSetup.party.hostPremise` → Mustache `{{hostPremise}}` in `templates/campaign/generator.md`.
+  - Late join after play: `gameSetup.party.pendingNarrativeIntroductionUserIds` + DM block `templates/dm/party_arrival.md` (alias `dm_party_arrival.md`); cleared on next successful `/generate` persist (`go/internal/persist/`).
+  - Party context: `templates/dm/party_context.md` (alias `dm_party_context.md`).
 - Utilities:
   - `parseModelStructuredObject` / `parseCampaignStageModelOutput` (YAML via `yaml` package) for model output
   - `estimateTokenCount` and dynamic completion budgeting in `gameSession.js`
@@ -110,7 +110,7 @@ Example server-side injection snippet (pseudo):
 
 ```js
 const spec = gs.campaignSpec;
-const tpl = loadPrompt('templates/dm/inject_explore.txt');
+const tpl = loadPrompt('templates/dm/inject_explore.md');
 const injected = Mustache.render(tpl, { factions: spec.factions.slice(0,3) });
 systemMsgs.unshift({ role: 'system', content: injected });
 ```
@@ -164,11 +164,11 @@ Add or extend **tests** in `go/...` when changing this behavior (load never expo
 
 ### Multiplayer roadmap (optional next steps)
 
-- **Done in repo**: Google auth, `ownerUserId` / `memberUserIds`, invites, join, per-user `playerCharacters`, DM party injection (`templates/dm/party_context.txt`), load omits `generatedCharacter`, **SSE** `GET /api/game-state/events/:gameId`, manual + visibility-based sync, party roster strip in `ChatRoom`.
+- **Done in repo**: Google auth, `ownerUserId` / `memberUserIds`, invites, join, per-user `playerCharacters`, DM party injection (`templates/dm/party_context.md`), load omits `generatedCharacter`, **SSE** `GET /api/game-state/events/:gameId`, manual + visibility-based sync, party roster strip in `ChatRoom`.
 - **Later**: WebSocket (duplex / presence); **leave party** / owner kick; optional **privacy** (names-only for other PCs on load); “who is typing” if desired.
 - **Shared vs per-player data**: `campaignSpec` is shared and DM-only (use existing `redactCampaignSpecForClient`). Per-player sheets live under **`gameSetup.playerCharacters[userId]`** only.
 - **Campaign-first**: Unchanged for new games: campaign core still follows a saved character for that user; in multi-player, “character exists” means the **current user** has an entry in `playerCharacters`.
-- **Typical touch files** for auth/multi-player work: `go/internal/auth/`, `go/internal/store/`, `go/internal/httpserver/`, `go/internal/gamesession/`, `go/internal/persist/`, `go/internal/prompts/promptfiles/templates/dm/party_context.txt` (party injection), `client/dungeonmaster/src/store.js`, `main.js`, `router.js`, `App.vue`, `ChooseNickname.vue`, `googleSignIn.js`, `LoadGame.vue`, `ChatRoom.vue`, `SetupForm.vue`.
+- **Typical touch files** for auth/multi-player work: `go/internal/auth/`, `go/internal/store/`, `go/internal/httpserver/`, `go/internal/gamesession/`, `go/internal/persist/`, `go/internal/prompts/promptfiles/templates/dm/party_context.md` (party injection), `client/dungeonmaster/src/store.js`, `main.js`, `router.js`, `App.vue`, `ChooseNickname.vue`, `googleSignIn.js`, `LoadGame.vue`, `ChatRoom.vue`, `SetupForm.vue`.
 - **Nickname**: New accounts must set `nickname` (`PATCH /api/auth/nickname`); router enforces `/choose-nickname` until set. Optional `/change-nickname` and **Edit name** in the header; `refreshSessionUser` (`GET /api/auth/me`) syncs profile on app load.
 - **Docs & checks**: README “Google Sign-In and session JWT”; `env.example` and `client/dungeonmaster/env.example`; run `go test ./...` from `go/` for API tests.
 

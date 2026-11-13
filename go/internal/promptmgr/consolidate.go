@@ -68,15 +68,15 @@ func dedupeStrings(arr []string) []string {
 // BuildCampaignStageSystemMsgs mirrors buildCampaignStageSystemMsgs(language).
 func BuildCampaignStageSystemMsgs(language string) []map[string]string {
 	var out []map[string]string
-	if g := LoadPrompt("rules/json_output_guard.txt"); g != "" {
+	if g := LoadPrompt("rules/json_output_guard.md"); g != "" {
 		out = append(out, map[string]string{"role": "system", "content": g})
 	}
-	if g := LoadPrompt("rules/no_prefatory_guard.txt"); g != "" {
+	if g := LoadPrompt("rules/no_prefatory_guard.md"); g != "" {
 		out = append(out, map[string]string{"role": "system", "content": g})
 	}
-	langFile := "rules/language_english.txt"
+	langFile := "rules/language_english.md"
 	if strings.ToLower(language) == "spanish" {
-		langFile = "rules/language_spanish.txt"
+		langFile = "rules/language_spanish.md"
 	}
 	if lp := LoadPrompt(langFile); lp != "" {
 		out = append(out, map[string]string{"role": "system", "content": lp})
@@ -96,14 +96,14 @@ func BuildCampaignCoreSystemMsgs(language, creativeSeedJSON, worldContext string
 		seedSlice = strings.TrimSpace(creativeSeedJSON)
 	}
 	var out []map[string]string
-	if g := LoadPrompt("rules/json_output_guard.txt"); g != "" {
+	if g := LoadPrompt("rules/json_output_guard.md"); g != "" {
 		out = append(out, map[string]string{"role": "system", "content": g})
 	}
-	if g := LoadPrompt("rules/no_prefatory_guard.txt"); g != "" {
+	if g := LoadPrompt("rules/no_prefatory_guard.md"); g != "" {
 		out = append(out, map[string]string{"role": "system", "content": g})
 	}
 	if block := strings.TrimSpace(worldContext); block != "" {
-		rules := LoadPrompt("rules/vellaris_world.txt")
+		rules := LoadPrompt("rules/vellaris_world.md")
 		if rules != "" {
 			block = rules + "\n\n" + block
 		}
@@ -120,9 +120,9 @@ func BuildCampaignCoreSystemMsgs(language, creativeSeedJSON, worldContext string
 		}
 		out = append(out, map[string]string{"role": "system", "content": strings.TrimSpace(rendered)})
 	}
-	langFile := "rules/language_english.txt"
+	langFile := "rules/language_english.md"
 	if strings.ToLower(language) == "spanish" {
-		langFile = "rules/language_spanish.txt"
+		langFile = "rules/language_spanish.md"
 	}
 	if lp := LoadPrompt(langFile); lp != "" {
 		out = append(out, map[string]string{"role": "system", "content": lp})

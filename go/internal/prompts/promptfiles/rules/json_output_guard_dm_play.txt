@@ -1,9 +1,0 @@
-OUTPUT FORMAT RULE (DM live play): Your entire assistant reply must be **one JSON object** matching the DM envelope in this system prompt (required keys include `"narration"`, `"imminentCombat"`, `"combatCue"`). No markdown fence around the whole reply unless unavoidable; no prose before or after the object.
-
-**Do not** return `{}` because you feel unsure. For **initial adventure opening** and normal exploration turns, **`"narration"` must be non-empty** player-visible prose (follow **skills/adventure_seed.txt** and campaign injections already in this prompt—they are your scene material). Use a normal JSON string value: escape quotes inside the string; use `\n\n` between paragraphs inside that string.
-
-**Critical:** Do **not** put YAML block or fold markers inside `"narration"`. The value must be plain prose only — **never** start the string with `|`, `|+`, `|-`, `>`, or similar. Those belong in YAML documents, not inside a JSON string.
-
-**Exception:** Only when a **combat-entry handoff** system block explicitly requires it may `"narration"` be empty for that single reply (`"narration": ""`).
-
-IGNORE continuation tokens such as "[CONTINUE]" and do not split the envelope across multiple assistant messages.

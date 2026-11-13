@@ -12,9 +12,9 @@ func LoadPrompt(filename string) string {
 	return prompts.Load(filename)
 }
 
-// LoadCampaignGeneratorParts splits templates/campaign/generator.txt on ---.
+// LoadCampaignGeneratorParts splits templates/campaign/generator.md on ---.
 func LoadCampaignGeneratorParts() (buildContext, userTemplate string) {
-	full := LoadPrompt("templates/campaign/generator.txt")
+	full := LoadPrompt("templates/campaign/generator.md")
 	sep := "\n---\n"
 	idx := strings.Index(full, sep)
 	if strings.TrimSpace(full) == "" || idx == -1 {
@@ -26,14 +26,14 @@ func LoadCampaignGeneratorParts() (buildContext, userTemplate string) {
 // ComposeSystemMessages mirrors server/promptManager.js composeSystemMessages.
 func ComposeSystemMessages(mode, sessionSummary string, includeFullSkill bool, language string) []map[string]string {
 	msgs := []map[string]string{}
-	if core := LoadPrompt("core/system.txt"); core != "" {
+	if core := LoadPrompt("core/system.md"); core != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": core})
 	}
-	if style := LoadPrompt("core/style.txt"); style != "" {
+	if style := LoadPrompt("core/style.md"); style != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": style})
 	}
 	if sessionSummary != "" {
-		memT := LoadPrompt("rules/memory_summary.txt")
+		memT := LoadPrompt("rules/memory_summary.md")
 		mem := memT + "\n\nSession summary: " + sessionSummary
 		msgs = append(msgs, map[string]string{"role": "system", "content": mem})
 	}
@@ -44,15 +44,15 @@ func ComposeSystemMessages(mode, sessionSummary string, includeFullSkill bool, l
 		})
 	}
 	skillMap := map[string]string{
-		"combat":        "skills/combat.txt",
-		"investigation": "skills/investigation.txt",
-		"decision":      "skills/decision.txt",
-		"initial":       "skills/adventure_seed.txt",
-		"exploration":   "skills/exploration.txt",
+		"combat":        "skills/combat.md",
+		"investigation": "skills/investigation.md",
+		"decision":      "skills/decision.md",
+		"initial":       "skills/adventure_seed.md",
+		"exploration":   "skills/exploration.md",
 	}
 	skillFile := skillMap[mode]
 	if skillFile != "" {
-		if mode == "initial" && skillFile == "skills/adventure_seed.txt" {
+		if mode == "initial" && skillFile == "skills/adventure_seed.md" {
 			msgs = append(msgs, map[string]string{
 				"role":    "system",
 				"content": "Mode: initial. Follow the opening-scene instructions in the dedicated adventure-seed system block supplied by the server (do not assume they appear here).",
@@ -66,14 +66,14 @@ func ComposeSystemMessages(mode, sessionSummary string, includeFullSkill bool, l
 			msgs = append(msgs, map[string]string{"role": "system", "content": "Mode: " + mode + ". Follow the " + mode + " guidelines concisely."})
 		}
 	}
-	langFile := "rules/language_english.txt"
+	langFile := "rules/language_english.md"
 	if strings.ToLower(language) == "spanish" {
-		langFile = "rules/language_spanish.txt"
+		langFile = "rules/language_spanish.md"
 	}
 	if lp := LoadPrompt(langFile); lp != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": lp})
 	}
-	if guard := LoadPrompt("rules/length_guard.txt"); guard != "" {
+	if guard := LoadPrompt("rules/length_guard.md"); guard != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": guard})
 	}
 	return msgs
@@ -84,9 +84,9 @@ func RenderSkillPrompt(skillContent, language string) string {
 	if skillContent == "" || !strings.Contains(skillContent, "{{") {
 		return skillContent
 	}
-	langFile := "rules/language_english.txt"
+	langFile := "rules/language_english.md"
 	if strings.ToLower(language) == "spanish" {
-		langFile = "rules/language_spanish.txt"
+		langFile = "rules/language_spanish.md"
 	}
 	li := LoadPrompt(langFile)
 	data := map[string]interface{}{
@@ -100,11 +100,11 @@ func RenderSkillPrompt(skillContent, language string) string {
 	return out
 }
 
-// LanguageInstructionForCompose returns rules/language_*.txt body.
+// LanguageInstructionForCompose returns rules/language_*.md body.
 func LanguageInstructionForCompose(language string) string {
-	langFile := "rules/language_english.txt"
+	langFile := "rules/language_english.md"
 	if strings.ToLower(language) == "spanish" {
-		langFile = "rules/language_spanish.txt"
+		langFile = "rules/language_spanish.md"
 	}
 	return LoadPrompt(langFile)
 }

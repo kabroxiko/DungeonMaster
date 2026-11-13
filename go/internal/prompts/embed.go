@@ -11,6 +11,11 @@ import (
 //go:embed all:promptfiles
 var embedded embed.FS
 
+const (
+	frontmatterOpen  = "---\n"
+	frontmatterClose = "\n---\n"
+)
+
 var (
 	cache   = map[string]string{}
 	cacheMu sync.RWMutex
@@ -30,6 +35,9 @@ func ResolveRelativePath(filename string) string {
 }
 
 // Load reads from embed FS under promptfiles/<rel>.
+// Prompt files are markdown skills: the YAML frontmatter (name, description) is
+// metadata for humans and tooling only, so it is stripped before the body is
+// cached and handed to the prompt composer.
 func Load(rel string) string {
 	rel = ResolveRelativePath(rel)
 	if rel == "" {
@@ -50,8 +58,23 @@ func Load(rel string) string {
 		return ""
 	}
 	s := strings.TrimSpace(string(b))
+	s = stripFrontmatter(s)
 	cacheMu.Lock()
 	cache[rel] = s
 	cacheMu.Unlock()
 	return s
+}
+
+// stripFrontmatter removes a leading YAML frontmatter block so skill metadata
+// never reaches the model. A body without frontmatter is returned unchanged.
+func stripFrontmatter(s string) string {
+	if !strings.HasPrefix(s, frontmatterOpen) {
+		return s
+	}
+	rest := s[len(frontmatterOpen):]
+	end := strings.Index(rest, frontmatterClose)
+	if end == -1 {
+		return s
+	}
+	return strings.TrimSpace(rest[end+len(frontmatterClose):])
 }

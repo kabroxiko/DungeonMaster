@@ -1,0 +1,10 @@
+---
+name: no-prefatory-guard
+description: Forbids prefatory or meta text around the requested output.
+---
+
+NO PREFATORY TEXT:
+- Do NOT produce any prefatory, explanatory, or meta-text that frames the reply as a sample, draft, or illustration of the requested output.
+- When asked for narrative, output only the narrative content requested. When asked for JSON, output only the JSON object.
+- Do not preface responses with commentary, instructions, or examples.
+

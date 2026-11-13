@@ -1,9 +1,0 @@
-DM-ONLY — **SERVER-CHOSEN OPENING FRAME** (mandatory for the first `narration` in this request)
-
-The server assigned **one** primary opening situation for this game (stable id: `{{openingFrameId}}`). The **directive** below was produced during **campaign generation** from this world’s locations and conflicts. You **must** use it as the **dominant physical and social frame** for the opening: adapt names and factions from the campaign injection block, but **do not** discard this frame in favor of a habitual **outer gate + travel papers + sentry asking purpose-of-visit** setup unless the directive **explicitly** requires a gate or checkpoint. You **must** realize the directive’s **concrete incident or object-in-play** (not replace it with a generic **hooded interrogator** whose only move is *who are you / what is your purpose*).
-
-**Precedence:** This block **wins** over generic “choose a frame” habits from the adventure-seed list for **where beat one happens**. You still obey adventure-seed for length, JSON envelope, second-person first opening, mundane arrival motive, and hook quality.
-
----
-
-{{openingFrameDirective}}

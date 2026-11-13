@@ -23,7 +23,7 @@ func renderVellarisWorldInject(spec map[string]interface{}) string {
 		return ""
 	}
 
-	template := promptmgr.LoadPrompt("templates/dm/world_vellaris.txt")
+	template := promptmgr.LoadPrompt("templates/dm/world_vellaris.md")
 	if template == "" {
 		return ""
 	}
@@ -32,7 +32,7 @@ func renderVellarisWorldInject(spec map[string]interface{}) string {
 		return ""
 	}
 
-	rules := promptmgr.LoadPrompt("rules/vellaris_world.txt")
+	rules := promptmgr.LoadPrompt("rules/vellaris_world.md")
 	if rules == "" {
 		return rendered
 	}

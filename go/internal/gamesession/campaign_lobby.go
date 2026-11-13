@@ -162,7 +162,7 @@ func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, lan
 	if r := []rune(hostPremiseTrim); len(r) > 2000 {
 		hostPremiseTrim = string(r[:2000])
 	}
-	tpl := promptmgr.LoadPrompt("templates/campaign/stage_creativeSeed.txt")
+	tpl := promptmgr.LoadPrompt("templates/campaign/stage_creativeSeed.md")
 	if strings.TrimSpace(tpl) == "" {
 		return false, nil, "", "CAMPAIGN_STAGE_CREATIVE_SEED_TEMPLATE"
 	}
@@ -233,11 +233,11 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 	var templateFile string
 	switch stage {
 	case "factions":
-		templateFile = "templates/campaign/stage_factions.txt"
+		templateFile = "templates/campaign/stage_factions.md"
 	case "majorNPCs":
-		templateFile = "templates/campaign/stage_majorNPCs.txt"
+		templateFile = "templates/campaign/stage_majorNPCs.md"
 	case "keyLocations":
-		templateFile = "templates/campaign/stage_keyLocations.txt"
+		templateFile = "templates/campaign/stage_keyLocations.md"
 	default:
 		return false, "unknown campaign stage " + stage
 	}
@@ -431,7 +431,7 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 		}
 		campaignContextJSON = s
 	}
-	tpl := promptmgr.LoadPrompt("templates/campaign/stage_openingSceneFrame.txt")
+	tpl := promptmgr.LoadPrompt("templates/campaign/stage_openingSceneFrame.md")
 	if strings.TrimSpace(tpl) == "" {
 		return false
 	}
@@ -664,7 +664,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	}
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Server misconfiguration: templates/campaign/generator.txt is required", Code: "CAMPAIGN_TEMPLATE_MISSING"}
+		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Server misconfiguration: templates/campaign/generator.md is required", Code: "CAMPAIGN_TEMPLATE_MISSING"}
 	}
 	hostPremiseTrim := strings.TrimSpace(hostPremise)
 	if len(hostPremiseTrim) > 2000 {

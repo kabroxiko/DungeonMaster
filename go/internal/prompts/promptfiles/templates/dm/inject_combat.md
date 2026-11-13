@@ -1,0 +1,24 @@
+---
+name: dm-inject-combat
+description: DM-only combat and decision guidance injection.
+---
+
+DM-ONLY COMBAT/DECISION GUIDANCE (do NOT reveal to players):
+
+Hidden adventure objective (DM-only):
+{{dmHiddenAdventureObjective}}
+
+Relevant NPCs:
+{{#majorNPCs}}
+- {{name}} ({{role}}): {{briefDescription}}
+{{/majorNPCs}}
+
+Major conflicts:
+{{#majorConflicts}}
+- {{.}}
+{{/majorConflicts}}
+
+Include these details to ensure tactical and narrative consistency when encounters, negotiations, or major choices occur. Do not expose these notes to players.
+
+Off-thread behavior: if the player is chasing a fight, deal, or chase that has nothing to do with the hidden objective or established fiction, do not retroactively make it the main plot. Keep consequences tactical and local (guards, witnesses, injury, reputation, gold, time) rather than unveiling a new grand storyline.
+

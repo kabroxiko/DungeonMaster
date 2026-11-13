@@ -1,0 +1,32 @@
+---
+name: campaign-stage-creative-seed
+description: Internal creative seed stage that picks a fresh bundle of constraints and avoid-lists per generation.
+---
+
+Campaign stage: **creative seed** (internal steering only — not player quest text)
+
+This is a **separate** draw from the main campaign document. Your job is to pick **one fresh random bundle** of creative constraints for **this generation only**. Do **not** reuse the same `avoidRepeatedFantasyTropesThisRun` list you would have used on a previous answer — invent a **new** mix of overused fantasy clichés, tired words, or stale title patterns to **skip** for this run (concrete strings: English is fine even when the campaign prose will follow the **session language policy** in the system message).
+
+**Host/table premise** (optional; may be empty — world-only, no PC names): {{hostPremise}}
+
+Return **ONLY** valid YAML (no markdown fence, no commentary). Shape:
+
+creativeSeed:
+  titleMood: "..."
+  preferAngles:
+    - "..."
+    - "..."
+  avoidRepeatedFantasyTropesThisRun:
+    - "..."
+    - "..."
+  namingNote: "..."
+
+**Scalars:** Quote values that contain `: ` or could be read as YAML booleans. Do not emit channel tags (`<|...|>`) or prose outside the document.
+
+Fields:
+- **titleMood** (string, required): 1 short phrase describing how the **player-facing title** should *feel* (e.g. wry mercantile dread, sun-bleached hope, cold legal thriller) — not a title itself.
+- **preferAngles** (list of 2–5 strings): thematic or structural angles the **campaign core** should visibly lean into in `campaignConcept`, `majorConflicts`, `toneAndStyle`, and the hidden objective — specific to this world draw.
+- **avoidRepeatedFantasyTropesThisRun** (list of 3–8 strings): clichés, stock metaphors, or **specific words** the core pass must **not** lean on in the **title** or spine of the concept (you choose different items each run — do not output a generic static list).
+- **namingNote** (string, optional): one sentence on **naming** variety for factions/places later (e.g. favor trade guilds and toponyms over “dark lords”).
+
+**Randomness:** Treat this as a **dice roll** — vary mood, angles, and the avoid-list strongly across generations.

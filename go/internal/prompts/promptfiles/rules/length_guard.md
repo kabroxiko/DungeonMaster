@@ -1,0 +1,11 @@
+---
+name: length-guard
+description: Reply length and continuation limits, with an exception for the initial adventure opening.
+---
+
+Response length guard:
+- **Initial adventure opening** (JSON with `narration`, **`skills/adventure_seed.md` in stack**): **Disregard** the 300-word line below. Use the **paragraph/word targets** in adventure-seed (solo vs party). When adventure-seed calls for **dense layering**, meet that depth—not “too long.” Output **one** valid JSON object—**no** `[CONTINUE]`.
+- Keep each assistant reply reasonably short and focused. Aim for no more than 300 words (≈2000 characters) per reply by default (**not** for initial adventure opening; see above).
+- For all **other** replies: if the content genuinely requires more length (long scene or large JSON payload), split across multiple replies only by ending with the exact token "[CONTINUE]" on its own line, then continue in the next assistant message.
+- Do NOT truncate mid-sentence; finish the current sentence and then append "[CONTINUE]" if more content is pending (non-initial only).
+- Prefer concise paragraphs and avoid unnecessary repetition.

@@ -1,0 +1,30 @@
+---
+name: campaign-stage-opening-scene-frame
+description: Campaign stage template choosing the first-session opening frame and start place.
+---
+
+Campaign stage: **first-session opening frame** (DM-only; not player quest text)
+
+You are choosing **one** primary **physical and social situation** for the **very first** in-play DM reply of this campaign. The table has **not** played yet. Use **high creativity** and **variety** — do **not** default to a clichéd **outer city gate + travel papers + sentry demanding purpose-of-visit** as the main beat unless this campaign’s conflicts **explicitly** require border lockdown. Avoid **anonymous hooded figures** watching from edges as the hook.
+
+**Campaign context (JSON — for you only; do not paste into player-facing text):**
+{{campaignContextJson}}
+
+Return **ONLY** valid YAML (no markdown fence, no commentary). Shape:
+
+openingSceneFrame:
+  id: short_snake_slug
+  startPlace: "<one place name copied from the map>"
+  directive: |
+    2–5 sentences of DM-only briefing in English...
+
+**Syntax:** Keep `directive` as a quoted string or `|` block so delimiters are never ambiguous.
+
+- **id**: short ASCII slug (letters, digits, underscores), max 48 chars — stable label for logs.
+- **startPlace**: the **one spot** where the party stands when the campaign opens, copied character for character from
+  `mapPlaceNames` (or from a key location). It must be a **place**, never a region, a territory or an invented name:
+  the server puts the table's pin on exactly this spot, and a name the map does not have leaves the party nowhere. The
+  `directive` must open the first scene **at this place**, not merely in its region.
+- **directive**: **English**, 2–5 sentences, **DM-only**. It **commands** the first-scene model where beat one happens: name the **kind** of venue (interior dock office, trail ford, temple steps, market hall, workshop, crisis in a street, etc.), how PCs are situated, and what **concrete** friction or news creates a playable tilt. The directive **must** specify **at least one non-interrogation story fact** the opening prose must show — e.g. a **named or roled** NPC **doing** something specific (not “demands to know who you are”), a **visible object/document/seal** in play, an **alarm or second voice**, a **structural failure**, **impending deadline**, or **urgent news** tied to a faction or location from the JSON. **Invalid as the sole tilt:** “a hooded stranger asks their purpose” or any beat that reduces to **identity + business quiz** without a louder incident. **Reference** specific **key location names** or **faction / NPC roles** from the JSON when it fits — invent nothing that contradicts them. This text will be injected as a **mandatory** system instruction for the opening narration; write it as imperative briefing to the DM model, not in-world prose.
+
+**Randomness:** Treat this as a **fresh creative draw** — pick a frame you have **not** “already used” in your head for generic fantasy; bias toward **non-gate** openings when the setting allows.

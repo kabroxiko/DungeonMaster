@@ -163,17 +163,17 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	if b, err := json.Marshal(spellsPrecomputed); err == nil {
 		spellsAuthoritativeJSON = string(b)
 	}
-	// Prompt stack: YAML guard + character-only scope + skills/character.txt (large on purpose — PHB gear/spells/coinage
-	// so the model returns a complete level-1 sheet). Language text uses rules/language_*_character.txt (no campaign title rules).
-	scope := promptmgr.LoadPrompt("skills/character_generation_scope.txt")
+	// Prompt stack: YAML guard + character-only scope + skills/character.md (large on purpose — PHB gear/spells/coinage
+	// so the model returns a complete level-1 sheet). Language text uses rules/language_*_character.md (no campaign title rules).
+	scope := promptmgr.LoadPrompt("skills/character_generation_scope.md")
 	if strings.TrimSpace(scope) == "" {
 		return 500, map[string]interface{}{
-			"error": "generate-character: dm_character_generation_scope.txt is missing or empty.",
+			"error": "generate-character: dm_character_generation_scope.md is missing or empty.",
 			"code":  "CHARACTER_SCOPE_PROMPT_MISSING",
 		}
 	}
 	var sys []map[string]string
-	if g := promptmgr.LoadPrompt("rules/json_output_guard.txt"); g != "" {
+	if g := promptmgr.LoadPrompt("rules/json_output_guard.md"); g != "" {
 		sys = append(sys, map[string]string{"role": "system", "content": g})
 	}
 	sys = append(sys, map[string]string{"role": "system", "content": scope})
@@ -181,11 +181,11 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	if worldBlock := characterWorldSystemBlock(world, 12); worldBlock != "" {
 		sys = append(sys, map[string]string{"role": "system", "content": worldBlock})
 	}
-	langFile := "rules/language_english_character.txt"
+	langFile := "rules/language_english_character.md"
 	if strings.HasPrefix(strings.ToLower(language), "span") {
-		langFile = "rules/language_spanish_character.txt"
+		langFile = "rules/language_spanish_character.md"
 	}
-	charPrompt := promptmgr.LoadPrompt("skills/character.txt")
+	charPrompt := promptmgr.LoadPrompt("skills/character.md")
 	langInstr := strings.TrimSpace(promptmgr.LoadPrompt(langFile))
 	renderedChar, err := mustache.Render(charPrompt, map[string]interface{}{
 		"languageInstruction": langInstr,
@@ -193,7 +193,7 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	})
 	if err != nil {
 		return 500, map[string]interface{}{
-			"error": "generate-character: failed to render skill_character.txt (check Mustache placeholders).",
+			"error": "generate-character: failed to render skill_character.md (check Mustache placeholders).",
 			"code":  "CHARACTER_PROMPT_RENDER_FAILED", "details": err.Error(),
 		}
 	}
@@ -202,13 +202,13 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	const userMarker = "--- USER PROMPT BELOW (render this section as the user message) ---"
 	if !strings.Contains(charPrompt, userMarker) {
 		return 500, map[string]interface{}{
-			"error": "generate-character: skill_character.txt must contain the USER PROMPT marker; no fallback prompt is used.",
+			"error": "generate-character: skill_character.md must contain the USER PROMPT marker; no fallback prompt is used.",
 		}
 	}
 	userTpl := strings.TrimSpace(strings.SplitN(charPrompt, userMarker, 2)[1])
 	if userTpl == "" {
 		return 500, map[string]interface{}{
-			"error": "generate-character: skill_character.txt user section after marker is empty.",
+			"error": "generate-character: skill_character.md user section after marker is empty.",
 		}
 	}
 	gsJSON := "{}"

@@ -1,5 +1,0 @@
-Exploration / social play (non-opening turns):
-
-Obey **scene grounding → FICTION DELTA (mandatory — normal turns; all play modes)**. You still deliver **one** beat when that block says so—but that beat must **carry a story-state delta**, not a vibe-only pass. Tie deltas to **campaign injections** when they fit.
-
-**Still forbidden:** numbered/bulleted “you could A, B, C” option lists and standalone “what do you do next?” DM lines (core rules).

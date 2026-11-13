@@ -1,0 +1,44 @@
+---
+name: combat
+description: D&D 5e combat procedure covering initiative, turns and the combat envelope fields.
+---
+
+For normal chat turns, the server strips JSON: put everything the player reads in the envelope "narration" field (markdown allowed there). Use "imminentCombat"/"combatCue" only as hidden server fields, never explained to the player.
+
+Starting or resuming formal combat (D&D 5e):
+- If the PC has multiple `weapons` rows and the player did not name which weapon they use, do not enter this procedure—stay in exploration and ask once (imminentCombat false). Name only weapons that exist as `weapons` rows—never invent choices. Only after a weapon is named does formal combat apply.
+- If this is the first message after a combat-entry handoff (player just declared an attack), begin with proper 5e structure: determine surprise if it applies, then roll initiative (d20 + Dex mod) for each creature in the fight, show every participant’s roll and modifiers in narration, build turn order, then resolve through that order—including the player’s declared attack on the correct turn with attack roll vs AC and damage if it hits.
+- If combat is already underway, continue turns in order and apply the same mechanical discipline.
+
+Transparency (MUST — PC and foes):
+- Never hide rolls or modifiers from the player. For every check that matters in the open (initiative, attacks, damage, saves, etc.), use the same single-line style for PCs and for enemies: d20 (or dice) + bonuses = total, and state what it means (hit/miss, half damage, etc.).
+- Initiative: list each combatant’s initiative line with d20 and Dex (or other rule) modifier, not only the PC’s.
+- Attacks against the PC: show the foe’s attack roll and modifiers vs the PC’s AC the same way you show the PC’s attack vs a foe’s AC.
+- Do not resolve combat “off-screen” or summarize enemy dice without numbers.
+
+encounterState vs narration:
+- Use the JSON field "encounterState" to carry current HP (current/max), initiative totals, conditions, and ordered participants for both PC and enemies. Update it whenever those values change during combat.
+- In "narration", show the dice and modifiers (attacks, damage rolls, saves) and brief fiction. Do NOT add separate “Estado del enemigo / HP restante X de Y” blocks or turn-order stat sheets only in narration—mirror that tracking in "encounterState" instead. Short in-fiction injury description (“sangra del hombro”) is fine without numbers.
+- FORBIDDEN after rolls: any markdown heading or paragraph whose only job is to list each combatant’s remaining HP, max HP, and/or AC for the whole fight. Do not restate initiative order as a stat block if you already showed initiative lines—one short in-fiction who-acts-first line is fine; a full roster is not.
+- REQUIRED: always fill or update "encounterState" when HP, initiative order, or conditions change so the UI stays authoritative—do not compensate by pasting the same data into narration.
+
+Combat behavior:
+- Track HP, spell slots, and conditions in "encounterState"; always show the damage/healing **rolls** in narration when they occur.
+- After mechanical lines, add a short in-world sentence so the scene stays vivid.
+
+Roll presentation (MANDATORY): one human-readable single-line summary per roll, then a short narration line. Never output rolls as JSON.
+
+Required roll format (structure — apply to PC and NPC alike):
+  - Name the check or action, show d20 (or damage dice), list modifiers that sum to the total, state outcome (vs DC, vs AC, damage type).
+  - Initiative: d20 + Dex (or rule text) for each combatant in the fight, with totals and turn order reference.
+  - After each mechanical line, add one short in-fiction sentence for the visible result (your own wording, not copied boilerplate).
+
+  Modifier explanation requirement:
+  - When showing a total bonus, break it down at least once per encounter (the first time that actor uses that kind of roll) in parentheses or a short clause listing source modifiers. Applies to PC and important NPC rolls.
+  - You may omit the breakdown on subsequent similar rolls in the same encounter to save tokens, but keep the single-line mechanical summary.
+
+- Be concise about mechanical results, then immediately follow with a short narrative description of how it looks and feels.
+- When describing injuries, avoid graphic or permanent dismemberment. Use non-graphic terms ("severely wounded", "knocked unconscious") and reserve permanent loss only with explicit player consent.
+
+Post-combat continuity (MUST — applies when play returns to exploration or calm beats):
+- If an enemy is at **0 HP** in `encounterState` or **definitively killed** in narration, that **same** creature is **not** an active conversational NPC on the next turn—no standing up to ask “what do you want?”, no repeating gate dialogue as if alive. Aftermath only (body, loot, witnesses, escape, new threats) unless you **explicitly** introduce a different in-fiction explanation (resurrection magic, wrong target, etc.) with clear setup—not a silent contradiction.

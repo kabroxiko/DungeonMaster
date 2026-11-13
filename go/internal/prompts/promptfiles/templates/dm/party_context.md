@@ -1,0 +1,18 @@
+---
+name: dm-party-context
+description: DM-only multi-player context listing the party roster.
+---
+
+DM-ONLY MULTI-PLAYER CONTEXT (do not break the fourth wall; use names in-world only):
+
+{{partyContext}}
+
+**Mechanics anchor only (not “solo spotlight”):** {{activePlayerName}} is the character whose sheet is attached in full below for **inventory, coinage, and ambiguous mechanical defaults** when the narration does not clearly attribute an action to someone else. **It is not the only PC who acted this round.**
+
+**Party round — every line counts:** The conversation for this request may include **several** consecutive `user` messages, each prefixed `[DisplayName]: …` by the server. Those are **different players’ declarations for the same beat**. You **must** reflect **every** such line in this reply’s `narration`: weave simultaneous actions, split attention, or use a short clear sequence—**do not** resolve only the **last** message or only the mechanics-anchor PC. If one PC speaks to an NPC and another moves toward a threat, show **both**. Other players’ characters are present unless the fiction has separated the party.
+
+**Late join (same session):** If a separate DM block lists “new player(s) joined mid-session,” integrate only those arrivals into the **current** beat without retconning prior narration.
+
+**First opening (no user messages in this request yet) — overrides any “use the list below in prose” instinct:** The bullet list above is **reference only** (classes, gear, parity, who is in the party). **`skills/adventure_seed.md` First opening** applies: do **not** put those proper names into `narration` or NPC quoted speech; do **not** open with a **third-person catalogue** (“Alaric, with his spellbook, walks beside Eldrin…”). Address PCs in **second person** and/or **neutral plural** (“you,” “your companion,” “the two of you,” “los viajeros”) until at least one player has sent a user message. Ground each PC with **actions and objects**, not **proper-name labels**. **After** the table has chatted, use the list names in-world as usual.
+
+**Initial adventure (`narration` in JSON), same reply:** Follow **`skills/adventure_seed.md`** for length, geography-first order, **mundane shared reason** for being at the threshold (shown in prose **before** any checkpoint dialogue), **continuous prose**—**not** a bulleted roster. **Not** a **plot** summons; **ordinary** presence first.

@@ -107,14 +107,14 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		sysContents = append(sysContents, m["content"])
 	}
 	consolidated := strings.Join(sysContents, "\n\n")
-	guard := promptmgr.LoadPrompt("rules/json_output_guard_dm_play.txt")
+	guard := promptmgr.LoadPrompt("rules/json_output_guard_dm_play.md")
 	if guard == "" {
-		guard = promptmgr.LoadPrompt("rules/json_output_guard.txt")
+		guard = promptmgr.LoadPrompt("rules/json_output_guard.md")
 	}
 	if guard != "" {
 		consolidated = guard + "\n\n" + consolidated
 	}
-	if e := promptmgr.LoadPrompt("templates/dm/player_response_envelope.txt"); e != "" {
+	if e := promptmgr.LoadPrompt("templates/dm/player_response_envelope.md"); e != "" {
 		consolidated = e + "\n\n" + consolidated
 	}
 	// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs and
@@ -138,7 +138,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			if pp := renderPartyPositionInject(spec); pp != "" {
 				consolidated = pp + "\n\n" + consolidated
 			}
-			inj := promptmgr.LoadPrompt("templates/dm/inject_explore.txt")
+			inj := promptmgr.LoadPrompt("templates/dm/inject_explore.md")
 			if inj != "" && (mode == "exploration" || mode == "explore") {
 				// minimal Mustache data
 				data := map[string]interface{}{
@@ -365,7 +365,7 @@ func renderPCBlock(gs map[string]interface{}, language, requestingUserID string)
 	if sheet == nil {
 		return ""
 	}
-	tpl := promptmgr.LoadPrompt("templates/dm/player_character_context.txt")
+	tpl := promptmgr.LoadPrompt("templates/dm/player_character_context.md")
 	if tpl == "" {
 		return ""
 	}
@@ -401,7 +401,7 @@ func renderInitialCampaignInject(spec map[string]interface{}) string {
 	if spec == nil {
 		return ""
 	}
-	tpl := promptmgr.LoadPrompt("templates/dm/inject_initial.txt")
+	tpl := promptmgr.LoadPrompt("templates/dm/inject_initial.md")
 	if tpl == "" {
 		return ""
 	}

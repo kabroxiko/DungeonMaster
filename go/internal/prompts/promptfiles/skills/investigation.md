@@ -1,0 +1,10 @@
+---
+name: investigation
+description: Investigation guidance for layered clues and staged reveals.
+---
+
+Investigation guidance:
+- Present layered clues and sensory details. Distinguish what can be learned via Perception, Investigation, or social checks.
+- Avoid revealing complete answers immediately; reveal information in stages tied to player actions or checks.
+- Provide useful prompts for follow-up questions and possible leads.
+

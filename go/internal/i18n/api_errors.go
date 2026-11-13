@@ -94,11 +94,11 @@ var apiErrorText = map[string]apiRow{
 
 	// Character generation (gamesession/character_gen.go)
 	"CHARACTER_SCOPE_PROMPT_MISSING": {
-		en: "generate-character: dm_character_generation_scope.txt is missing or empty.",
+		en: "generate-character: dm_character_generation_scope.md is missing or empty.",
 		es: "Falta la plantilla de alcance de generación de personaje en el servidor.",
 	},
 	"CHARACTER_PROMPT_RENDER_FAILED": {
-		en: "generate-character: failed to render skill_character.txt (check Mustache placeholders).",
+		en: "generate-character: failed to render skill_character.md (check Mustache placeholders).",
 		es: "No se pudo preparar la plantilla del personaje en el servidor.",
 	},
 	"AI_RESPONSE_EMPTY": {

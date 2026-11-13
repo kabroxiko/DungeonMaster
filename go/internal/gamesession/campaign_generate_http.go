@@ -162,7 +162,7 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
-		return 500, map[string]interface{}{"error": "Server misconfiguration: templates/campaign/generator.txt is required"}
+		return 500, map[string]interface{}{"error": "Server misconfiguration: templates/campaign/generator.md is required"}
 	}
 
 	// The campaign is written on a world that already exists, so the map comes first. Its image is rendered from the
@@ -284,7 +284,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
-		return 500, map[string]interface{}{"error": "Server misconfiguration: templates/campaign/generator.txt is required"}
+		return 500, map[string]interface{}{"error": "Server misconfiguration: templates/campaign/generator.md is required"}
 	}
 
 	// The campaign is written on a world that already exists, so the map comes first. Its image is rendered from the

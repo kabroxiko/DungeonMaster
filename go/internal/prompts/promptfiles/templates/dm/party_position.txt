@@ -1,8 +1,0 @@
-PARTY POSITION ON THE MAP: the party is {{#hasPositionPlace}}at {{{positionPlace}}}{{/hasPositionPlace}}{{^hasPositionPlace}}near {{{positionLabel}}}{{/hasPositionPlace}}{{#hasPositionNote}}, {{{positionNote}}}{{/hasPositionNote}}.
-
-Play this turn from that spot. The table can see a pin there, so travel has to continue from it: the pin moves only when you say the party moved. Say where it is whenever the party arrives at a named place, or stops somewhere between places (an ambush on the road, a camp for the night, a wait at a ford):
-
-- **At a place:** `"partyPosition": {"place": "<a name copied exactly from the world block>"}`
-- **Between places:** `"partyPosition": {"x": <x>, "y": <y>, "note": "on the road to <place>"}` using the same coordinate space the world block prints for places — pick a point between the two places the party is travelling between.
-
-Never invent a name for `place`: use one from the block, or give a point and a note. Do not repeat `partyPosition` on a turn where the party does not move.

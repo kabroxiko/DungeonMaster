@@ -124,7 +124,7 @@ func characterWorldSystemBlock(world map[string]interface{}, maxPlaces int) stri
 		return ""
 	}
 
-	template := promptmgr.LoadPrompt("templates/character/world_context.txt")
+	template := promptmgr.LoadPrompt("templates/character/world_context.md")
 	if template == "" {
 		return ""
 	}
@@ -137,7 +137,7 @@ func characterWorldSystemBlock(world map[string]interface{}, maxPlaces int) stri
 	if err != nil {
 		return ""
 	}
-	rules := promptmgr.LoadPrompt("rules/character_world.txt")
+	rules := promptmgr.LoadPrompt("rules/character_world.md")
 	if rules == "" {
 		return rendered
 	}

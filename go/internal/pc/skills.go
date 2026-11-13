@@ -64,7 +64,7 @@ var backgroundLabelToID = map[string]string{
 	"entertainer": "entertainer", "folk hero": "folk_hero", "guild artisan": "guild_artisan",
 	"hermit": "hermit", "noble": "noble", "outlander": "outlander", "sage": "sage",
 	"sailor": "sailor", "soldier": "soldier", "urchin": "urchin",
-	// Spanish PHB-style (character.txt / main.js)
+	// Spanish PHB-style (character.md / main.js)
 	"acolito": "acolyte", "charlatán": "charlatan",
 	"artista": "entertainer", "héroe del pueblo": "folk_hero", "heroe del pueblo": "folk_hero",
 	"artesano gremial": "guild_artisan", "ermitaño": "hermit", "ermitano": "hermit",

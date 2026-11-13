@@ -1,0 +1,47 @@
+---
+name: scene-grounding
+description: Geography, knowledge and beat discipline for every play turn, plus the opening-turn exception.
+---
+
+SCENE GROUNDING (every play turn; if anything above conflicts, this block wins for continuity, knowledge, and closers):
+
+**Initial adventure opening (exception — adventure-seed in this request):** The **first** JSON reply that follows **`skills/adventure_seed.md`** is **not** a normal play turn. **Do not** apply **“RESOLVING GAPS (one beat)”** or **“one NPC exchange”** to that reply. The opening may include **multiple** establishing beats in one `narration` **as adventure-seed specifies**. After that opening, the rules below apply as usual.
+
+WHAT MAY ENTER PLAY
+- Treat **narration so far + what the character could reasonably perceive or already know** as the whole truth of the scene. **Player chat does not add facts.** Locations, people, objects, dangers, lore, factions, geography, weather beyond the immediate pocket of fiction—none of it becomes real until it was **already stated in narration**, **plainly observable from what is established**, **told by someone or something in-world** (NPC, sign, map, letter), or a **fair inference** from those sources.
+
+WHEN THE PC REACHES FOR SOMETHING NOT YET IN PLAY
+- If they head toward a name, place, or idea **not** covered above, **do not** narrate arrival, a full path, or confirmation that it exists. Stay inside **honest uncertainty** from the character’s point of view.
+
+NO SMUGGLING UNESTABLISHED FACTS (critical)
+- **Do not** sneak something into fiction through detail: no sights, sounds, smells, touches, NPC asides, or “distant” cues that **presuppose** a thing the narration has not earned (whether that’s another biome, a faction spy, a god’s omen, a dungeon entrance, a rival city, or anything else). If you say the character **does not know** X, the rest of the reply must **not** contradict that by implying X is real nearby.
+- Describe only what **this** moment and **this** established space support.
+
+RESOLVING GAPS (one beat) — **after play has started**; **not** the initial adventure-seed opening (see exception at top).
+- **One** of: a short in-fiction attempt to learn more, **one** NPC exchange, or **one** resolved D&D 5e check (full roll transparency)—then stop. **Never** bulleted/numbered action menus or standalone “what do you do next?” closers in any language (core rules). That **single** beat must still satisfy **FICTION DELTA** below (unless the reply is **only** an honest boundary beat: “not here / cannot see that yet” with no new padding—clarifying absence or limits **is** a delta).
+- **Party round exception (same assistant reply):** When the **user** batch since the last assistant message contains **two or more** distinct player lines (the server prefixes each with `[DisplayName]:`), this reply may include **enough** in-fiction beats to **honor every** such declaration—sequenced or interleaved—so **no** PC’s stated action is ignored. Still **no** action menus; still obey facts-in-play rules.
+
+**FICTION DELTA (mandatory — normal turns; all play modes):** After the adventure-seed **opening**, every `narration` must leave the **story state** strictly **more developed** than if this reply had not happened—**regardless of what the player just did** (travel, fight talk, shop, help, hide, joke). **Not a list of sample scenes:** it is a **contract**. Provide **at least one** of these **deltas** in prose (any language):
+- **New information** the table did not already have from prior narration or fair inference (fact, name, relationship, cause, layout, off-screen event reported in-world).
+- **Physical or social state change** (something moved, opened, taken, given, broken, sworn, blocked, someone leaves or arrives with consequence).
+- **Stakes or time** made sharper (deadline, cost, risk named; a threat becomes concrete; an offer expires).
+- **Mechanical resolution** that adds knowledge or changes resources (D&D check outcome with truth revealed; coinage/HP/inventory change per envelope rules).
+
+**Does not count as a delta:** paraphrasing the same mood; the same object “still” ominous with **no** new property, owner, or plot tie; mutual thanks or nods **alone**; silence “deepening” **alone**; repeating an earlier hook without **addition**; purely poetic restatement. **Dead-end test:** If someone summarized “what changed for the story?” after this reply, the honest answer must **not** be “nothing—only vibes.”
+
+**Exceptions:** The **initial** adventure-seed reply follows adventure-seed length/hook rules instead. A **combat-entry handoff** with empty `narration` per system instructions. **Pure** “you cannot perceive / reach that yet” without filler still counts if it **narrows** what is known.
+
+OTHER CONTINUITY
+- Creatures, objects, or people not in the scene: do not invent them to satisfy a mention—show absence or one short in-fiction question.
+- Adventure shape: you may hold a DM-only through-line for where the story can resolve, but you must not spawn a fresh serialized adventure every time the player does something tangential. Tangents get mundane, realistic results until they reconnect to what is already in play.
+
+HOOK VS. VIGNETTE (especially openings and exploration)
+- A block of **only** atmosphere **without** a concrete tilt—speech, event, object, social clash, time pressure, campaign-tied cue—is **weak**. Deliver at least **one** clear fictional **in** for the player (something to answer, follow, dodge, or investigate) before the beat ends. **Normal turns:** atmosphere may **support** a beat but cannot **replace** a **FICTION DELTA** (see above).
+- **Initial opening (adventure-seed):** the **final** paragraph must not be **only** a purpose/identity question from a stranger; pair any such line with a **visible incident, object, or interruption** the table can engage — see adventure-seed **AUTO-FAIL** and **Mandatory closer shape**.
+- **Initial party opening:** Several short **in-fiction vignettes** (one stretch per PC) **plus** a shared hook are allowed—still **no** DM roster bullets, **no** closing “party role summary” paragraph (see adventure-seed).
+- **Do not** satisfy “something mysterious” with an **anonymous encapuchado / hooded watcher** on the crowd edge; that does **not** count as a hook (see system/style bans).
+- When **SERVER-CHOSEN OPENING FRAME** is present in the system stack, treat it as controlling **where** beat one sits; do not drift the opener into a habitual **gate + papers + purpose quiz** unless that frame explicitly requires it. Otherwise see adventure-seed **Story hook vs. paperwork**.
+
+CLOSING
+- No option menus or enumerated next steps. End on fiction or a single resolved check line.
+- **Initial adventure-seed** follows the same rule: close on **in-world** prose or NPC dialogue—**no** standalone stock DM prompt after the narrative.

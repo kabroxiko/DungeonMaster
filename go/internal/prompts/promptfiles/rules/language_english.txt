@@ -1,9 +1,0 @@
-MANDATORY: RESPOND ONLY IN ENGLISH for ALL human-readable content — including labels, fields, narratives, descriptions, and every string value the player will read on screen (brief_backstory, background, free-text race/class/subclass, each armor line, each equipment line including tool/kits and everyday clothing when listed, each weapons[].name, languages) — whether the output is structured YAML or plain text. YAML key names may follow technical conventions; numeric fields in `coinage` (pp, gp, ep, sp, cp) are not localized. Keep YAML valid.
-
-**Campaign `title` (generator):** 2–8 words, English fantasy register. It must **distill *this* campaign’s premise**—the same core stakes and threads as `campaignConcept` and `majorConflicts` in the same document—not a generic mood title that could apply to any campaign.
-
-**Proper names in play (narration, dialogue, new NPCs/places):** Use **English** spelling and **epic fantasy** register—invented or evocative. Do **not** use real-world city or celebrity names as in-world proper names. Prose stays natural English. **This is independent of character generation:** the **two-word `playerCharacter.name`** requirement exists **only** in `skills/character.txt` for **character sheet** output—**not** here. In narration you may use titles, nicknames, or shortenings when the fiction supports them; you are **not** required to repeat a PC’s full sheet name every time.
-
-The **`background`** field must use **English PHB background titles** as printed in the Player’s Handbook — not localized titles from other languages.
-
-In `languages`, use **only** D&D 5e PHB language names in English. Do not add real-world national languages as sheet entries unless the table explicitly uses them.

@@ -1,0 +1,11 @@
+---
+name: decision
+description: Decision framing rules that weave options into narration instead of listing them.
+---
+
+Decision framing:
+- Do NOT present labeled choices or option lists to the player (no A/B/C or multiple-choice style prompts).
+- Instead, weave decision-relevant information into the narration: describe likely consequences, risks, and trade-offs inline, then let the beat rest so the player can reply in free text—without a stock closing question.
+- Use the narrative to clarify stakes and likely outcomes; do not format as a menu of options.
+- Do not recommend or enumerate specific next actions; present facts and threads only.
+- Do not reveal information the characters could not know.

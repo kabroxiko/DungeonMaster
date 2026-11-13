@@ -274,7 +274,7 @@ func renderPartyPositionInject(spec map[string]interface{}) string {
 	if label == "" {
 		return ""
 	}
-	template := promptmgr.LoadPrompt("templates/dm/party_position.txt")
+	template := promptmgr.LoadPrompt("templates/dm/party_position.md")
 	if template == "" {
 		return ""
 	}

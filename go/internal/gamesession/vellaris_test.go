@@ -99,7 +99,7 @@ func TestRenderVellarisWorldInjectPrefersMeasuredTravelOverGuessing(t *testing.T
 }
 
 func TestKeyLocationsStageUsesTheImportedRegionsWhenPresent(t *testing.T) {
-	tpl := promptmgr.LoadPrompt("templates/campaign/stage_keyLocations.txt")
+	tpl := promptmgr.LoadPrompt("templates/campaign/stage_keyLocations.md")
 	if tpl == "" {
 		t.Fatal("keyLocations stage template is missing")
 	}
@@ -136,7 +136,7 @@ func TestKeyLocationsStageUsesTheImportedRegionsWhenPresent(t *testing.T) {
 // The key locations stage must choose among the map's own place names: a settlement the players are told about has to
 // be a place they can point at on their map.
 func TestKeyLocationsStageOffersTheMapPlaceNames(t *testing.T) {
-	tpl := promptmgr.LoadPrompt("templates/campaign/stage_keyLocations.txt")
+	tpl := promptmgr.LoadPrompt("templates/campaign/stage_keyLocations.md")
 	if tpl == "" {
 		t.Fatal("keyLocations stage template is missing")
 	}

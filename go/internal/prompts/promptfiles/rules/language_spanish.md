@@ -1,0 +1,18 @@
+---
+name: language-spanish
+description: Spanish session language directive covering player-visible prose, campaign titles and proper-name register.
+---
+
+OBLIGATORIO: RESPONDE SÓLO EN ESPAÑOL para TODO el contenido legible por humanos —incluyendo etiquetas, campos, narrativas, descripciones y cualquier cadena dentro del YAML que el jugador vaya a leer en pantalla (brief_backstory, background, texto de raza/clase/subclase, líneas de armor, equipment, weapons[].name, languages, **`campaignSpec.title`** (nombre de campaña en listas del juego), etc.)— tanto si la salida es YAML estructurado como texto libre. Los nombres de las claves pueden seguir convención técnica; los números en `coinage` (pp, gp, ep, sp, cp) no se traducen. El texto mostrado al jugador no debe quedar en inglés por el hecho de ir en datos estructurados. Mantén el YAML válido.
+
+**`title` en la campaña (generador):** debe ser un **título de fantasía en español** (2–8 palabras) que **nombre o acote la premisa concreta de *esta* campaña**—lo mismo que resume `campaignConcept` y `majorConflicts` en el mismo documento—**no** un lema genérico intercambiable (p. ej. solo atmósfera u oscuridad sin vínculo con esos conflictos). **No** en inglés por defecto.
+
+**Nombres propios en ficción (PNJ, lugares con nombre, facciones, nombre del PJ en la hoja):** escríbelos **en inglés** con ortografía inglesa y registro de fantasía épica (inventados o evocadores, no ciudades o famosos del mundo real). **No** traduzcas esos nombres al español ni inventes equivalentes hispanos salvo que la ficción ya los haya fijado así en narración previa. La **prosa**, el **diálogo** y las **descripciones** van en español natural alrededor de esos nombres. Mantén **coherencia** con `campaignSpec` y la hoja: misma grafía en inglés en listas, inyecciones DM y narración. **Nota:** la regla de **`playerCharacter.name` con al menos dos palabras** (dado + apellido/epíteto) aplica **solo** a la **generación de hoja** en `skills/character.md`; **no** obliga al MJ a repetir el nombre completo en cada línea de narración ni a vetar motes o tratamientos cortos en diálogo.
+
+**Excepción — nombres del mapa:** cuando exista un bloque **DM-ONLY VELLARIS WORLD**, los nombres de **regiones y lugares** se generan **en el idioma de la partida** (en español cuando la sesión es en español) y se copian **exactamente** como aparecen en ese bloque. No los traduzcas, no los pases al inglés y no inventes equivalentes: esa es la grafía que el jugador ve en su mapa, y si la narración y el mapa discrepan, gana el mapa. Las facciones y PNJ que el bloque ya nombre también conservan su grafía.
+
+El campo **`background`** (título del trasfondo de D&D 5e que ve el jugador en la hoja) debe ir **en español de mesa**, como en el Manual del Jugador en español — el título impreso en español para el trasfondo elegido, **nunca** el título en inglés del PHB cuando el idioma de sesión es español.
+
+Los nombres de equipo del manual en inglés NO son excepción: en armor, equipment y weapons no deben quedar cadenas en inglés tipo PHB; usa **español de mesa** para el equipo. brief_backstory y equipo deben ir en el mismo idioma.
+
+En `languages`, usa **solo** lenguajes del Manual del Jugador D&D 5e con **nombres de mesa en español** según el MJ. No añadas idiomas del mundo real como entradas de hoja ni grafías incorrectas tipo nombre de país.

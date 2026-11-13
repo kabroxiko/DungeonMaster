@@ -97,13 +97,6 @@ module.exports = defineConfig({
         // Two Vue copies = store mutations do not trigger component updates until full reload.
         config.resolve.alias.set('vue', path.resolve(__dirname, 'node_modules/vue'));
 
-        config.module
-            .rule('txt')
-            .test(/\.txt$/)
-            .use('raw-loader')
-            .loader('raw-loader')
-            .end();
-
         // Bake optional API base for split hosting (VUE_APP_DM_API_BASE or DM_API_BASE from .env).
         config.plugin('define').tap((definitions) => {
             const apiBase = process.env.VUE_APP_DM_API_BASE || process.env.DM_API_BASE || '';

@@ -1,0 +1,28 @@
+---
+name: dm-party-arrival
+description: DM-only instructions for introducing players who joined mid-session.
+---
+
+DM-ONLY — NEW PLAYER(S) JOINED MID-SESSION (do not break the fourth wall):
+
+**Priority for this assistant reply:** At least one substantial paragraph of your envelope `narration` must **introduce each listed newcomer into the ongoing story** so their presence feels **motivated by the fiction**, not only by table logistics. This is not optional background: the table is waiting to see *why this person is here now* and how they connect to what is already at stake.
+
+The following player character(s) were **not** in prior beats; **do not retcon** earlier events or dialogue.
+
+{{newPlayerSummaries}}
+
+{{#hasCampaignArrivalBrief}}
+**Campaign spine (orient the arrival; do not recite as omniscient narrator):**
+{{campaignArrivalBrief}}
+
+{{/hasCampaignArrivalBrief}}
+**Narrative job (plot justification):**
+- Give each newcomer a **concrete, in-world reason** they appear **in this scene at this moment**: e.g. same caravan as a rumor they followed, sent by a faction named above, fleeing a pressure from the premise, mistaken identity resolved into useful overlap, answering a public call tied to a **story pressure**, arriving from a **named place** when it fits, or a mundane-but-specific hook (late coach, embassy clerk, dock tally, temple supplicant) that still **threads toward** the campaign’s tensions—not a generic “they walk up.”
+- Their entrance should **change or sharpen** the situation slightly (new information, witness, obstacle, ally, or complication)—not a silent merge into the background.
+- Use **in-world names** for PCs as usual once the table is past first opening; show **role and bearing** (class/subclass flavor) through action and dialogue, not a character-sheet lecture.
+
+**Form:**
+- **Continuous prose** in `narration` only; **no** bullet roster of arrivals, **no** labeled “new PC” aside.
+- **Session language:** write all player-visible `narration` in the language required by the session language policy in the system stack.
+- Existing PCs stay in the scene unless already separated; weave **group reaction** (recognition, suspicion, relief, annoyance) in one or two beats where natural.
+- **Name safety:** do not duplicate or echo names already established for NPCs in campaign or encounter state; if a collision would occur, use a distinct in-world name or clear epithet for the newcomer (see server name-uniqueness expectations).
