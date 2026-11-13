@@ -99,6 +99,10 @@
                                     <UIButton
                                         v-if="lobbyCellCreating || !row.hasSheet"
                                         class="party-lobby__roster-ready-btn"
+                                        :class="{
+                                            'party-lobby__roster-ready-btn--nudge':
+                                                partyGeneratingWorld && !row.hasSheet,
+                                        }"
                                         :disabled="lobbyRosterConfirmPosting"
                                         :aria-label="$i18n.lobby_roster_need_character_aria"
                                         @click="triggerLobbyCreateCharacter"
@@ -3803,6 +3807,10 @@ export default {
     .party-lobby__world-art {
       display: none;
     }
+    /* The nudge is only ever decoration: the button's label already says what it does. */
+    .party-lobby__roster-ready-btn--nudge {
+      animation: none;
+    }
   }
 
   .party-lobby__roster {
@@ -3911,6 +3919,25 @@ export default {
     color: var(--gm-muted, #c4bbb0) !important;
     border: 1px solid rgba(212, 180, 106, 0.28) !important;
     box-shadow: none !important;
+  }
+
+  /* While the world is being written there is nothing to wait for, so the button that starts this player's character
+     breathes a gold ring instead of sitting still. The ring is an outline, which leaves the button's own shadow alone. */
+  .party-lobby__roster-ready-btn--nudge {
+    animation: party-lobby-nudge 2.2s ease-in-out infinite;
+  }
+
+  @keyframes party-lobby-nudge {
+    0%,
+    70%,
+    100% {
+      outline: 3px solid rgba(240, 223, 168, 0);
+      outline-offset: 0;
+    }
+    85% {
+      outline: 3px solid rgba(240, 223, 168, 0.55);
+      outline-offset: 2px;
+    }
   }
 
   .party-lobby__roster-regenerate-btn:hover {
