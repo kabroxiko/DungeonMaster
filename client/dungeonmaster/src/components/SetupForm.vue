@@ -699,8 +699,8 @@
         methods: {
             /**
              * Keeps ChatRoom roster in sync when `confirmSheetCharacter` is set (including mid-submit before `setupPhase` flips).
-             * Only the confirm step publishes a sheet: the roster decides between Customize character and Ready to play from
-             * this, so a leftover sheet while the creation form is on screen would hide the only create button.
+             * Only the confirm step publishes a sheet: the roster decides between “What will you be?” and Ready to
+             * play from this, so a leftover sheet while the creation form is on screen would hide the only create button.
              */
             emitLobbyInlineConfirmSheet() {
                 if (!this.lobbyInline) return;
@@ -1192,7 +1192,7 @@
                     // Defer so DevTools stack points here less often when SetupForm remounts (e.g. lobby editor).
                     setTimeout(() => {
                         console.warn(
-                            '[GMAI] Debug personaje/regenerar ACTIVO. Filtra la consola por: GMAI character — esas líneas aparecen al pulsar Personalizar personaje o Regenerar (no al abrir el editor).'
+                            '[GMAI] Debug personaje/regenerar ACTIVO. Filtra la consola por: GMAI character — esas líneas aparecen al pulsar ¿Qué serás? o Regenerar (no al abrir el editor).'
                         );
                     }, 0);
                     return;
@@ -2374,7 +2374,7 @@
             }
             this.$store.commit('setGameSetup', mergedSetup);
 
-            // Show “Personaliza tu personaje” with the same build (race/class/level/…) while the new sheet generates.
+            // Show the “What will you be in this world?” form with the same build (race/class/level/…) while the new sheet generates.
             if (this.setupPhase === 'confirm_character' && !this.partyLateJoinInviteePlaying) {
                 this.setupPhase = 'form';
                 await this.$nextTick();

@@ -117,7 +117,7 @@ const translations = {
     chat_waiting_dm_sync:
         'Waiting for the Dungeon Master’s reply. If it takes a while, refresh the page.',
     chat_unlock_input: 'Unlock typing (if the DM seems stuck)',
-    create_character: 'Customize character',
+    create_character: 'What will you be?',
     new_game: 'New Game',
     toolbar_aria: 'Account and game actions',
     load_game: 'Load Game',
@@ -148,16 +148,16 @@ const translations = {
     setup_desc: 'Select the building blocks of your character and story.',
     setup_join_title: 'Join the party',
     setup_join_desc:
-        'Customize your character for this campaign. The host has already set the world; your choices add your hero to the table.',
+        'Decide what you want to be in this campaign. The host has already set the world; your choices put your hero at the table.',
     character_ready_confirm_join:
         'Your character is ready. Use Join party to open the shared chat with the group.',
     confirm_character_join_game: 'Join party',
     confirm_character_mark_ready: 'Confirm character — ready to play',
-    setup_party_lobby_form_title: 'Customize your character',
+    setup_party_lobby_form_title: 'What will you be in this world?',
     setup_party_lobby_form_desc:
-        'Customize your hero for this table, then use Customize character in your row above. When the sheet is saved, use Ready to play in that same row to confirm and mark yourself ready.',
+        'Decide what you want to be, then use What will you be? in your row above. When the sheet is saved, use Ready to play in that same row to confirm and mark yourself ready.',
     setup_party_late_join_desc:
-        'This table is already in play. Customize your character below, then use Join party on the confirmation step to open the shared chat.',
+        'This table is already in play. Decide what you want to be below, then use Join party on the confirmation step to open the shared chat.',
     confirm_secondary_actions_aria: 'Edit or regenerate',
     confirm_regenerate_action_aria: 'Regenerate character',
     character_ready_join_party_playing:
@@ -176,7 +176,7 @@ const translations = {
     join_missing_game_id:
         'This setup lost the party game id (do not use “New game” here). Open your invite link again, or add ?joinGame=PASTE_HOST_GAME_ID to the setup URL.',
     character_regenerate_needs_game:
-        'Customize a character first (send the form), or use Load game if you already have a party.',
+        'Decide what you want to be first (send the form), or use Load game if you already have a party.',
     starting: 'Starting...',
     generating_campaign: 'Generating campaign...',
     generating_character: 'Generating character...',
@@ -193,7 +193,7 @@ const translations = {
     saving_game: 'Saving game...',
     error_saving_game: 'Error saving game',
     party_ready_needs_character:
-        'The server has no saved character for you yet. Use Regenerate or Customize character again so the sheet persists, then confirm on the review step.',
+        'The server has no saved character for you yet. Decide what you want to be again so the sheet persists, then confirm on the review step.',
     character_persist_failed:
         'Your character was created but could not be saved. Try generating again; if it keeps failing, check server logs.',
     loading: 'Loading...',
@@ -332,15 +332,16 @@ const translations = {
     lobby_roster_heading: 'Who is at the table',
     lobby_col_player: 'Player',
     lobby_desc:
-        'Customize or edit your hero below. When the sheet is saved, confirm and mark yourself ready with the button in your row under Ready to start. When everyone with a character is ready, the table launches the adventure.',
-    lobby_roster_need_character_aria: 'Customize your character first; the Ready to start control unlocks after the sheet is saved.',
+        'Decide what you want to be in this new world below, or edit your hero. When the sheet is saved, confirm and mark yourself ready with the button in your row under Ready to start. When everyone with a character is ready, the table launches the adventure.',
+    lobby_roster_need_character_aria:
+        'Decide what you want to be first; the Ready to start control unlocks after the sheet is saved.',
     lobby_col_table: 'Ready to start',
     /** Second column: confirmed on the setup step vs still waiting */
     lobby_ready_confirmed: 'Marked ready',
     lobby_ready_waiting: 'Not yet',
     lobby_starting: 'Starting the adventure…',
     lobby_saving_ready_then_start: 'Saving…',
-    lobby_setup_section_aria: 'Character creation and confirmation',
+    lobby_setup_section_aria: 'Choosing what you will be, and confirmation',
     lobby_character_sheet_section_aria: 'Your character sheet',
     /** Roster column: short primary label (full sentence stays in aria). */
     lobby_roster_ready_short: 'Ready to play',
@@ -395,7 +396,7 @@ const translations = {
     chat_waiting_dm_sync:
         'Esperando la respuesta del Maestro de Calabozos. Si tarda, recarga la página.',
     chat_unlock_input: 'Desbloquear escritura (si el DM parece atascado)',
-    create_character: 'Personalizar personaje',
+    create_character: '¿Qué serás?',
     new_game: 'Nuevo Juego',
     toolbar_aria: 'Cuenta y acciones de partida',
     load_game: 'Cargar Partida',
@@ -426,18 +427,18 @@ const translations = {
     setup_desc: 'Selecciona los elementos básicos de tu personaje y la historia.',
     setup_join_title: 'Unirse al grupo',
     setup_join_desc:
-        'Personaliza tu personaje para esta campaña. El anfitrión ya definió el mundo; tus elecciones añaden tu héroe a la mesa.',
+        'Decide qué quieres ser en esta campaña. El anfitrión ya definió el mundo; tus elecciones ponen a tu héroe en la mesa.',
     confirm_secondary_actions_aria: 'Editar o regenerar',
     confirm_regenerate_action_aria: 'Regenerar personaje',
     character_ready_confirm_join:
         'Tu personaje está listo. Pulsa Unirse al grupo para abrir el chat compartido.',
     confirm_character_join_game: 'Unirse al grupo',
     confirm_character_mark_ready: 'Confirmar personaje — listo para jugar',
-    setup_party_lobby_form_title: 'Personaliza tu personaje',
+    setup_party_lobby_form_title: '¿Qué serás en este mundo?',
     setup_party_lobby_form_desc:
-        'Personaliza tu héroe para esta mesa y usa Personalizar personaje en tu fila de arriba. Cuando la hoja esté guardada, usa Listo para jugar en esa misma fila para confirmar y marcarte listo.',
+        'Decide qué quieres ser y usa ¿Qué serás? en tu fila de arriba. Cuando la hoja esté guardada, usa Listo para jugar en esa misma fila para confirmar y marcarte listo.',
     setup_party_late_join_desc:
-        'La mesa ya está en juego. Personaliza tu personaje abajo y luego usa Unirse al grupo en el paso de confirmación para abrir el chat compartido.',
+        'La mesa ya está en juego. Decide abajo qué quieres ser y luego usa Unirse al grupo en el paso de confirmación para abrir el chat compartido.',
     character_ready_join_party_playing:
         'La aventura ya ha empezado. Revisa la hoja de arriba y únete al grupo para entrar al chat. Unirse al grupo solo está disponible cuando la partida está en marcha.',
     join_party_only_when_playing:
@@ -454,7 +455,7 @@ const translations = {
     join_missing_game_id:
         'Se perdió el id de la partida del grupo (no uses «Nuevo juego» aquí). Vuelve a abrir el enlace de invitación o añade ?joinGame=ID_QUE_TE_DIO_EL_ANFITRIÓN a la URL de configuración.',
     character_regenerate_needs_game:
-        'Primero personaliza un personaje (envía el formulario) o usa Cargar partida si ya tienes una.',
+        'Primero decide qué quieres ser (envía el formulario) o usa Cargar partida si ya tienes una.',
     starting: 'Iniciando...',
     generating_campaign: 'Generando campaña...',
     generating_character: 'Generando personaje...',
@@ -471,7 +472,7 @@ const translations = {
     saving_game: 'Guardando partida...',
     error_saving_game: 'Error guardando partida',
     party_ready_needs_character:
-        'El servidor aún no tiene guardada tu hoja. Usa Regenerar o Personalizar personaje otra vez para que se guarde, y luego confirma en el paso de revisión.',
+        'El servidor aún no tiene guardada tu hoja. Decide otra vez qué quieres ser para que se guarde, y luego confirma en el paso de revisión.',
     character_persist_failed:
         'El personaje se generó pero no se pudo guardar. Vuelve a generar; si sigue fallando, revisa los registros del servidor.',
     loading: 'Cargando...',
@@ -609,15 +610,15 @@ const translations = {
     lobby_roster_heading: 'Quién está en la mesa',
     lobby_col_player: 'Jugador',
     lobby_desc:
-        'Personaliza o edita tu héroe abajo. Cuando la hoja esté guardada, confirma y márcate listo con el botón de tu fila en Listo para empezar. Cuando todos los que tienen personaje estén listos, la mesa inicia la aventura.',
+        'Decide abajo qué quieres ser en este mundo nuevo, o edita tu héroe. Cuando la hoja esté guardada, confirma y márcate listo con el botón de tu fila en Listo para empezar. Cuando todos los que tienen personaje estén listos, la mesa inicia la aventura.',
     lobby_roster_need_character_aria:
-        'Primero personaliza tu personaje; el control Listo para empezar se activa cuando la hoja esté guardada.',
+        'Primero decide qué quieres ser; el control Listo para empezar se activa cuando la hoja esté guardada.',
     lobby_col_table: 'Listo para empezar',
     lobby_ready_confirmed: 'Marcó listo',
     lobby_ready_waiting: 'Pendiente',
     lobby_starting: 'Iniciando la aventura…',
     lobby_saving_ready_then_start: 'Guardando…',
-    lobby_setup_section_aria: 'Creación y confirmación de personaje',
+    lobby_setup_section_aria: 'Elegir qué serás y confirmación',
     lobby_character_sheet_section_aria: 'Tu hoja de personaje',
     lobby_roster_ready_short: 'Listo para jugar',
     lobby_roster_ready_aria: 'Confirmar personaje y marcarte listo para jugar',
