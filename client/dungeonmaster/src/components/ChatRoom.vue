@@ -65,57 +65,62 @@
                                 v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen"
                                 class="party-lobby__ready-actions"
                             >
+                                <!-- Whichever control started a roll, the cell is where it reports: one chip, one spinner. -->
                                 <UIButton
-                                    v-if="row.hasSheet && showLobbyRosterRegenerate"
-                                    type="button"
+                                    v-if="lobbyCellGenerating"
                                     class="party-lobby__roster-regenerate-btn"
-                                    :disabled="lobbyRosterConfirmPosting || lobbyRosterRegeneratePosting"
-                                    :aria-busy="lobbyRosterRegeneratePosting ? 'true' : 'false'"
-                                    :aria-label="$i18n.regenerate_character"
-                                    @click="triggerLobbyRegenerate"
+                                    :disabled="true"
+                                    :aria-label="$i18n.generating_character"
                                 >
-                                    <span v-if="lobbyRosterRegeneratePosting" class="party-lobby__roster-ready-btn__busy">
+                                    <span class="party-lobby__roster-ready-btn__busy">
                                         <span class="party-lobby__spin" aria-hidden="true"></span>
                                         {{ $i18n.generating_character }}
                                     </span>
-                                    <span v-else>{{ $i18n.lobby_roster_regenerate_short }}</span>
                                 </UIButton>
-                                <UIButton
-                                    v-if="row.hasSheet"
-                                    class="party-lobby__roster-ready-btn"
-                                    :disabled="lobbyRosterConfirmPosting || lobbyRosterRegeneratePosting"
-                                    :aria-busy="lobbyRosterConfirmPosting ? 'true' : 'false'"
-                                    :aria-label="$i18n.lobby_roster_ready_aria"
-                                    @click="confirmReadyFromRosterCell"
-                                >
-                                    <span v-if="lobbyRosterConfirmPosting" class="party-lobby__roster-ready-btn__busy">
-                                        <span class="party-lobby__spin" aria-hidden="true"></span>
-                                        {{ $i18n.lobby_saving_ready_then_start }}
-                                    </span>
-                                    <span v-else class="party-lobby__roster-ready-btn__inner">
-                                        <FontAwesomeIcon
-                                            :icon="faCircleCheck"
-                                            class="party-lobby__badge-icon"
-                                            aria-hidden="true"
-                                        />
-                                        {{ $i18n.lobby_roster_ready_short }}
-                                    </span>
-                                </UIButton>
-                                <UIButton
-                                    v-else
-                                    class="party-lobby__roster-ready-btn party-lobby__roster-ready-btn--blocked"
-                                    :disabled="true"
-                                    :aria-label="$i18n.lobby_roster_need_character_aria"
-                                >
-                                    <span class="party-lobby__roster-ready-btn__inner">
-                                        <FontAwesomeIcon
-                                            :icon="faHourglassHalf"
-                                            class="party-lobby__badge-icon"
-                                            aria-hidden="true"
-                                        />
-                                        {{ $i18n.lobby_ready_waiting }}
-                                    </span>
-                                </UIButton>
+                                <template v-else>
+                                    <UIButton
+                                        v-if="row.hasSheet && showLobbyRosterRegenerate && !lobbyCellCreating"
+                                        type="button"
+                                        class="party-lobby__roster-regenerate-btn"
+                                        :disabled="lobbyRosterConfirmPosting"
+                                        :aria-label="$i18n.regenerate_character"
+                                        @click="triggerLobbyRegenerate"
+                                    >
+                                        {{ $i18n.lobby_roster_regenerate_short }}
+                                    </UIButton>
+                                    <UIButton
+                                        v-if="lobbyCellCreating || !row.hasSheet"
+                                        class="party-lobby__roster-ready-btn"
+                                        :disabled="lobbyRosterConfirmPosting"
+                                        :aria-label="$i18n.lobby_roster_need_character_aria"
+                                        @click="triggerLobbyCreateCharacter"
+                                    >
+                                        <span class="party-lobby__roster-ready-btn__inner">
+                                            {{ $i18n.create_character }}
+                                        </span>
+                                    </UIButton>
+                                    <UIButton
+                                        v-else
+                                        class="party-lobby__roster-ready-btn"
+                                        :disabled="lobbyRosterConfirmPosting"
+                                        :aria-busy="lobbyRosterConfirmPosting ? 'true' : 'false'"
+                                        :aria-label="$i18n.lobby_roster_ready_aria"
+                                        @click="confirmReadyFromRosterCell"
+                                    >
+                                        <span v-if="lobbyRosterConfirmPosting" class="party-lobby__roster-ready-btn__busy">
+                                            <span class="party-lobby__spin" aria-hidden="true"></span>
+                                            {{ $i18n.lobby_saving_ready_then_start }}
+                                        </span>
+                                        <span v-else class="party-lobby__roster-ready-btn__inner">
+                                            <FontAwesomeIcon
+                                                :icon="faCircleCheck"
+                                                class="party-lobby__badge-icon"
+                                                aria-hidden="true"
+                                            />
+                                            {{ $i18n.lobby_roster_ready_short }}
+                                        </span>
+                                    </UIButton>
+                                </template>
                             </div>
                             <span
                                 v-else-if="partyPhase === 'starting'"
@@ -134,6 +139,10 @@
                                 />
                                 <span>{{ $i18n.lobby_ready_confirmed }}</span>
                             </span>
+                            <!-- The character flow's own failure, reported where its buttons live. -->
+                            <div v-if="lobbyInlineProgress" class="party-lobby__alert" role="alert">
+                                <span class="party-lobby__alert-text">{{ lobbyInlineProgress }}</span>
+                            </div>
                             <!-- Deliberately not gated on partyLobbyActionsFrozen: a failed start leaves everyone marked
                                  ready (that is why it was attempted), so that flag is true exactly when this is needed. -->
                             <div v-if="lastStartError" class="party-lobby__alert" role="alert">
@@ -181,6 +190,8 @@
                 @lobby-inline-wizard-hold="onLobbyInlineWizardHold"
                 @lobby-inline-confirm-sheet="onLobbyInlineConfirmSheet"
                 @lobby-inline-after-character-saved="onLobbyInlineAfterCharacterSaved"
+                @lobby-inline-busy="onLobbyInlineBusy"
+                @lobby-inline-progress="onLobbyInlineProgress"
             />
         </section>
         <!-- In-flow sheet (embedded): uses theme .floating-card--embedded width:100% — avoids fixed FAB 492px cap. -->
@@ -652,6 +663,12 @@ export default {
                 lobbyRosterConfirmPosting: false,
                 /** The roster cell's Regenerate is rolling a sheet; the cell is the only place that reports it. */
                 lobbyRosterRegeneratePosting: false,
+                /** The roster cell's Create character is rolling the first sheet. */
+                lobbyRosterCreatePosting: false,
+                /** Long action the inline character panel is running ('character' | 'regenerate' | …), for the cell. */
+                lobbyInlineBusyAction: null,
+                /** The character panel's own failure, shown in the viewer's row instead of inside the panel. */
+                lobbyInlineProgress: '',
                 /** Guards the retry control while a failed lobby start is being repeated. */
                 lobbyRetryPosting: false,
                 /** Synced from SetupForm on the inline confirm step — roster cannot rely on Vuex alone. */
@@ -1199,14 +1216,28 @@ export default {
                 return !this.lobbyCharacterFlowDoneForGame;
             },
             /**
-             * Roster regenerate is the only regenerate control in the lobby: it sits in the viewer's ready cell, so it
-             * must stay available while the inline confirm step is open (that step no longer carries its own button).
+             * The roster regenerate is the only regenerate control in the lobby: it sits in the viewer's ready cell,
+             * so it must stay available while the inline confirm step is open (that step no longer carries its own
+             * button).
              */
             showLobbyRosterRegenerate() {
                 if (!this.isPartyLobby) return false;
                 if (this.partyLobbyActionsFrozen) return false;
                 if (this.viewerLobbyMarkedReady) return false;
                 return true;
+            },
+            /** True while a sheet is being rolled, from either the cell or the inline panel that it drives. */
+            lobbyCellGenerating() {
+                if (this.lobbyRosterCreatePosting || this.lobbyRosterRegeneratePosting) return true;
+                const action = this.lobbyInlineBusyAction;
+                return action === 'character' || action === 'regenerate';
+            },
+            /**
+             * The inline panel is on its creation form, which no longer submits itself: the row carries the
+             * Create character button for exactly this state (including an opened “edit character” form).
+             */
+            lobbyCellCreating() {
+                return this.showLobbyCharacterSetupPanel && !this.lobbyInlineConfirmSheet;
             },
             /**
              * In lobby, only show the in-flow sheet when this game has a saved PC for the viewer.
@@ -1652,6 +1683,24 @@ export default {
              * The roster cell's Regenerate button. While the inline confirm step is on screen it runs that step's own
              * regenerate, so the sheet being reviewed is what gets replaced; otherwise it opens the character flow.
              */
+            /**
+             * The roster cell's Create character button: the panel's form no longer submits itself in the lobby, so this
+             * runs the same generation the form's own button used to.
+             */
+            async triggerLobbyCreateCharacter() {
+                if (this.lobbyRosterCreatePosting || this.lobbyCellGenerating) return;
+                const setup = this.$refs.lobbyInlineSetup;
+                if (!setup || typeof setup.submitForm !== 'function' || setup.setupPhase !== 'form') {
+                    this.openLobbyCharacterEditor();
+                    return;
+                }
+                this.lobbyRosterCreatePosting = true;
+                try {
+                    await setup.submitForm();
+                } finally {
+                    this.lobbyRosterCreatePosting = false;
+                }
+            },
             async triggerLobbyRegenerate() {
                 if (this.lobbyRosterRegeneratePosting) return;
                 const setup = this.$refs.lobbyInlineSetup;
@@ -2297,6 +2346,15 @@ export default {
                 this.lobbyInlineConfirmSheet = sheet && typeof sheet === 'object' ? sheet : null;
             },
 
+            /** The inline panel no longer renders its own busy label or error; the viewer's row does. */
+            onLobbyInlineBusy(action) {
+                this.lobbyInlineBusyAction = action ? String(action) : null;
+            },
+
+            onLobbyInlineProgress(message) {
+                this.lobbyInlineProgress = message ? String(message) : '';
+            },
+
             /** Normal party lobby: after generate/regenerate, leave “edit character” so embedded sheet matches refresh. */
             onLobbyInlineAfterCharacterSaved() {
                 this.lobbyCharacterEditorOpen = false;
@@ -2467,6 +2525,8 @@ export default {
                     (p.gameId != null ? String(p.gameId) : '');
                 this.lobbyInlineWizardHold = false;
                 this.lobbyInlineConfirmSheet = null;
+                this.lobbyInlineBusyAction = null;
+                this.lobbyInlineProgress = '';
                 if (gid) {
                     try {
                         sessionStorage.setItem(`dm_lobby_char_done_${gid}`, '1');
@@ -3732,21 +3792,6 @@ export default {
     flex-wrap: wrap;
     max-width: 100%;
     box-sizing: border-box;
-  }
-
-  .party-lobby__roster-ready-btn--blocked {
-    cursor: not-allowed;
-    background: rgba(255, 255, 255, 0.06) !important;
-    color: var(--gm-muted, #9a8f85) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    box-shadow: none !important;
-    transform: none !important;
-  }
-
-  .party-lobby__roster-ready-btn--blocked:hover,
-  .party-lobby__roster-ready-btn--blocked:active {
-    transform: none !important;
-    box-shadow: none !important;
   }
 
   .party-lobby__avatar {

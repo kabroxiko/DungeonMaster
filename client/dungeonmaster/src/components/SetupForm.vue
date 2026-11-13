@@ -208,7 +208,7 @@
         </div>
         </div>
         
-        <div class="form-actions">
+        <div v-if="!lobbyInline" class="form-actions">
           <button
             class="ui-button"
             type="submit"
@@ -309,6 +309,10 @@
             'lobby-inline-confirm-sheet',
             /** Party lobby: after /generate-character, parent closes “edit” so the embedded sheet (same as refresh) shows instead of the confirm step. */
             'lobby-inline-after-character-saved',
+            /** Party lobby: which long action is running. The roster cell owns the buttons, so it owns this label too. */
+            'lobby-inline-busy',
+            /** Party lobby: the panel's own failure/notice, shown in the roster cell instead of inside the panel. */
+            'lobby-inline-progress',
         ],
         data() {
             return {
@@ -462,8 +466,19 @@
             },
             showFullProgressBanner() {
                 if (!this.progressMessage) return false;
+                /* The inline lobby row shows this message, right under the buttons that caused it. */
+                if (this.lobbyInline) return false;
                 if (this.setupPhase === 'confirm_character' && this.isStarting) return false;
                 return true;
+            },
+            /**
+             * The inline lobby panel's roll, reported to the roster cell. A sheet roll is the only long action that
+             * sets no `setupBusyAction`; marking ready / starting the adventure run through `lobbyConfirmBusyStep`.
+             */
+            lobbyBusyAction() {
+                if (!this.lobbyInline || !this.isStarting) return null;
+                if (this.lobbyConfirmBusyStep) return null;
+                return this.setupBusyAction || 'character';
             },
             setupActionDisabled() {
                 return this.isStarting || (this.lobbyInline && this.lobbyInteractionsLocked);
@@ -579,6 +594,13 @@
             setupPhase() {
                 this.emitLobbyInlineConfirmSheet();
             },
+            lobbyBusyAction(action) {
+                this.$emit('lobby-inline-busy', action || null);
+            },
+            progressMessage(message) {
+                if (!this.lobbyInline) return;
+                this.$emit('lobby-inline-progress', message ? String(message) : '');
+            },
             confirmSheetCharacter: {
                 deep: true,
                 handler() {
@@ -675,11 +697,17 @@
             }
         },
         methods: {
-            /** Keeps ChatRoom roster in sync when `confirmSheetCharacter` is set (including mid-submit before `setupPhase` flips). */
+            /**
+             * Keeps ChatRoom roster in sync when `confirmSheetCharacter` is set (including mid-submit before `setupPhase` flips).
+             * Only the confirm step publishes a sheet: the roster decides between Create character and Ready to play from
+             * this, so a leftover sheet while the creation form is on screen would hide the only create button.
+             */
             emitLobbyInlineConfirmSheet() {
                 if (!this.lobbyInline) return;
                 const sheet =
-                    this.confirmSheetCharacter && typeof this.confirmSheetCharacter === 'object'
+                    this.setupPhase === 'confirm_character' &&
+                    this.confirmSheetCharacter &&
+                    typeof this.confirmSheetCharacter === 'object'
                         ? this.confirmSheetCharacter
                         : null;
                 this.$emit('lobby-inline-confirm-sheet', sheet);
