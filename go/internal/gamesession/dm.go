@@ -101,59 +101,10 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	inbound := filterNoSystem(messages)
 	inboundForModel := withSpeakerAttribution(inbound)
 
-	sys := promptmgr.ComposeSystemMessages(mode, sessionSummary, true, language)
-	var sysContents []string
-	for _, m := range sys {
-		sysContents = append(sysContents, m["content"])
-	}
-	consolidated := strings.Join(sysContents, "\n\n")
-	guard := promptmgr.LoadPrompt("rules/json_output_guard_dm_play.md")
-	if guard == "" {
-		guard = promptmgr.LoadPrompt("rules/json_output_guard.md")
-	}
-	if guard != "" {
-		consolidated = guard + "\n\n" + consolidated
-	}
-	if e := promptmgr.LoadPrompt("templates/dm/player_response_envelope.md"); e != "" {
-		consolidated = e + "\n\n" + consolidated
-	}
-	// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs and
-	// key locations, with location names reconciled against the players' map. Prepended before the world block so the
-	// authoritative geography still reads first.
-	if mode == "initial" && gs != nil {
-		if spec, ok := gs["campaignSpec"].(map[string]interface{}); ok && spec != nil {
-			if inj := renderInitialCampaignInject(spec); inj != "" {
-				consolidated = inj + "\n\n" + consolidated
-			}
-		}
-	}
-	if gs != nil {
-		if spec, ok := gs["campaignSpec"].(map[string]interface{}); ok && spec != nil {
-			// The Vellaris world is the campaign's only geography: there is no second, invented topology to fall
-			// back on, because two competing geographies in one prompt make the DM drift on location.
-			if vw := renderVellarisWorldInject(spec); vw != "" {
-				consolidated = vw + "\n\n" + consolidated
-			}
-			// Where the party stands is the one piece of state that makes travel continuous across turns.
-			if pp := renderPartyPositionInject(spec); pp != "" {
-				consolidated = pp + "\n\n" + consolidated
-			}
-			inj := promptmgr.LoadPrompt("templates/dm/inject_explore.md")
-			if inj != "" && (mode == "exploration" || mode == "explore") {
-				// minimal Mustache data
-				data := map[string]interface{}{
-					"factions":                   []interface{}{},
-					"dmHiddenAdventureObjective": dmHiddenObjective(spec),
-				}
-				rendered, _ := mustache.Render(inj, data)
-				consolidated = rendered + "\n\n" + consolidated
-			}
-		}
-	}
-	pcBlock := renderPCBlock(gs, language, requestingUserID)
-	if pcBlock != "" {
-		consolidated = consolidated + "\n\n" + pcBlock
-	}
+	// The consolidated system prompt leads every request, so its order is the provider's prefix-cache key: blocks
+	// that never change between turns go first, blocks that change every turn go last. Hoisting per-turn state above
+	// the static rules would change the leading bytes on every turn and throw away the cache for the whole request.
+	consolidated := composeDmSystemPrompt(mode, language, sessionSummary, gs, requestingUserID)
 
 	msgs := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
@@ -297,6 +248,71 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 	out.NewPlaces = ParseNewPlaces(obj["newPlaces"])
 	out.PartyPosition = ParsePartyPosition(obj["partyPosition"])
 	return out
+}
+
+// composeDmSystemPrompt builds the single system message for one play turn.
+//
+// Blocks are ordered most-stable first so the provider's prefix cache can reuse the leading bytes across turns:
+// static rules, then campaign-scoped state, then per-turn state (session summary, party position, character sheet).
+// Anything that changes every turn must stay below the static rules, because changing the head of the prompt
+// invalidates the cache for every message that follows it.
+func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]interface{}, requestingUserID string) string {
+	parts := []string{
+		promptmgr.LoadPrompt("templates/dm/player_response_envelope.md"),
+	}
+	if guard := promptmgr.LoadPrompt("rules/json_output_guard_dm_play.md"); guard != "" {
+		parts = append(parts, guard)
+	} else {
+		parts = append(parts, promptmgr.LoadPrompt("rules/json_output_guard.md"))
+	}
+	// Empty summary here: the memory block is per-turn state and joins the per-turn group below.
+	for _, m := range promptmgr.ComposeSystemMessages(mode, "", true, language) {
+		parts = append(parts, m["content"])
+	}
+	// Campaign-scoped blocks: identical for every turn of this game.
+	var spec map[string]interface{}
+	if gs != nil {
+		spec, _ = gs["campaignSpec"].(map[string]interface{})
+	}
+	if mode == "initial" && spec != nil {
+		// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs
+		// and key locations, with location names reconciled against the players' map.
+		parts = append(parts, renderInitialCampaignInject(spec))
+	}
+	if spec != nil {
+		// The Vellaris world is the campaign's only geography: there is no second, invented topology to fall back on,
+		// because two competing geographies in one prompt make the DM drift on location.
+		parts = append(parts, renderVellarisWorldInject(spec))
+		if inj := promptmgr.LoadPrompt("templates/dm/inject_explore.md"); inj != "" && mode == "exploration" {
+			// minimal Mustache data
+			data := map[string]interface{}{
+				"factions":                   []interface{}{},
+				"dmHiddenAdventureObjective": dmHiddenObjective(spec),
+			}
+			rendered, _ := mustache.Render(inj, data)
+			parts = append(parts, rendered)
+		}
+	}
+	// Per-turn state.
+	parts = append(parts, promptmgr.MemorySummaryMessage(sessionSummary))
+	if spec != nil {
+		// Where the party stands is the one piece of state that makes travel continuous across turns.
+		parts = append(parts, renderPartyPositionInject(spec))
+	}
+	parts = append(parts, renderPCBlock(gs, language, requestingUserID))
+	return joinPromptBlocks(parts)
+}
+
+// joinPromptBlocks joins the non-empty system blocks in the order given, so a prompt file that is missing or empty
+// does not leave a stray separator in the leading bytes the provider's prefix cache keys on.
+func joinPromptBlocks(parts []string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return strings.Join(out, "\n\n")
 }
 
 func filterNoSystem(messages []interface{}) []interface{} {

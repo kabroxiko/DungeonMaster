@@ -32,9 +32,7 @@ func ComposeSystemMessages(mode, sessionSummary string, includeFullSkill bool, l
 	if style := LoadPrompt("core/style.md"); style != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": style})
 	}
-	if sessionSummary != "" {
-		memT := LoadPrompt("rules/memory_summary.md")
-		mem := memT + "\n\nSession summary: " + sessionSummary
+	if mem := MemorySummaryMessage(sessionSummary); mem != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": mem})
 	}
 	if mode == "initial" && sessionSummary != "" {
@@ -77,6 +75,17 @@ func ComposeSystemMessages(mode, sessionSummary string, includeFullSkill bool, l
 		msgs = append(msgs, map[string]string{"role": "system", "content": guard})
 	}
 	return msgs
+}
+
+// MemorySummaryMessage renders the session memory block, or "" when the session has no summary yet.
+//
+// The summary changes every turn, so callers that order their system prompt for provider prefix caching append it
+// after the static blocks instead of taking it from ComposeSystemMessages, which places it in the middle.
+func MemorySummaryMessage(sessionSummary string) string {
+	if strings.TrimSpace(sessionSummary) == "" {
+		return ""
+	}
+	return LoadPrompt("rules/memory_summary.md") + "\n\nSession summary: " + sessionSummary
 }
 
 // RenderSkillPrompt applies Mustache with languageInstruction.
