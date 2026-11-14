@@ -2251,7 +2251,16 @@
                 gameSetup: gameSetupPayload,
                 preassignedDisplayName: body.preassignedDisplayName || null,
             });
-            const response = await axios.post('/api/game-session/generate-character', body, { timeout: 600000 });
+            let response;
+            try {
+                response = await axios.post('/api/game-session/generate-character', body, { timeout: 600000 });
+            } catch (err) {
+                // A phone that left the app can lose the connection before the answer arrives, which is not a failed roll:
+                // the server keeps writing the sheet for the game. Ask the game for it before reporting an error.
+                const recovered = await this.recoverGeneratedSheetWithoutResponse(err, gid);
+                if (recovered) return recovered;
+                throw err;
+            }
             this.characterFlowDebug('generate.response.ok', {
                 hasPlayerCharacter: !!(response.data && response.data.playerCharacter),
                 returnedName:
@@ -2262,6 +2271,28 @@
                         : null,
             });
             return response.data;
+        },
+
+        /**
+         * After a request that never produced an HTTP response (the tab was backgrounded, the phone changed network, the
+         * browser dropped the socket), the sheet may still be stored: generation runs for the game, not for this socket.
+         * Returns the shape /generate-character answers with, or null when the game has no sheet for this player yet.
+         */
+        async recoverGeneratedSheetWithoutResponse(err, requestedGameId) {
+            if (err && err.response) return null;
+            const gid = requestedGameId || this.$store.state.gameId;
+            if (!gid) return null;
+            try {
+                const res = await fetchGameStateLoad(String(gid));
+                const data = res && res.data;
+                const uid = this.resolveViewerUserId();
+                const sheet = this.pickPlayerSheet(data && data.gameSetup && data.gameSetup.playerCharacters, uid);
+                if (!sheet || typeof sheet !== 'object') return null;
+                this.characterFlowDebug('generate.recovered', { gameId: String(gid) });
+                return { playerCharacter: sheet, gameId: String(gid), recovered: true };
+            } catch (e) {
+                return null;
+            }
         },
 
         async submitForm() {

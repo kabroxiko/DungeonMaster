@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cbroglie/mustache"
 	"go.mongodb.org/mongo-driver/bson"
@@ -27,6 +28,12 @@ import (
 
 // HandleGenerateCharacter mirrors POST /generate-character: prompts omit PC display names; server assigns names.
 func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, userID string, body map[string]interface{}) (status int, out map[string]interface{}) {
+	// A phone that leaves the app, sleeps its screen or changes network drops the connection, and the request context
+	// dies with it — which used to kill the generation half-written. The sheet belongs to the game, not to one socket,
+	// so it is written under its own deadline and stored even when the browser that asked for it is gone: the
+	// game-state push is what delivers it, and the row stops spinning when load reads the stored sheet.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), characterGenerationTimeout)
+	defer cancel()
 	gsIn, _ := body["gameSetup"].(map[string]interface{})
 	if gsIn == nil {
 		gsIn = map[string]interface{}{}
@@ -316,6 +323,10 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		"gameId":          persistGameID,
 	}
 }
+
+// characterGenerationTimeout bounds a character generation once it no longer depends on the caller's connection. It is
+// shorter than the client's own wait, so a request the browser still holds gets a real answer rather than a timeout.
+const characterGenerationTimeout = 9 * time.Minute
 
 // PartyLevelFor exposes the level rule to the name preview, which resolves the same setup the generation will use.
 func PartyLevelFor(gameRow map[string]interface{}, requested map[string]interface{}) int {
