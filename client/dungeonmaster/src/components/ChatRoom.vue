@@ -72,7 +72,7 @@
                     <div class="party-lobby__ready-cell">
                         <div v-if="row.isYou" class="party-lobby__ready-stack">
                             <div
-                                v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen"
+                                v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen && !lobbyStartPending"
                                 class="party-lobby__ready-actions"
                             >
                                 <!-- Whichever control started a roll, the cell is where it reports: one chip, one spinner. -->
@@ -138,7 +138,7 @@
                             </div>
                             <!-- The world is named once, above the roster: a row only ever describes its own player. -->
                             <span
-                                v-else-if="partyPhase === 'starting'"
+                                v-else-if="partyPhase === 'starting' || lobbyStartPending"
                                 class="party-lobby__badge party-lobby__badge--starting"
                                 role="status"
                                 aria-live="polite"
@@ -701,6 +701,12 @@ export default {
                 lobbyBusyTimer: null,
                 /** Guards the retry control while a failed lobby start is being repeated. */
                 lobbyRetryPosting: false,
+                /**
+                 * Set when this press is going to start the table, so the row says "Starting the adventure…" from the
+                 * moment the button is used instead of flashing "Marked ready" while the start request is in flight.
+                 * A load that reports any phase other than starting clears it.
+                 */
+                lobbyStartPending: false,
                 /** Synced from SetupForm on the inline confirm step — roster cannot rely on Vuex alone. */
                 lobbyInlineConfirmSheet: null,
                 lobbyCharacterEditorOpen: false,
@@ -2574,12 +2580,18 @@ export default {
                         }
                     }
                     const { data } = readyRes;
+                    const meta = data && data.partyReadyMeta;
+                    // Decide the label before committing ready: marking ready and starting are one press, so the row
+                    // must never render a "Marked ready" state on the way to "Starting the adventure…".
+                    const willStart = !!(meta && meta.allMembersHaveSheets && meta.allMembersReady);
+                    if (willStart) {
+                        this.lobbyStartPending = true;
+                    }
                     if (data && data.gameSetup) {
                         this.$store.commit('setGameSetup', data.gameSetup);
                     }
-                    const meta = data && data.partyReadyMeta;
                     let partyStartHardFail = false;
-                    if (meta && meta.allMembersHaveSheets && meta.allMembersReady) {
+                    if (willStart) {
                         try {
                             await axios.post('/api/game-session/start-party-adventure', { gameId: gid0 });
                         } catch (startErr) {
@@ -2603,6 +2615,8 @@ export default {
                                     (detail || startErr.message || this.$i18n.error_saving_game) + suffix,
                                     'error'
                                 );
+                                // Nothing was claimed, so the row goes back to what it was before the press.
+                                this.lobbyStartPending = false;
                                 // The server writes the reason beside the party, so ask for the table's own state: that
                                 // is what replaces this row's start label with the retry control.
                                 void this.syncFromServer();
@@ -2941,6 +2955,15 @@ export default {
                     // Restore the game state
                     this.$store.commit('setGameId', gameState.gameId);
                     this.$store.commit('setGameSetup', gameState.gameSetup);
+                    // A start this tab asked for has now been read back from the server: either the party is claimed
+                    // ("starting", and the row already says so) or it is not, and the row must stop claiming it is.
+                    const loadedPartyPhase =
+                        gameState.gameSetup && gameState.gameSetup.party
+                            ? String(gameState.gameSetup.party.phase || '').trim()
+                            : '';
+                    if (loadedPartyPhase !== 'starting') {
+                        this.lobbyStartPending = false;
+                    }
                     this.memberNicknamesByUserId =
                         gameState.memberNicknamesByUserId &&
                         typeof gameState.memberNicknamesByUserId === 'object'
