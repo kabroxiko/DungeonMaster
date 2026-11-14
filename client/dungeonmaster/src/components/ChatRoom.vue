@@ -66,13 +66,22 @@
                         <span class="party-lobby__name">{{ row.display }}</span>
                         <span v-if="row.detailsLine" class="party-lobby__meta">{{ row.detailsLine }}</span>
                     </div>
-                    <!-- One slot per row, and the viewer's own slot owns everything about their lobby state:
-                         regenerate, ready / starting, and the start failure with its retry. Nothing about the viewer's
-                         party status belongs anywhere else on the page. -->
+                    <!-- A start in progress is the table's wait, so every card names it whichever member it belongs
+                         to. Everything else in a card describes its own player, and the viewer's own cell owns
+                         regenerate / ready. -->
                     <div class="party-lobby__ready-cell">
-                        <div v-if="row.isYou" class="party-lobby__ready-stack">
+                        <span
+                            v-if="partyStarting"
+                            class="party-lobby__badge party-lobby__badge--starting"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <span class="party-lobby__spin" aria-hidden="true"></span>
+                            <span>{{ $i18n.lobby_starting }}</span>
+                        </span>
+                        <div v-else-if="row.isYou" class="party-lobby__ready-stack">
                             <div
-                                v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen && !lobbyStartPending"
+                                v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen"
                                 class="party-lobby__ready-actions"
                             >
                                 <!-- Whichever control started a roll, the cell is where it reports: one chip, one spinner. -->
@@ -136,16 +145,6 @@
                                     </UIButton>
                                 </template>
                             </div>
-                            <!-- The world is named once, above the roster: a row only ever describes its own player. -->
-                            <span
-                                v-else-if="partyPhase === 'starting' || lobbyStartPending"
-                                class="party-lobby__badge party-lobby__badge--starting"
-                                role="status"
-                                aria-live="polite"
-                            >
-                                <span class="party-lobby__spin" aria-hidden="true"></span>
-                                <span>{{ $i18n.lobby_starting }}</span>
-                            </span>
                             <span
                                 v-else-if="partyIsMultiplayer && (row.isReady || partyLobbyRosterOwnRowFrozen)"
                                 class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok"
@@ -160,21 +159,6 @@
                             <!-- The character flow's own failure, reported where its buttons live. -->
                             <div v-if="lobbyInlineProgress" class="party-lobby__alert" role="alert">
                                 <span class="party-lobby__alert-text">{{ lobbyInlineProgress }}</span>
-                            </div>
-                            <!-- Deliberately not gated on partyLobbyActionsFrozen: a failed start leaves everyone marked
-                                 ready (that is why it was attempted), so that flag is true exactly when this is needed. -->
-                            <div v-if="lastStartError" class="party-lobby__alert" role="alert">
-                                <span class="party-lobby__alert-text">
-                                    {{ $i18n.lobby_last_error }}: {{ lastStartError }}
-                                </span>
-                                <UIButton
-                                    class="party-lobby__retry-btn"
-                                    :aria-label="$i18n.lobby_retry_start"
-                                    :disabled="lobbyRetryPosting || partyPhase === 'starting'"
-                                    @click="retryPartyStart"
-                                >
-                                    {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
-                                </UIButton>
                             </div>
                         </div>
                         <span
@@ -202,6 +186,20 @@
                 </li>
             </ul>
         </section>
+        <!-- A failed start is the table's, not a player's: the attempt spent everyone's ready mark, so any member can
+             repeat it from here. Deliberately not gated on partyLobbyActionsFrozen — a start that failed before the
+             server cleared the marks leaves that flag true exactly when this control is needed. -->
+        <div v-if="lastStartError && !partyStarting" class="party-lobby__alert party-lobby__alert--table" role="alert">
+            <span class="party-lobby__alert-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
+            <UIButton
+                class="party-lobby__retry-btn"
+                :aria-label="$i18n.lobby_retry_start"
+                :disabled="lobbyRetryPosting"
+                @click="retryPartyStart"
+            >
+                {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
+            </UIButton>
+        </div>
 
         <section
             v-if="showLobbyCharacterSetupPanel"
@@ -1138,6 +1136,14 @@ export default {
             /** The world is being written for everyone at once, so every row says so instead of naming its own state. */
             partyGeneratingWorld() {
                 return this.partyStage === 'world';
+            },
+            /**
+             * The table's start: every roster card names it, because the wait belongs to the table rather than to the
+             * member whose card it is. `lobbyStartPending` covers the press before the server's phase reaches this
+             * client, so the cards never flash a ready mark on the way to starting.
+             */
+            partyStarting() {
+                return this.partyPhase === 'starting' || this.lobbyStartPending;
             },
             /** Lobby toolbar + inline setup: no further ready toggles while starting or everyone is ready. */
             partyLobbyActionsFrozen() {
@@ -4187,7 +4193,7 @@ export default {
     color: var(--gm-gold-bright, #f0dfa8);
   }
 
-  /* The viewer's own cell stacks regenerate + ready/starting and, below them, any start failure. */
+  /* The viewer's own cell stacks regenerate + ready and, below them, the character flow's own failure. */
   .party-lobby__ready-stack {
     display: flex;
     flex-direction: column;
@@ -4223,6 +4229,17 @@ export default {
 
   .party-lobby__retry-btn {
     flex: 0 0 auto;
+  }
+
+  /* The table-level start failure spans the lobby, so its sentence and its retry sit on one line. */
+  .party-lobby__alert--table {
+    justify-content: space-between;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.78rem;
+  }
+
+  .party-lobby__alert--table .party-lobby__alert-text {
+    flex: 1 1 auto;
   }
 
   /* Match .app-banner content inset: lobby root uses --party-lobby-gutter; banner uses --gm-banner-padding-x. */
