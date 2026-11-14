@@ -2599,6 +2599,9 @@ export default {
                                     (detail || startErr.message || this.$i18n.error_saving_game) + suffix,
                                     'error'
                                 );
+                                // The server writes the reason beside the party, so ask for the table's own state: that
+                                // is what replaces this row's start label with the retry control.
+                                void this.syncFromServer();
                             }
                         }
                     }

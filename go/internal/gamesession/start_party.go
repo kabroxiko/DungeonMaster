@@ -3,7 +3,9 @@ package gamesession
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -178,6 +180,34 @@ func startStageForWorld(world map[string]interface{}) string {
 	return ""
 }
 
+// startInFlight marks the games whose start this process is running. The phase alone cannot tell a start that is still
+// working from one a restart killed, because the phase is written before the work it names is done.
+var startInFlight sync.Map
+
+// EnsureLobbyStart puts a table back in the lobby when the start that claimed it is not running any more.
+//
+// A start runs in the background, so a restart in the middle - a deploy while the stages were being written - leaves
+// the phase on "starting" with nothing left to finish it and the table waiting forever. Recording the reason is what
+// puts the lobby's retry control back on screen.
+func EnsureLobbyStart(ctx context.Context, d *Deps, hub *realtime.Hub, doc map[string]interface{}) {
+	if d == nil || d.Coll == nil || doc == nil {
+		return
+	}
+	gameID := str(doc["gameId"])
+	if gameID == "" || partyPhaseOf(doc) != "starting" {
+		return
+	}
+	if _, running := startInFlight.Load(gameID); running {
+		return
+	}
+	if err := revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, "The server restarted while the adventure was starting. Retry to start it again."); err != nil {
+		return
+	}
+	if hub != nil {
+		hub.NotifyGameStateUpdated(gameID)
+	}
+}
+
 // HandleStartPartyAdventure mirrors POST /start-party-adventure.
 func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, userID string, body map[string]interface{}) (status int, payload map[string]interface{}) {
 	gameID := strings.TrimSpace(fmt.Sprint(body["gameId"]))
@@ -277,7 +307,35 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		}
 	}
 
-	camp := RunLobbyCampaignCoreWithStages(ctx, d, gameID, lang, hostPremise, userID, mapFrom(body, "worldSettings"))
+	// The start writes several model stages, which can outlast any proxy in front of this server: a gateway timeout
+	// used to kill the request while the table waited on a start that had already been claimed. The claim above is
+	// the answer; the work continues on its own and every client follows party.stage and party.lastStartError.
+	worldSettings := mapFrom(body, "worldSettings")
+	startInFlight.Store(gameID, struct{}{})
+	go func() {
+		defer startInFlight.Delete(gameID)
+		startCtx, cancel := context.WithTimeout(context.Background(), partyStartBudget)
+		defer cancel()
+		if st, out := runPartyStart(startCtx, d, cfg, hub, gameID, userID, lang, hostPremise, worldSettings); st != 200 {
+			log.Printf("party start: game %s did not start (%d): %v", gameID, st, out["error"])
+		}
+	}()
+	if hub != nil {
+		hub.NotifyGameStateUpdated(gameID)
+	}
+	return 202, map[string]interface{}{"ok": true, "starting": true}
+}
+
+// partyStartBudget bounds the whole start in the background. It has to cover the campaign stages and the opening scene
+// (each with its own stage timeout), so it is deliberately generous: the deadline only exists to stop a wedged start
+// from holding a table in "starting" until the process is restarted.
+const partyStartBudget = 20 * time.Minute
+
+// runPartyStart writes the campaign, the session shell and the opening scene for a start that has already claimed the
+// table. It returns the status and payload the synchronous path used to answer with; the caller only logs them, because
+// once the start runs on its own the game state is the answer.
+func runPartyStart(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, gameID, userID, lang, hostPremise string, worldSettings map[string]interface{}) (int, map[string]interface{}) {
+	camp := RunLobbyCampaignCoreWithStages(ctx, d, gameID, lang, hostPremise, userID, worldSettings)
 	if !camp.OK {
 		_ = revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, camp.Error)
 		if hub != nil {
@@ -300,7 +358,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		return st, out
 	}
 
-	fresh := transitioned
+	var fresh map[string]interface{}
 	_ = d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&fresh)
 	spec2, _ := fresh["campaignSpec"].(map[string]interface{})
 	systemMessageContentDM := BuildBootstrapSystemMessageContentDM(spec2, lang)
@@ -315,7 +373,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		"userAndAssistantMessageCount": numOrZero(fresh["userAndAssistantMessageCount"]),
 		"systemMessageContentDM":       systemMessageContentDM,
 	}
-	_, err = persist.PersistGameStateFromBody(ctx, d.Coll, hub, bootstrapBody, userID, false)
+	_, err := persist.PersistGameStateFromBody(ctx, d.Coll, hub, bootstrapBody, userID, false)
 	if err != nil {
 		_ = revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, err.Error())
 		if hub != nil {

@@ -124,6 +124,12 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request, uid string) 
 		writeJSONCoded(w, r, http.StatusInternalServerError, "GAME_LOAD_FAILED", "Failed to load game state")
 		return
 	}
+	// A start runs in the background, so a restart can leave a table claimed by a start that nothing is running any
+	// more. The load is the moment every client asks what to show, so it is also the moment to hand the lobby back.
+	if startingPhase := party.GetParty(toMap(doc["gameSetup"])); strings.TrimSpace(fmt.Sprint(startingPhase["phase"])) == "starting" {
+		gamesession.EnsureLobbyStart(ctx, s.GS, s.Hub, doc)
+		_ = s.coll().FindOne(ctx, bson.M{"gameId": gid}).Decode(&doc)
+	}
 	if party.IsLobbyParty(doc) {
 		p0 := party.GetParty(toMap(doc["gameSetup"]))
 		readyRaw, _ := p0["readyUserIds"].([]interface{})
