@@ -208,7 +208,6 @@
             <select id="character-level" class="control" v-model.number="formData.characterLevel" :disabled="levelSelectLocked" :aria-label="$i18n.character_level" @change="onLevelChange">
               <option v-for="n in 20" :key="n" :value="n">{{ n }}</option>
             </select>
-            <p v-if="levelSelectLocked" class="form-hint">{{ $i18n.character_level_from_host }}</p>
           </div>
         </div>
         </div>
@@ -477,26 +476,29 @@
                 return this.getAvailableSubclassesForClass(this.formData.characterClass, this.formData.characterLevel).length > 0;
             },
             /**
-             * The level every sheet at this table is written at, when the viewer is a guest: the host's, because the
-             * adventure is prepared for one party at one level. Null for the host and while the host has no sheet yet.
+             * An invited player never chooses a level: the table plays at the host's, because the adventure is
+             * prepared for one party at one level. The host keeps choosing the level of their own table.
+             */
+            viewerIsGuest() {
+                return this.setupViewerIsGameOwner === false;
+            },
+            /**
+             * The level an invited player's sheet is written at: the level of the host's sheet, which is the one the
+             * server uses. Until the host has a sheet the table has no level of its own yet, so the first one stands.
              */
             partyLevelFromHost() {
-                // Only once the payload has positively said this viewer is a guest: a host must keep choosing the level
-                // their own table will play at, including on the first load, before any role has been read.
-                if (this.setupViewerIsGameOwner !== false) return null;
-                const owner = this.setupGameOwnerUserId;
-                if (!owner) return null;
+                if (!this.viewerIsGuest) return null;
                 const gs = (this.$store.state && this.$store.state.gameSetup) || {};
                 const sheets = gs.playerCharacters;
-                if (!sheets || typeof sheets !== 'object') return null;
-                const sheet = sheets[owner];
+                const owner = this.setupGameOwnerUserId;
+                const sheet = owner && sheets && typeof sheets === 'object' ? sheets[owner] : null;
                 const level = sheet ? Number(sheet.level) : NaN;
-                if (!Number.isFinite(level) || level < 1 || level > 20) return null;
+                if (!Number.isFinite(level) || level < 1 || level > 20) return 1;
                 return Math.floor(level);
             },
             /** A guest cannot pick a level: the party already plays at one. */
             levelSelectLocked() {
-                return this.partyLevelFromHost != null;
+                return this.viewerIsGuest;
             },
             showFullProgressBanner() {
                 if (!this.progressMessage) return false;

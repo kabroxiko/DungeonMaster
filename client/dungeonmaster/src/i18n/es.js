@@ -142,7 +142,6 @@ export default {
     character_class: 'Clase',
     character_race: 'Raza',
     character_level: 'Nivel',
-    character_level_from_host: 'Lo fija el anfitrión: todos entran al nivel de la partida.',
     subclass: 'Subclase',
     subrace: 'Subraza',
     gender_male_short: 'Masculino',
