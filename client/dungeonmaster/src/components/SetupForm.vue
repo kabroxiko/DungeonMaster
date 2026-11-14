@@ -205,9 +205,10 @@
           </div>
           <div class="form-row">
             <label for="character-level" class="form-label">{{$i18n.character_level}}</label>
-            <select id="character-level" class="control" v-model.number="formData.characterLevel" :aria-label="$i18n.character_level" @change="onLevelChange">
+            <select id="character-level" class="control" v-model.number="formData.characterLevel" :disabled="levelSelectLocked" :aria-label="$i18n.character_level" @change="onLevelChange">
               <option v-for="n in 20" :key="n" :value="n">{{ n }}</option>
             </select>
+            <p v-if="levelSelectLocked" class="form-hint">{{ $i18n.character_level_from_host }}</p>
           </div>
         </div>
         </div>
@@ -330,6 +331,13 @@
                 joinFlowPersistedGameId: null,
                 /** From GET /game-state/load; when false, always use party join UI (Join party) even if joinMode dropped. */
                 setupViewerIsGameOwner: null,
+                /** The host's user id from the last load, which is the sheet whose level the whole table plays at. */
+                setupGameOwnerUserId: null,
+                /**
+                 * One id per character draft. It seeds the server's resolution of the random picks, so the name preview
+                 * and the generation agree on one character while a new draft rolls a different one.
+                 */
+                characterDraftId: '',
                 /** Last character sheet shown on confirm; source of truth for the floating card (avoids stale Vuex overwrites). */
                 confirmSheetCharacter: null,
                 characterPreviewKey: 0,
@@ -467,6 +475,26 @@
             /** True when class+level allow a subclass pick (row always shows; otherwise subclass select is disabled). */
             hasSubclassOptions() {
                 return this.getAvailableSubclassesForClass(this.formData.characterClass, this.formData.characterLevel).length > 0;
+            },
+            /**
+             * The level every sheet at this table is written at, when the viewer is a guest: the host's, because the
+             * adventure is prepared for one party at one level. Null for the host and while the host has no sheet yet.
+             */
+            partyLevelFromHost() {
+                if (this.setupViewerIsGameOwner === true) return null;
+                const owner = this.setupGameOwnerUserId;
+                if (!owner) return null;
+                const gs = (this.$store.state && this.$store.state.gameSetup) || {};
+                const sheets = gs.playerCharacters;
+                if (!sheets || typeof sheets !== 'object') return null;
+                const sheet = sheets[owner];
+                const level = sheet ? Number(sheet.level) : NaN;
+                if (!Number.isFinite(level) || level < 1 || level > 20) return null;
+                return Math.floor(level);
+            },
+            /** A guest cannot pick a level: the party already plays at one. */
+            levelSelectLocked() {
+                return this.partyLevelFromHost != null;
             },
             showFullProgressBanner() {
                 if (!this.progressMessage) return false;
@@ -622,7 +650,15 @@
             '$store.state.gameId'(to, from) {
                 if (String(to ?? '') !== String(from ?? '')) {
                     this.setupViewerIsGameOwner = null;
+                    this.setupGameOwnerUserId = null;
                 }
+            },
+            /** A guest's sheet is written at the host's level, so the form shows it instead of a level the server would overwrite. */
+            partyLevelFromHost: {
+                immediate: true,
+                handler(level) {
+                    if (level != null) this.formData.characterLevel = level;
+                },
             },
             joinGameIdFromRoute: {
                 immediate: true,
@@ -1043,9 +1079,32 @@
                             subclass: fd.subclass,
                             characterLevel: fd.characterLevel,
                             gender: fd.gender,
+                            draftId: this.ensureCharacterDraftId(),
                             randomIntent: this.wizardRandomIntent,
                         })
                     );
+                } catch (e) {
+                    /* ignore */
+                }
+            },
+            /** One draft id per character: the server seeds its random picks from it, so a new draft is a new roll. */
+            ensureCharacterDraftId() {
+                if (!this.characterDraftId) {
+                    this.characterDraftId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+                }
+                return this.characterDraftId;
+            },
+            /** Regenerating or starting over is a new draw, not the previous one replayed. */
+            renewCharacterDraftId() {
+                this.characterDraftId = '';
+                this.ensureCharacterDraftId();
+            },
+            /** A finished draft leaves nothing behind: the next character starts from the default (random) picks. */
+            clearWizardSelectionSession() {
+                const k = this.wizardSelectionSessionKey();
+                if (!k || typeof sessionStorage === 'undefined') return;
+                try {
+                    sessionStorage.removeItem(k);
                 } catch (e) {
                     /* ignore */
                 }
@@ -1090,6 +1149,9 @@
                     }
                     if (saved.characterBackground != null && String(saved.characterBackground).trim()) {
                         fd.characterBackground = String(saved.characterBackground).trim();
+                    }
+                    if (saved.draftId != null && String(saved.draftId).trim()) {
+                        this.characterDraftId = String(saved.draftId).trim();
                     }
                     if (saved.randomIntent && typeof saved.randomIntent === 'object') {
                         this.wizardRandomIntent = {
@@ -1473,6 +1535,8 @@
                 this.setupPhase = 'form';
                 this.joinMode = false;
                 this.setupViewerIsGameOwner = null;
+                this.setupGameOwnerUserId = null;
+                this.characterDraftId = '';
                 this.clearJoinUiGameId();
                 this.joinFlowError = '';
                 this.joinInitBusy = false;
@@ -1496,6 +1560,7 @@
             },
             resetJoinWizardFormDefaults() {
                 this.characterNameIsManual = false;
+                this.characterDraftId = '';
                 this.formData = {
                     characterName: '',
                     characterClass: 'random',
@@ -1509,8 +1574,10 @@
             applyViewerRoleFromLoadPayload(data) {
                 if (!data || typeof data !== 'object') {
                     this.setupViewerIsGameOwner = null;
+                    this.setupGameOwnerUserId = null;
                     return;
                 }
+                this.setupGameOwnerUserId = data.ownerUserId != null ? String(data.ownerUserId) : null;
                 if (Object.prototype.hasOwnProperty.call(data, 'viewerIsGameOwner')) {
                     const v = data.viewerIsGameOwner;
                     this.setupViewerIsGameOwner = v === true ? true : v === false ? false : null;
@@ -2054,6 +2121,7 @@
                 class: this.wizardRandomIntent.characterClass ? 'random' : this.formData.characterClass,
                 race: this.wizardRandomIntent.characterRace ? 'random' : this.formData.characterRace,
                 level: this.formData.characterLevel,
+                draftId: this.ensureCharacterDraftId(),
                 subclass:
                     this.wizardRandomIntent.subclass || this.wizardRandomIntent.characterClass
                         ? undefined
@@ -2251,8 +2319,9 @@
                     }
                     await this.$nextTick();
                     this.characterPreviewKey += 1;
-
-                    // Party lobby (normal): same view as refresh — embedded sheet + roster, no “Review your character” step.
+                    // The draft is done: nothing about these picks belongs to the next character.
+                    this.clearWizardSelectionSession();
+                    this.characterDraftId = '';
                     if (this.lobbyInline && !this.partyLateJoinInviteePlaying) {
                         this.setupPhase = 'form';
                         this.progressMessage = '';
@@ -2338,6 +2407,8 @@
             };
             this.characterFlowDebug('regenerate.preserveRandom', preserveRandom);
             this.syncWizardRandomIntentFromForm();
+            // A regenerate is a fresh draw: the previous draft's seed must not decide this character.
+            this.renewCharacterDraftId();
             this.persistWizardSelectionSession();
             this.recoverSetupGameIdFromSession();
             if (!this.$store.state.gameId) {
@@ -3020,6 +3091,12 @@
   color: rgba(230, 225, 216, 0.88);
   line-height: 1.45;
   font-size: 0.92rem;
+}
+.form-hint {
+  margin: 4px 0 0;
+  color: rgba(230, 225, 216, 0.7);
+  line-height: 1.4;
+  font-size: 0.82rem;
 }
 .confirm-actions {
   display: flex;

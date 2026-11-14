@@ -158,6 +158,8 @@ func ResolveCharacterSetupForGeneration(gsIn map[string]interface{}) map[string]
 	}
 	// Language is campaign-level (party owner / persisted gameSetup), not a character choice.
 	delete(out, "language")
+	// The draft id only seeds the resolution below: it is not part of the character.
+	delete(out, "draftId")
 	// Empty name is omitted: POST /preview-character-name sets resolvedGameSetup.name after resolve.
 	// Non-empty names from the client stay for explicit player input.
 	if raw, ok := out["name"]; ok {
@@ -174,7 +176,12 @@ func resolveRNGSeed(gs map[string]interface{}) int64 {
 	}
 	h := fnv.New64a()
 	// Omit "name" / display name so assigning a previewed name does not re-roll other fields.
-	keys := []string{"race", "class", "subrace", "subclass", "background", "level", "gender"}
+	//
+	// `draftId` is what makes two drafts that ask for the same random character differ: without it every all-random
+	// setup hashes to the same seed, so each new character came out as the same race, class and background. The client
+	// mints one id per draft and sends it with both the name preview and the generation, so the two requests still
+	// resolve identically.
+	keys := []string{"race", "class", "subrace", "subclass", "background", "level", "gender", "draftId"}
 	for _, k := range keys {
 		h.Write([]byte{0})
 		h.Write([]byte(strings.ToLower(strings.TrimSpace(fmt.Sprint(gs[k])))))

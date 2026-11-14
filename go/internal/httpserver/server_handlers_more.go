@@ -739,6 +739,17 @@ func (s *Server) handleGenerateCharacter(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, st, localizeIfCoded(r, out))
 }
 
+// previewSetupWithPartyLevel copies the setup with the level the whole table plays at, so the name preview resolves the
+// same subclass the generation will use: the level, not the client's guess, decides what is legal.
+func previewSetupWithPartyLevel(gameRow map[string]interface{}, setup map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	for k, v := range setup {
+		out[k] = v
+	}
+	out["level"] = gamesession.PartyLevelFor(gameRow, setup)
+	return out
+}
+
 // handlePreviewCharacterName mirrors POST /preview-character-name (Iron Arachne MUNA preview).
 func (s *Server) handlePreviewCharacterName(w http.ResponseWriter, r *http.Request, uid string) {
 	var body map[string]interface{}
@@ -790,7 +801,7 @@ func (s *Server) handlePreviewCharacterName(w http.ResponseWriter, r *http.Reque
 		nameIsRandom = originalName == ""
 	}
 
-	gs := gamesession.ResolveCharacterSetupForGeneration(rawGS)
+	gs := gamesession.ResolveCharacterSetupForGeneration(previewSetupWithPartyLevel(gameRow, rawGS))
 	if s.Cfg.DebugCharacterFlow {
 		gidStr := ""
 		if gameID != nil {

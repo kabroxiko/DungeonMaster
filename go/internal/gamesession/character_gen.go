@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/cbroglie/mustache"
@@ -31,9 +32,6 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		gsIn = map[string]interface{}{}
 	}
 	applyBackendRandomIntent(gsIn)
-	gsIn = ResolveCharacterSetupForGeneration(gsIn)
-	// Resolve returns a new map; write back so body["gameSetup"] matches what the LLM uses (setupForPrompt is built from gsIn).
-	body["gameSetup"] = gsIn
 	bodyLanguage := ""
 	if l, ok := body["language"].(string); ok {
 		bodyLanguage = strings.TrimSpace(l)
@@ -95,6 +93,14 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	if worldProblem != "" {
 		return worldStatus, map[string]interface{}{"error": worldProblem, "code": worldCode}
 	}
+
+	// One table plays one adventure at one level, so a guest sheet is written at the host's level. This is decided
+	// before the setup is resolved, because the level decides which subclass is legal.
+	characterLevel := partyLevelFor(gameRow, gsIn)
+	gsIn["level"] = characterLevel
+	gsIn = ResolveCharacterSetupForGeneration(gsIn)
+	// Resolve returns a new map; write back so body["gameSetup"] matches what the LLM uses (setupForPrompt is built from gsIn).
+	body["gameSetup"] = gsIn
 
 	setupForPrompt := map[string]interface{}{}
 	for k, v := range gsIn {
@@ -190,6 +196,7 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	renderedChar, err := mustache.Render(charPrompt, map[string]interface{}{
 		"languageInstruction": langInstr,
 		"language":            language,
+		"level":               characterLevel,
 	})
 	if err != nil {
 		return 500, map[string]interface{}{
@@ -219,6 +226,7 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		"gameSetup":                     gsJSON,
 		"languageInstruction":           langInstr,
 		"language":                      language,
+		"level":                         characterLevel,
 		"pcDisplayName":                 resolvedDisplayName,
 		"serverCombatAuthoritativeJSON": combatAuthoritativeJSON,
 		"serverSpellsAuthoritativeJSON": spellsAuthoritativeJSON,
@@ -262,6 +270,9 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	pc.StripModelGeneratedNames(pcRaw)
 	pc.SyncDisplayNameFields(pcRaw, resolvedDisplayName)
 	pc.ApplyLockedCharacterChoices(pcRaw, gsIn, language)
+	// The level belongs to the table, not to the sheet the model just wrote: a newcomer joins the party it was invited
+	// to, at the level the encounters were prepared for.
+	pcRaw["level"] = characterLevel
 	for _, k := range []string{"skills", "stats", "coinage", "currency", "max_hp", "ac", "spells", "spell_slots"} {
 		delete(pcRaw, k)
 	}
@@ -304,6 +315,68 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		"playerCharacter": normalized,
 		"gameId":          persistGameID,
 	}
+}
+
+// PartyLevelFor exposes the level rule to the name preview, which resolves the same setup the generation will use.
+func PartyLevelFor(gameRow map[string]interface{}, requested map[string]interface{}) int {
+	return partyLevelFor(gameRow, requested)
+}
+
+// partyLevelFor returns the level a character sheet must be written at.
+//
+// The host's stored sheet is the table's level: the adventure is written and prepared for it, so a guest joining a
+// level-5 party is written at level 5 instead of arriving as a level-1 character the encounters were not made for. The
+// level the client asked for is used while the table has no host sheet yet, which is the host writing the first one.
+func partyLevelFor(gameRow map[string]interface{}, requested map[string]interface{}) int {
+	if sheets := mapFrom(toMap(gameRow["gameSetup"]), "playerCharacters"); sheets != nil {
+		ownerID := gameaccess.EffectiveGameOwnerIDStr(gameRow)
+		if ownerID != "" {
+			if lvl := levelOfSheet(sheets[ownerID]); lvl > 0 {
+				return lvl
+			}
+			// Ids decoded from MongoDB may differ in case from the one the request carries.
+			for id, sheet := range sheets {
+				if strings.EqualFold(strings.TrimSpace(id), ownerID) {
+					if lvl := levelOfSheet(sheet); lvl > 0 {
+						return lvl
+					}
+				}
+			}
+		}
+	}
+	if lvl := levelOfSheet(requested); lvl > 0 {
+		return lvl
+	}
+	return 1
+}
+
+// levelOfSheet reads a sheet's (or a setup's) level, or 0 when it has none outside the playable range.
+func levelOfSheet(raw interface{}) int {
+	sheet := toMap(raw)
+	if sheet == nil {
+		return 0
+	}
+	level := 0
+	switch n := sheet["level"].(type) {
+	case float64:
+		level = int(n)
+	case float32:
+		level = int(n)
+	case int:
+		level = n
+	case int32:
+		level = int(n)
+	case int64:
+		level = int(n)
+	default:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(sheet["level"])), 64); err == nil {
+			level = int(f)
+		}
+	}
+	if level < 1 || level > 20 {
+		return 0
+	}
+	return level
 }
 
 func applyBackendRandomIntent(gsIn map[string]interface{}) {
