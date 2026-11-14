@@ -15,7 +15,7 @@ majorNPCs:
     briefDescription: "..."
 
 Each item must have:
-- name (string) — **English** fantasy proper name (epic/invented; Latin alphabet), even when **role** and **briefDescription** follow the **session language policy** (system message) for prose language. **Every major NPC must have a distinct name** (no duplicates; not the same as another entry ignoring spaces or letter case).
+- name (string) — proper name **in the session language** (see the session language policy in the system message), epic or invented, Latin alphabet, so the name reads in the same language as **role** and **briefDescription**. **Every major NPC must have a distinct name** (no duplicates; not the same as another entry ignoring spaces or letter case).
 - role (string)
 - briefDescription (2 sentences)
 

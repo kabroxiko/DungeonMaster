@@ -63,7 +63,7 @@ Each keyLocations item must have:
 - name (string) — **exactly one of the settlement names listed above**, copied character for character
 {{/hasVellarisPlaces}}
 {{^hasVellarisPlaces}}
-- name (string) — **English** fantasy place name (evocative or invented toponym; not real mundane city names), even when **type** / **significance** follow the **session language policy** (system message); vary geography and metaphor across locations
+- name (string) — place name **in the session language**, an evocative or invented toponym in the same language as **type** / **significance** (see the session language policy in the system message), never a real mundane city name; vary geography and metaphor across locations
 {{/hasVellarisPlaces}}
 {{^hasVellarisPlaces}}
 - type (string) — short type label (settlement, ruin, temple, wilderness, …)

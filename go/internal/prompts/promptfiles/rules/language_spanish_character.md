@@ -5,7 +5,7 @@ description: Spanish language directive for character-sheet generation only, wit
 
 OBLIGATORIO: RESPONDE SÓLO EN ESPAÑOL para TODO el contenido legible por humanos en la **hoja de personaje** de esta respuesta —incluyendo brief_backstory, background, texto de raza/clase/subclase, líneas de armor, equipment, weapons[].name, languages— tanto si la salida es YAML estructurado como texto libre. Los nombres de las claves pueden seguir convención técnica; los números en `coinage` (pp, gp, ep, sp, cp) no se traducen. **Esta petición solo debe producir `playerCharacter`** — no incluyas `campaignSpec` ni otros bloques de campaña. Mantén el YAML válido.
 
-**Nombres propios en la hoja (`playerCharacter.name`, etc.):** escríbelos **en inglés** con ortografía inglesa y registro de fantasía épica (inventados o evocadores, no ciudades o famosos del mundo real). La **prosa** del trasfondo va en español natural alrededor de esos nombres.
+**Nombres propios en la hoja (`playerCharacter.name`, etc.):** escríbelos **en español** con registro de fantasía épica (inventados o evocadores, no ciudades ni famosos del mundo real). La **prosa** del trasfondo y el nombre van en el mismo idioma: no mezcles una hoja escrita en español con un nombre en inglés.
 
 **`brief_backstory`:** debe ser la **historia de su vida** en prosa **diegética**: solo ficción del mundo (orígenes, familia, formación, oficio o costumbres). **No** menciones **nivel**, **nivel 1**, **hoja de personaje**, **jugador**, **D&D**, **manual**, **clase** o **trasfondo** como términos de juego, ni planes de futuro en segunda persona. Los campos técnicos van en el YAML; el relato no debe sonar a resumen de reglas. Debe integrar orígenes y formación antes de cualquier episodio puntual.
 

@@ -142,6 +142,7 @@ export default {
     character_class: 'Class',
     character_race: 'Race',
     character_level: 'Level',
+    character_level_from_host: 'Set by the host: everyone joins at the party level.',
     subclass: 'Subclass',
     subrace: 'Subrace',
     gender_male_short: 'Male',
