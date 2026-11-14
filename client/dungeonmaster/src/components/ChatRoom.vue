@@ -118,7 +118,7 @@
                                         class="party-lobby__roster-ready-btn"
                                         :disabled="lobbyRosterConfirmPosting"
                                         :aria-busy="lobbyRosterConfirmPosting ? 'true' : 'false'"
-                                        :aria-label="$i18n.lobby_roster_ready_aria"
+                                        :aria-label="partyIsMultiplayer ? $i18n.lobby_roster_ready_aria : $i18n.lobby_start_adventure_short"
                                         @click="confirmReadyFromRosterCell"
                                     >
                                         <span v-if="lobbyRosterConfirmPosting" class="party-lobby__roster-ready-btn__busy">
@@ -131,7 +131,7 @@
                                                 class="party-lobby__badge-icon"
                                                 aria-hidden="true"
                                             />
-                                            {{ $i18n.lobby_roster_ready_short }}
+                                            {{ partyIsMultiplayer ? $i18n.lobby_roster_ready_short : $i18n.lobby_start_adventure_short }}
                                         </span>
                                     </UIButton>
                                 </template>
@@ -147,7 +147,7 @@
                                 <span>{{ $i18n.lobby_starting }}</span>
                             </span>
                             <span
-                                v-else-if="row.isReady || partyLobbyRosterOwnRowFrozen"
+                                v-else-if="partyIsMultiplayer && (row.isReady || partyLobbyRosterOwnRowFrozen)"
                                 class="party-lobby__badge party-lobby__badge--ready party-lobby__badge--ok"
                             >
                                 <FontAwesomeIcon
@@ -666,6 +666,10 @@ export default {
                 mapPanX: 0,
                 mapPanY: 0,
                 mapDragging: false,
+                /** Live pointers on the map stage, by pointer id: two of them mean the gesture is a pinch. */
+                mapPointers: null,
+                /** Distance between the two fingers at the last pinch step, so each move zooms by the change. */
+                mapPinchDistance: 0,
                 mapDragStartX: 0,
                 mapDragStartY: 0,
                 mapDragOriginX: 0,
@@ -1137,15 +1141,23 @@ export default {
             },
             /** Lobby toolbar + inline setup: no further ready toggles while starting or everyone is ready. */
             partyLobbyActionsFrozen() {
-                return this.partyLobbyAllMembersReady || this.partyPhase === 'starting';
+                return (this.partyIsMultiplayer && this.partyLobbyAllMembersReady) || this.partyPhase === 'starting';
+            },
+            /**
+             * One player alone has nobody to confirm to, so the lobby shows a plain start action instead of a ready frame:
+             * the ready marks would describe a table that is not there.
+             */
+            partyIsMultiplayer() {
+                return this.canonicalPartyMemberIdsSorted.length >= 2;
             },
             /**
              * Roster “your row” primary control: do NOT tie to `partyPhase === 'starting'`. If a start attempt
              * stalls, `starting` + empty `readyUserIds` would grey out Pendiente forever while the UI still
-             * looks like the lobby. Freeze only when every canonical member is already in `readyUserIds`.
+             * looks like the lobby. Freeze only when every canonical member is already in `readyUserIds` — and only at a
+             * real table, where a ready mark means something.
              */
             partyLobbyRosterOwnRowFrozen() {
-                return this.partyLobbyAllMembersReady;
+                return this.partyIsMultiplayer && this.partyLobbyAllMembersReady;
             },
             /** Invited player has already pressed mark ready — hide “edit character” so they cannot reopen the wizard. */
             viewerLobbyMarkedReady() {
@@ -2203,6 +2215,8 @@ export default {
                 this.mapPanX = 0;
                 this.mapPanY = 0;
                 this.mapDragging = false;
+                this.mapPinchDistance = 0;
+                if (this.mapPointers) this.mapPointers.clear();
                 // Back at the fitted view the preview is all there is to see, so the render is not held for a zoom that
                 // may never happen. The browser keeps it cached, so the next zoom finds it without a download.
                 this.mapFullRequested = false;
@@ -2330,11 +2344,8 @@ export default {
             },
             onMapPointerDown(event) {
                 if (event.button != null && event.button !== 0) return;
-                this.mapDragging = true;
-                this.mapDragStartX = event.clientX;
-                this.mapDragStartY = event.clientY;
-                this.mapDragOriginX = this.mapPanX;
-                this.mapDragOriginY = this.mapPanY;
+                if (!this.mapPointers) this.mapPointers = new Map();
+                this.mapPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
                 const stage = event.currentTarget;
                 if (stage && stage.setPointerCapture) {
                     try {
@@ -2343,16 +2354,54 @@ export default {
                         /* pointer capture is an optimisation; dragging still works without it */
                     }
                 }
+                if (this.mapPointers.size >= 2) {
+                    // Two fingers are a pinch, not a drag: stop the one-finger pan so the two do not fight.
+                    this.mapDragging = false;
+                    this.mapPinchDistance = this.mapPointerDistance();
+                    return;
+                }
+                this.mapDragging = true;
+                this.mapDragStartX = event.clientX;
+                this.mapDragStartY = event.clientY;
+                this.mapDragOriginX = this.mapPanX;
+                this.mapDragOriginY = this.mapPanY;
             },
             onMapPointerMove(event) {
+                if (this.mapPointers && this.mapPointers.has(event.pointerId)) {
+                    this.mapPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+                }
+                if (this.mapPointers && this.mapPointers.size >= 2) {
+                    // Zoom by how much the fingers spread since the last move, about the point between them, so the
+                    // ground under the fingers is the ground that stays under them.
+                    const distance = this.mapPointerDistance();
+                    if (this.mapPinchDistance > 0 && distance > 0) {
+                        const middle = this.mapPointerMiddle();
+                        this.zoomMapAt(distance / this.mapPinchDistance, middle.x, middle.y);
+                        this.mapPinchDistance = distance;
+                    }
+                    return;
+                }
                 if (!this.mapDragging) return;
                 this.mapPanX = this.mapDragOriginX + (event.clientX - this.mapDragStartX);
                 this.mapPanY = this.mapDragOriginY + (event.clientY - this.mapDragStartY);
             },
             onMapPointerUp(event) {
-                if (!this.mapDragging) return;
-                this.mapDragging = false;
+                if (this.mapPointers) {
+                    this.mapPointers.delete(event.pointerId);
+                    if (this.mapPointers.size < 2) this.mapPinchDistance = 0;
+                }
                 const stage = event.currentTarget;
+                if (!this.mapDragging) {
+                    if (stage && stage.releasePointerCapture) {
+                        try {
+                            stage.releasePointerCapture(event.pointerId);
+                        } catch (e) {
+                            /* the pointer may already have been released */
+                        }
+                    }
+                    return;
+                }
+                this.mapDragging = false;
                 if (stage && stage.releasePointerCapture) {
                     try {
                         stage.releasePointerCapture(event.pointerId);
@@ -2360,6 +2409,18 @@ export default {
                         /* the pointer may already have been released */
                     }
                 }
+            },
+            /** How far apart the two fingers are, in client pixels; 0 unless both are down. */
+            mapPointerDistance() {
+                const [first, second] = this.mapPointers ? [...this.mapPointers.values()] : [];
+                if (!first || !second) return 0;
+                return Math.hypot(first.x - second.x, first.y - second.y);
+            },
+            /** The point between the two fingers, which is what the pinch zooms about. */
+            mapPointerMiddle() {
+                const [first, second] = this.mapPointers ? [...this.mapPointers.values()] : [];
+                if (!first || !second) return { x: 0, y: 0 };
+                return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
             },
             /**
              * Shows a toast that hides itself after the given duration. Nothing in the lobby depends on it staying up:

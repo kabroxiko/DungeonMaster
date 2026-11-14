@@ -234,6 +234,7 @@ export default {
     lobby_setup_section_aria: 'Elegir qué serás y confirmación',
     lobby_character_sheet_section_aria: 'Tu hoja de personaje',
     lobby_roster_ready_short: 'Listo para jugar',
+    lobby_start_adventure_short: 'Empezar la aventura',
     lobby_roster_ready_aria: 'Confirmar personaje y marcarte listo para jugar',
     lobby_roster_regenerate_short: 'Regenerar',
     lobby_last_error: 'Último error al empezar',

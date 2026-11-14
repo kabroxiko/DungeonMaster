@@ -25,9 +25,13 @@ func revertPartyLobbyPhaseOnly(ctx context.Context, coll *mongo.Collection, game
 	var doc map[string]interface{}
 	_ = coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc)
 	gs, _ := doc["gameSetup"].(map[string]interface{})
+	// The attempt consumed the readiness it was made from, so the marks go with it: a lobby that still listed everyone
+	// as ready after a failed start would claim an adventure that never began, and would show that claim until someone
+	// reloaded the page.
 	next := party.MergeParty(gs, map[string]interface{}{
 		"phase":          "lobby",
 		"stage":          "",
+		"readyUserIds":   []interface{}{},
 		"lastStartError": strings.TrimSpace(errMsg)[:min(2000, len(strings.TrimSpace(errMsg)))],
 		"lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	})
@@ -39,9 +43,11 @@ func rollbackPartyStartAfterOpeningFailure(ctx context.Context, coll *mongo.Coll
 	var doc map[string]interface{}
 	_ = coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc)
 	gs, _ := doc["gameSetup"].(map[string]interface{})
+	// The opening failed, so the table is back in the lobby and its readiness is spent: everyone confirms again.
 	next := party.MergeParty(gs, map[string]interface{}{
 		"phase":          "lobby",
 		"stage":          "",
+		"readyUserIds":   []interface{}{},
 		"lastStartError": strings.TrimSpace(errMsg)[:min(2000, len(strings.TrimSpace(errMsg)))],
 		"lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	})

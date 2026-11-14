@@ -237,6 +237,7 @@ export default {
     lobby_character_sheet_section_aria: 'Your character sheet',
     /** Roster column: short primary label (full sentence stays in aria). */
     lobby_roster_ready_short: 'Ready to play',
+    lobby_start_adventure_short: 'Start the adventure',
     lobby_roster_ready_aria: 'Confirm character and mark ready to play',
     /** Roster column: opens character flow before marking ready (left of primary). */
     lobby_roster_regenerate_short: 'Regenerate',
