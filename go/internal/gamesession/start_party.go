@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/persist"
 	"github.com/deckofdmthings/gmai/internal/realtime"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func revertPartyLobbyPhaseOnly(ctx context.Context, coll *mongo.Collection, gameID, errMsg string) error {
@@ -184,6 +186,68 @@ func startStageForWorld(world map[string]interface{}) string {
 // working from one a restart killed, because the phase is written before the work it names is done.
 var startInFlight sync.Map
 
+// interruptedStartMessage is what a table is told when the work it was waiting on died with the process that ran it.
+const interruptedStartMessage = "The server restarted while the adventure was starting. Retry to start it again."
+
+// RecoverInterruptedStarts hands back every table a previous run of this server left waiting.
+//
+// A start and a world step both run in the background of the process that claimed them, so every restart - and every
+// deploy - kills them where they stand. Nothing else in the system finishes that work or clears the stage it left
+// behind, so the wait never ends unless this sweep runs once at startup: a claimed start goes back to the lobby with
+// the reason, and a world step whose world is already stored is simply dropped.
+func RecoverInterruptedStarts(ctx context.Context, d *Deps, hub *realtime.Hub) {
+	if d == nil || d.Coll == nil {
+		return
+	}
+	starts, err := d.Coll.Find(ctx, bson.M{"gameSetup.party.phase": "starting"},
+		options.Find().SetProjection(bson.M{"gameId": 1}).SetLimit(500))
+	if err != nil {
+		log.Printf("start recovery: could not list interrupted starts: %v", err)
+	} else {
+		defer starts.Close(context.Background())
+		for starts.Next(ctx) {
+			var row struct {
+				GameID string `bson:"gameId"`
+			}
+			if err := starts.Decode(&row); err != nil || strings.TrimSpace(row.GameID) == "" {
+				continue
+			}
+			if err := revertPartyLobbyPhaseOnly(ctx, d.Coll, row.GameID, interruptedStartMessage); err != nil {
+				log.Printf("start recovery: game %s: %v", row.GameID, err)
+				continue
+			}
+			log.Printf("start recovery: game %s went back to the lobby", row.GameID)
+			if hub != nil {
+				hub.NotifyGameStateUpdated(row.GameID)
+			}
+		}
+	}
+
+	worlds, err := d.Coll.Find(ctx, bson.M{"gameSetup.party.phase": "lobby", "gameSetup.party.stage": "world"},
+		options.Find().SetProjection(bson.M{
+			"gameId":                             1,
+			"campaignSpec.vellarisWorld.regions": 1,
+			"campaignSpec.vellarisWorld.places":  1,
+		}).SetLimit(500))
+	if err != nil {
+		log.Printf("world recovery: could not list lobby world steps: %v", err)
+		return
+	}
+	defer worlds.Close(context.Background())
+	for worlds.Next(ctx) {
+		var row map[string]interface{}
+		if err := worlds.Decode(&row); err != nil {
+			continue
+		}
+		if storedWorld(row) == nil {
+			// The world was never stored: a load resumes that step, because only a client asking for the table knows
+			// whether anybody is still waiting for it.
+			continue
+		}
+		clearLobbyStage(ctx, d, str(row["gameId"]), "world")
+	}
+}
+
 // EnsureLobbyStart puts a table back in the lobby when the start that claimed it is not running any more.
 //
 // A start runs in the background, so a restart in the middle - a deploy while the stages were being written - leaves
@@ -200,7 +264,7 @@ func EnsureLobbyStart(ctx context.Context, d *Deps, hub *realtime.Hub, doc map[s
 	if _, running := startInFlight.Load(gameID); running {
 		return
 	}
-	if err := revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, "The server restarted while the adventure was starting. Retry to start it again."); err != nil {
+	if err := revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, interruptedStartMessage); err != nil {
 		return
 	}
 	if hub != nil {
@@ -314,10 +378,23 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 	startInFlight.Store(gameID, struct{}{})
 	go func() {
 		defer startInFlight.Delete(gameID)
+		// A panic here would take the whole API down: Go cannot recover another goroutine's panic from the caller, and
+		// model output reaches this code. It must stay one failed start, and the table must get its lobby back.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("party start: game %s panicked: %v\n%s", gameID, r, debug.Stack())
+				_ = revertPartyLobbyPhaseOnly(context.Background(), d.Coll, gameID, interruptedStartMessage)
+				if hub != nil {
+					hub.NotifyGameStateUpdated(gameID)
+				}
+			}
+		}()
 		startCtx, cancel := context.WithTimeout(context.Background(), partyStartBudget)
 		defer cancel()
 		if st, out := runPartyStart(startCtx, d, cfg, hub, gameID, userID, lang, hostPremise, worldSettings); st != 200 {
 			log.Printf("party start: game %s did not start (%d): %v", gameID, st, out["error"])
+		} else {
+			log.Printf("party start: game %s is playing", gameID)
 		}
 	}()
 	if hub != nil {

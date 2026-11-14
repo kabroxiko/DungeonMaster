@@ -130,6 +130,14 @@ func main() {
 	deps := &gamesession.Deps{Cfg: cfg, Coll: store.GameStates(db), Hub: hub}
 	srv := &httpserver.Server{Cfg: cfg, DB: db, Hub: hub, GS: deps}
 
+	// A restart kills the background work a table is waiting on (a start, a world step). Put those tables back before
+	// they are served again, so nobody waits on a process that no longer exists.
+	go func() {
+		rctx, rcancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer rcancel()
+		gamesession.RecoverInterruptedStarts(rctx, deps, hub)
+	}()
+
 	var vueDev *exec.Cmd
 	if config.TruthyEnv("DM_SPAWN_VUE_DEV") {
 		vueDev = startVueDevServer(repoRoot())

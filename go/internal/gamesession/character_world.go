@@ -3,6 +3,7 @@ package gamesession
 import (
 	"context"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +58,13 @@ func PrepareWorldInBackground(d *Deps, gameID, language string) {
 	}
 	go func() {
 		defer worldPrepInFlight.Delete(gid)
+		// Model output never reaches this path, but a panic in another goroutine cannot be recovered by its caller: it
+		// would take the whole API down, so the world step logs it and lets its own deferred clear run.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("party world: game %s panicked: %v\n%s", gid, r, debug.Stack())
+			}
+		}()
 		// The request that started this has already answered, so the work carries its own deadline.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()

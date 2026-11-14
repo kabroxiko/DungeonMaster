@@ -1429,11 +1429,9 @@ export default {
                          * opening scene is written, and the cell stays on that label until the phase changes. */
                         if (this.lobbyStartingPollTimer) clearInterval(this.lobbyStartingPollTimer);
                         this.lobbyStartingPollTimer = null;
-                        /* SSE delivers game-state-updated; poll only if push is down (rare safety). */
-                        const pushOpen =
-                            this.gameStateEventSource && this.gameStateEventSource.readyState === EventSource.OPEN;
-                        if (pushOpen) return;
-                        const lobbyPollMs = 45000;
+                        /* Push usually delivers the end of the start, but the start runs in the server's background: if
+                         * the process that ran it is gone, only asking again shows that. Poll while the phase holds. */
+                        const lobbyPollMs = 20000;
                         this.lobbyStartingPollTimer = setInterval(() => {
                             if (this.partyPhase !== 'starting') {
                                 clearInterval(this.lobbyStartingPollTimer);
@@ -1939,6 +1937,12 @@ export default {
                         this.lobbyStartingPollTimer = null;
                     }
                     this.stopPendingReplyPoller();
+                    // A reconnect usually means the server restarted, and anything that was waiting on it then either
+                    // finished or was handed back. Read the table's own state instead of keeping whatever this tab
+                    // remembered from before the drop.
+                    if (!this.syncBusy && !this.isSending) {
+                        void this.syncFromServer();
+                    }
                 };
                 es.onerror = () => {
                     if (this.gameStateEventSource !== es) {
