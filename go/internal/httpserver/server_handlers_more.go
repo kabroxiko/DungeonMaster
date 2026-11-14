@@ -790,7 +790,11 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request, uid 
 		return
 	}
 	token := randomHex(24)
-	update := bson.M{"$set": bson.M{"inviteToken": token, "inviteTokenCreatedAt": time.Now().UTC()}}
+	update := bson.M{
+		"$set": bson.M{"inviteToken": token, "inviteTokenCreatedAt": time.Now().UTC()},
+		// A fresh token is a fresh single-use link, so it must not inherit the used marker of the previous one.
+		"$unset": bson.M{"inviteTokenUsedAt": ""},
+	}
 	if oid, ok := gs["ownerUserId"].(primitive.ObjectID); ok && !oid.IsZero() {
 		update["$addToSet"] = bson.M{"memberUserIds": oid}
 	}

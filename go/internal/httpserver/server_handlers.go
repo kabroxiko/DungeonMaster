@@ -55,6 +55,7 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request, uid string) 
 		MemberUserIDs        []primitive.ObjectID `bson:"memberUserIds"`
 		InviteToken          *string              `bson:"inviteToken"`
 		InviteTokenCreatedAt *time.Time           `bson:"inviteTokenCreatedAt"`
+		InviteTokenUsedAt    *time.Time           `bson:"inviteTokenUsedAt"`
 	}
 	err := s.coll().FindOne(ctx, bson.M{"inviteToken": tok}).Decode(&gs)
 	if err == mongo.ErrNoDocuments {
@@ -70,8 +71,14 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request, uid string) 
 		writeJSONCoded(w, r, http.StatusBadRequest, "USER_INVALID", "Invalid user")
 		return
 	}
+	// A player who already belongs to the game gets in, even if this link has already been used: the link is
+	// only single-use for *new* members, and a returning member is not an error worth blocking them with.
 	if gameaccess.UserIsGameMember(uid, bsonToMap(gs)) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"gameId": gs.GameID, "alreadyMember": true})
+		return
+	}
+	if gs.InviteTokenUsedAt != nil {
+		writeJSONCoded(w, r, http.StatusNotFound, "INVITE_INVALID", "Invalid or expired invite")
 		return
 	}
 	each := []primitive.ObjectID{}
@@ -79,13 +86,16 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request, uid string) 
 		each = append(each, gs.OwnerUserID)
 	}
 	each = append(each, oid)
+	// The token stays on the document (marked as used) so a later attempt can still resolve it to this game and
+	// tell an existing member where the party is, instead of claiming the invite never existed.
 	res, err := s.coll().UpdateOne(ctx, bson.M{
-		"_id":           gs.ID,
-		"inviteToken":   tok,
-		"memberUserIds": bson.M{"$nin": bson.A{oid}},
+		"_id":               gs.ID,
+		"inviteToken":       tok,
+		"inviteTokenUsedAt": bson.M{"$exists": false},
+		"memberUserIds":     bson.M{"$nin": bson.A{oid}},
 	}, bson.M{
 		"$addToSet": bson.M{"memberUserIds": bson.M{"$each": each}},
-		"$unset":    bson.M{"inviteToken": "", "inviteTokenCreatedAt": ""},
+		"$set":      bson.M{"inviteTokenUsedAt": time.Now().UTC()},
 	})
 	if err != nil {
 		writeJSONCoded(w, r, http.StatusInternalServerError, "JOIN_FAILED", "Join failed")

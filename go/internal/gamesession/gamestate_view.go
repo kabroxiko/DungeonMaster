@@ -19,6 +19,10 @@ func GameStateDocForClient(doc map[string]interface{}) map[string]interface{} {
 		return nil
 	}
 	o := cloneMapShallow(doc)
+	// Invite material is a credential plus its redemption state, and only the join handler reads either.
+	delete(o, "inviteToken")
+	delete(o, "inviteTokenCreatedAt")
+	delete(o, "inviteTokenUsedAt")
 	// Redaction runs first and drops the world itself, so ask the stored document rather than the redacted copy.
 	worldStored := storedWorld(doc) != nil
 	if cs, ok := o["campaignSpec"].(map[string]interface{}); ok && cs != nil {

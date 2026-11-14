@@ -17,6 +17,15 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 | PATCH | `/api/auth/nickname` | Bearer | `{ nickname }` | `{ user }` |
 | GET | `/api/auth/me` | Bearer | — | `{ user }` |
 
+### Invite links
+
+An invite token is single-use **for new members**: the first non-member who redeems it joins and the token is marked
+used (`inviteTokenUsedAt`). The token itself stays on the game document, so the same link keeps resolving to that game
+and an account that is already the owner or a member of it gets `200 { gameId, alreadyMember: true }` no matter how
+many times it opens the link — it is never told the invite is invalid. Anyone else redeeming an already-used token gets
+`404 INVITE_INVALID`. Creating a new invite replaces the token and clears the used marker. No game-state payload ever
+carries the token or its timestamps — the client view strips them, so only the join handler sees them.
+
 ### Roles
 
 A user is a `player` or an `admin`. The role is decided at sign-in from `DM_ADMIN_EMAILS` and stored on the account, so
