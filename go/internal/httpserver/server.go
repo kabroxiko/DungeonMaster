@@ -131,6 +131,11 @@ func (s *Server) Handler() http.Handler {
 		r.Delete("/mine/{gameId}", s.withAuthBearer(s.handleDeleteMine))
 	})
 
+	r.Route("/api/admin", func(r chi.Router) {
+		// The server's own configuration: who may read it is the administrator role, and it never carries a secret.
+		r.Get("/config", s.withAuthBearer(s.handleAdminConfig))
+	})
+
 	r.Route("/api/game-session", func(r chi.Router) {
 		r.Post("/generate", s.withAuthBearer(s.handleGenerate))
 		r.Post("/create-invite", s.withAuthBearer(s.handleCreateInvite))
@@ -220,6 +225,12 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 	}
 	name := fmt.Sprint(payload.Claims["name"])
 	picture := fmt.Sprint(payload.Claims["picture"])
+	// The role is decided here, from the configured administrators, and stored with the account: what a browser may read
+	// is answered by the database rather than by re-reading the environment on every request.
+	role := "player"
+	if s.Cfg.IsAdminEmail(email) {
+		role = "admin"
+	}
 
 	var u struct {
 		ID        primitive.ObjectID `bson:"_id"`
@@ -228,6 +239,7 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 		Name      string             `bson:"name"`
 		Picture   string             `bson:"picture"`
 		Nickname  string             `bson:"nickname"`
+		Role      string             `bson:"role"`
 	}
 	err = s.users().FindOne(ctx, bson.M{"googleSub": sub}).Decode(&u)
 	if err == mongo.ErrNoDocuments {
@@ -237,6 +249,7 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 			"name":      name,
 			"picture":   picture,
 			"nickname":  "",
+			"role":      role,
 		})
 		if ierr != nil {
 			writeJSONCoded(w, r, http.StatusInternalServerError, "GOOGLE_USER_SAVE_FAILED", "save failed")
@@ -253,13 +266,15 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 		u.Email = email
 		u.Name = name
 		u.Picture = picture
+		u.Role = role
 	} else if err != nil {
 		writeJSONCoded(w, r, http.StatusInternalServerError, "GOOGLE_USER_DB_ERROR", "db error")
 		return
 	} else {
 		_, _ = s.users().UpdateOne(ctx, bson.M{"_id": u.ID}, bson.M{"$set": bson.M{
-			"email": email, "name": name, "picture": picture,
+			"email": email, "name": name, "picture": picture, "role": role,
 		}})
+		u.Role = role
 	}
 	tok, err := auth.SignSessionToken(u.ID.Hex(), s.Cfg.JWTSecret, s.Cfg.NodeEnv)
 	if err != nil {
@@ -272,6 +287,7 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 			"_id":      u.ID.Hex(),
 			"picture":  u.Picture,
 			"nickname": strings.TrimSpace(u.Nickname),
+			"role":     role,
 		},
 	})
 }

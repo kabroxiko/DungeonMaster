@@ -20,6 +20,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/deckofdmthings/gmai/internal/auth"
+	"github.com/deckofdmthings/gmai/internal/config"
 	"github.com/deckofdmthings/gmai/internal/draftparty"
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
 	"github.com/deckofdmthings/gmai/internal/gamesession"
@@ -279,12 +280,79 @@ func loadMemberNicknames(ctx context.Context, users *mongo.Collection, ids map[s
 	return out, nil
 }
 
+// roleOf answers the role a profile carries: the stored one, or admin when the address is a configured administrator.
+func (s *Server) roleOf(storedRole, email string) string {
+	if strings.EqualFold(strings.TrimSpace(storedRole), "admin") || s.Cfg.IsAdminEmail(email) {
+		return "admin"
+	}
+	return "player"
+}
+
+// isAdmin reports whether this caller may read the server's configuration and stored prompts. The stored role is the
+// authority, so a granted role does not depend on the allowlist still naming the address.
+func (s *Server) isAdmin(ctx context.Context, uid string) bool {
+	oid, err := primitive.ObjectIDFromHex(strings.TrimSpace(uid))
+	if err != nil {
+		return false
+	}
+	var u struct {
+		Role  string `bson:"role"`
+		Email string `bson:"email"`
+	}
+	if err := s.users().FindOne(ctx, bson.M{"_id": oid}, options.FindOne().SetProjection(bson.M{"role": 1, "email": 1})).Decode(&u); err != nil {
+		return false
+	}
+	return s.roleOf(u.Role, u.Email) == "admin"
+}
+
+// handleAdminConfig answers the runtime configuration an operator needs to see.
+//
+// Secrets are never included: an API key, the JWT secret or the database URL is not something a browser may hold, so the
+// answer describes how the server is set up (provider, model, map service, debug switches) without any credential.
+func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request, uid string) {
+	if !s.isAdmin(r.Context(), uid) {
+		writeJSONCoded(w, r, http.StatusForbidden, "ADMIN_REQUIRED", "Only an administrator can read the server configuration")
+		return
+	}
+	c := s.Cfg
+	model := c.OpenAIModel
+	switch c.AIProvider {
+	case config.ProviderDeepSeek:
+		model = c.DeepSeekModel
+	case config.ProviderGemini:
+		model = c.GeminiModel
+	case config.ProviderLMStudio:
+		model = c.LMStudioModel
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"aiProvider":           c.AIProvider,
+		"model":                model,
+		"modelContextTokens":   c.ModelContextTok,
+		"mapServiceUrl":        c.VellarisURL,
+		"mapServiceConfigured": strings.TrimSpace(c.VellarisURL) != "",
+		"worldSettingsFile":    c.VellarisSettingsFile,
+		"environment":          c.NodeEnv,
+		"debugLLM":             c.DebugLLM,
+		"debugCharacterFlow":   c.DebugCharacterFlow,
+		"adminEmails":          c.AdminEmails,
+	})
+}
+
 func (s *Server) handleDebugPrompts(w http.ResponseWriter, r *http.Request, uid string) {
 	gid := strings.TrimSpace(chi.URLParam(r, "gameId"))
 	ctx := r.Context()
-	if _, err := gameaccess.AssertGameMember(ctx, s.coll(), uid, gid); err != nil {
-		sendAccessError(w, r, err)
+	// The raw prompt stack and the model's raw answer are operator material: they carry the DM-only campaign blocks and
+	// the reasoning the table is not meant to read, so the role decides who may look, not membership of the game.
+	if !s.isAdmin(ctx, uid) {
+		writeJSONCoded(w, r, http.StatusForbidden, "ADMIN_REQUIRED", "Only an administrator can read the stored prompts")
 		return
+	}
+	if _, err := gameaccess.AssertGameMember(ctx, s.coll(), uid, gid); err != nil {
+		// An administrator may inspect any game, so only a game that does not exist is an error here.
+		if missing := s.coll().FindOne(ctx, bson.M{"gameId": gid}); missing.Err() != nil {
+			sendAccessError(w, r, err)
+			return
+		}
 	}
 	var doc map[string]interface{}
 	err := s.coll().FindOne(ctx, bson.M{"gameId": gid}, options.FindOne().SetProjection(bson.M{

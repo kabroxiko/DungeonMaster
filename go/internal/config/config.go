@@ -87,8 +87,41 @@ type Config struct {
 	DebugLLM bool
 	// DebugCharacterFlow logs preview-name / generate-character gameSetup summaries (set DM_DEBUG_CHARACTER_FLOW=true). Use only in development.
 	DebugCharacterFlow bool
+	// AdminEmails lists the accounts allowed into the admin surfaces (set DM_ADMIN_EMAILS, comma-separated). These people
+	// see the server configuration and the stored prompts; everyone else plays, and nothing offers them what only an
+	// operator should read.
+	AdminEmails []string
 	// HTTPShutdownGraceSeconds caps how long graceful shutdown waits for active HTTP requests (SSE, LLM, etc.).
 	HTTPShutdownGraceSeconds int
+}
+
+// IsAdminEmail reports whether the address is configured as an administrator's. Google may spell an address with
+// different casing, so the comparison folds case.
+func (c *Config) IsAdminEmail(email string) bool {
+	if c == nil {
+		return false
+	}
+	want := strings.ToLower(strings.TrimSpace(email))
+	if want == "" {
+		return false
+	}
+	for _, e := range c.AdminEmails {
+		if e == want {
+			return true
+		}
+	}
+	return false
+}
+
+// parseEmailList reads a comma-separated address list, folded and without blanks.
+func parseEmailList(raw string) []string {
+	out := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		if e := strings.ToLower(strings.TrimSpace(part)); e != "" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 func getenv(key, def string) string {
@@ -158,6 +191,7 @@ func Load() *Config {
 		VellarisToken:            strings.TrimSpace(os.Getenv("DM_VELLARIS_TOKEN")),
 		DebugLLM:                 TruthyEnv("DM_DEBUG_LLM"),
 		DebugCharacterFlow:       TruthyEnv("DM_DEBUG_CHARACTER_FLOW"),
+		AdminEmails:              parseEmailList(getenv("DM_ADMIN_EMAILS", "")),
 		HTTPShutdownGraceSeconds: getenvInt("DM_HTTP_SHUTDOWN_GRACE_SECONDS", 5),
 	}
 	if c.HTTPShutdownGraceSeconds < 1 {

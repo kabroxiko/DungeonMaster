@@ -14,6 +14,7 @@ function clientUserProfile(u) {
         _id: u._id,
         picture: u.picture != null ? u.picture : '',
         nickname: u.nickname != null ? String(u.nickname).trim() : '',
+        role: String(u.role || '').trim() === 'admin' ? 'admin' : 'player',
     };
 }
 
@@ -220,7 +221,8 @@ export default createStore({
                         prev &&
                         String(prev._id || '') === String(merged._id || '') &&
                         String(prev.nickname || '').trim() === String(merged.nickname || '').trim() &&
-                        String(prev.picture || '') === String(merged.picture || '');
+                        String(prev.picture || '') === String(merged.picture || '') &&
+                        String(prev.role || '') === String(merged.role || '');
                     if (!unchanged) {
                         commit('setUser', merged);
                         commit('bumpAuthTick');
@@ -236,6 +238,13 @@ export default createStore({
     getters: {
         isAuthenticated(state) {
             return Boolean(state.user && state.authToken);
+        },
+        /**
+         * Administrators see the server's configuration and the stored prompts. The server decides: this only says
+         * whether to offer those screens, and every admin route checks the role again.
+         */
+        isAdmin(state) {
+            return Boolean(state.user && String(state.user.role || '') === 'admin');
         },
         needsNickname(state) {
             const u = state.user;

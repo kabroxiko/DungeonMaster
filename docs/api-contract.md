@@ -12,10 +12,24 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 
 | Method | Path | Auth | Body / query | Response |
 |--------|------|------|--------------|----------|
-| POST | `/api/auth/google` | No | `{ idToken }` | `{ token, user: { _id, picture, nickname } }` |
+| POST | `/api/auth/google` | No | `{ idToken }` | `{ token, user: { _id, picture, nickname, role } }` |
 | POST | `/api/auth/join` | Bearer | `{ inviteToken }` | `{ gameId, alreadyMember? }` |
 | PATCH | `/api/auth/nickname` | Bearer | `{ nickname }` | `{ user }` |
 | GET | `/api/auth/me` | Bearer | — | `{ user }` |
+
+### Roles
+
+A user is a `player` or an `admin`. The role is decided at sign-in from `DM_ADMIN_EMAILS` and stored on the account, so
+the answer comes from the database rather than from the environment on every request. It separates the server's own
+configuration from the game: an administrator may read `GET /api/admin/config` and the stored prompt material of any
+game, and nothing in the app offers those screens to a player (the routes refuse them with `403 ADMIN_REQUIRED` even if
+a stale browser still asks). Being the owner of a game is a different thing and never grants either.
+
+## Admin (`/api/admin`)
+
+| Method | Path | Auth | Notes |
+|--------|------|------|--------|
+| GET | `/admin/config` | Bearer, **admin only** | `{ aiProvider, model, modelContextTokens, mapServiceUrl, mapServiceConfigured, worldSettingsFile, environment, debugLLM, debugCharacterFlow, adminEmails }`. Never carries a key, token or connection string |
 
 ## Game state (`/api/game-state`)
 
@@ -26,8 +40,8 @@ Vue SPA calls these JSON endpoints under `/api`. The backend is **gmai-server** 
 | GET | `/load/:gameId` | Bearer | Full state (redacted) |
 | GET | `/map/:gameId` | Bearer **or** `?access_token=` | Rendered map image (`image/jpeg`) |
 | GET | `/map-json/:gameId` | Bearer, owner only | World JSON download (`{ success, world, settings }`, same shape as `POST /api/world`) |
-| GET | `/debug/:gameId/prompts` | Bearer | Debug fields |
-| POST | `/create-party` | Bearer | 201 + lobby `gameSetup` |
+| GET | `/debug/:gameId/prompts` | Bearer, **admin only** | Raw prompt stack and model output of any game |
+| POST | `/create-party` | Bearer | 201 + lobby `gameSetup`; **reuses** the caller's unstarted lobby (200) instead of creating a second |
 | POST | `/party-ready` | Bearer | |
 | PATCH | `/party-premise` | Bearer | Owner only |
 | GET | `/mine` | Bearer only (no query token) | Summary rows |

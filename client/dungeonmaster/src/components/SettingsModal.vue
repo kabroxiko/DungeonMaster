@@ -48,6 +48,37 @@
             />
             <p v-if="nickError" class="settings-modal__error">{{ nickError }}</p>
           </section>
+
+          <!-- Administrators only: how this server is set up. Read-only, and the server refuses it to anyone else. -->
+          <section
+            v-if="isAdmin"
+            class="settings-modal__card"
+            aria-labelledby="settings-admin-label"
+          >
+            <h3 id="settings-admin-label" class="settings-modal__label">{{ $i18n.settings_admin_title }}</h3>
+            <p class="settings-modal__hint">{{ $i18n.settings_admin_hint }}</p>
+            <p v-if="adminConfigError" class="settings-modal__error">{{ adminConfigError }}</p>
+            <dl v-else-if="adminConfig" class="settings-modal__admin">
+              <dt>{{ $i18n.admin_ai_provider }}</dt>
+              <dd>{{ adminConfig.aiProvider || '—' }}</dd>
+              <dt>{{ $i18n.admin_model }}</dt>
+              <dd>{{ adminConfig.model || '—' }}</dd>
+              <dt>{{ $i18n.admin_context_tokens }}</dt>
+              <dd>{{ adminConfig.modelContextTokens != null ? adminConfig.modelContextTokens : '—' }}</dd>
+              <dt>{{ $i18n.admin_map_service }}</dt>
+              <dd>
+                {{ adminConfig.mapServiceConfigured ? adminConfig.mapServiceUrl : $i18n.admin_not_configured }}
+              </dd>
+              <dt>{{ $i18n.admin_map_settings_file }}</dt>
+              <dd>{{ adminConfig.worldSettingsFile || '—' }}</dd>
+              <dt>{{ $i18n.admin_environment }}</dt>
+              <dd>{{ adminConfig.environment || '—' }}</dd>
+              <dt>{{ $i18n.admin_debug_llm }}</dt>
+              <dd>{{ adminConfig.debugLLM ? $i18n.admin_on : $i18n.admin_off }}</dd>
+              <dt>{{ $i18n.admin_debug_character_flow }}</dt>
+              <dd>{{ adminConfig.debugCharacterFlow ? $i18n.admin_on : $i18n.admin_off }}</dd>
+            </dl>
+          </section>
         </div>
 
         <footer class="settings-modal__footer">
@@ -88,6 +119,7 @@
 <script>
 import UIModal from '@/ui/Modal.vue';
 import UIButton from '@/ui/Button.vue';
+import axios from 'axios';
 import { faRightFromBracket } from '@fortawesome/free-solid-svg-icons/faRightFromBracket';
 
 export default {
@@ -107,7 +139,16 @@ export default {
       nickError: '',
       settingsSaved: false,
       saveBusy: false,
+      /** GET /api/admin/config for administrators; null until it answers. */
+      adminConfig: null,
+      adminConfigError: '',
+      adminConfigBusy: false,
     };
+  },
+  computed: {
+    isAdmin() {
+      return Boolean(this.$store.getters && this.$store.getters.isAdmin);
+    },
   },
   watch: {
     modelValue: {
@@ -119,6 +160,7 @@ export default {
           this.nickError = '';
           this.settingsSaved = false;
           this.bindEsc();
+          void this.loadAdminConfig();
         } else {
           this.unbindEsc();
         }
@@ -155,6 +197,25 @@ export default {
     syncNickname() {
       const u = this.$store.state.user;
       this.localNickname = u && u.nickname ? String(u.nickname).trim() : '';
+    },
+    /**
+     * Reads the server's own configuration for an administrator. The server answers 403 for anyone else, so a stale
+     * cached role cannot show this section to a player.
+     */
+    async loadAdminConfig() {
+      if (!this.isAdmin || this.adminConfigBusy) return;
+      this.adminConfigBusy = true;
+      this.adminConfigError = '';
+      try {
+        const { data } = await axios.get('/api/admin/config');
+        this.adminConfig = data && typeof data === 'object' ? data : null;
+      } catch (e) {
+        this.adminConfig = null;
+        this.adminConfigError =
+          (e.response && e.response.data && e.response.data.error) || this.$i18n.settings_admin_load_failed;
+      } finally {
+        this.adminConfigBusy = false;
+      }
     },
     applySettings() {
       return this.persistSettings(false);
@@ -243,6 +304,25 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+/* Administrator configuration: label/value pairs, read only. */
+.settings-modal__admin {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.settings-modal__admin dt {
+  color: rgba(230, 225, 216, 0.72);
+}
+
+.settings-modal__admin dd {
+  margin: 0;
+  color: #e8e4dc;
+  overflow-wrap: anywhere;
 }
 
 .settings-modal__card {

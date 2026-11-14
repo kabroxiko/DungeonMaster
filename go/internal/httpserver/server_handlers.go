@@ -153,6 +153,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, uid string) {
 		ID       primitive.ObjectID `bson:"_id"`
 		Picture  string             `bson:"picture"`
 		Nickname string             `bson:"nickname"`
+		Role     string             `bson:"role"`
+		Email    string             `bson:"email"`
 	}
 	err = s.users().FindOne(r.Context(), bson.M{"_id": oid}).Decode(&u)
 	if err == mongo.ErrNoDocuments {
@@ -171,6 +173,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, uid string) {
 			"_id":      u.ID.Hex(),
 			"picture":  u.Picture,
 			"nickname": strings.TrimSpace(u.Nickname),
+			"role":     s.roleOf(u.Role, u.Email),
 		},
 	})
 }
