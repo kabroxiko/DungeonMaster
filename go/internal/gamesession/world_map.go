@@ -23,7 +23,9 @@ func storeWorldMapImage(ctx context.Context, d *Deps, gameID, contentType string
 	if d == nil || d.Coll == nil {
 		return fmt.Errorf("world map image: no database")
 	}
-	if strings.TrimSpace(gameID) == "" {
+	// The key is trimmed here exactly as the read trims it: a stored picture must be found by the id a client asks with.
+	gid := strings.TrimSpace(gameID)
+	if gid == "" {
 		return fmt.Errorf("world map image: gameId is required")
 	}
 	if len(data) == 0 {
@@ -33,15 +35,15 @@ func storeWorldMapImage(ctx context.Context, d *Deps, gameID, contentType string
 	if err != nil {
 		// The full picture is what the map is; a preview that could not be built only costs the client its fast first
 		// paint, so it must not cost the table its map.
-		log.Printf("world map preview for gameId=%s failed: %v", gameID, err)
+		log.Printf("world map preview for gameId=%s failed: %v", gid, err)
 		preview = nil
 	}
 	if len(preview) == len(data) {
 		preview = nil
 	}
-	_, err = store.WorldMaps(d.Coll.Database()).ReplaceOne(ctx, bson.M{"_id": gameID}, bson.M{
-		"_id":          gameID,
-		"gameId":       gameID,
+	_, err = store.WorldMaps(d.Coll.Database()).ReplaceOne(ctx, bson.M{"_id": gid}, bson.M{
+		"_id":          gid,
+		"gameId":       gid,
 		"contentType":  contentType,
 		"byteLength":   len(data),
 		"data":         data,

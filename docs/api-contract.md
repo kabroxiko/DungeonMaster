@@ -82,6 +82,12 @@ view is zoomed past 1.25, fading it in over the preview. Both carry the version 
 (`v=<campaignSpec.mapImage.updatedAt>`), so both are served `Cache-Control: private, max-age=31536000, immutable`. The
 client preloads the preview as soon as game state announces a map, so opening the modal paints without a download.
 
+The version is only meaningful on the game that wrote it: the picture is stored per game, and the client keys the URL
+on both, so a marker left over from the game a browser was in before never asks this game for that picture. A marker
+whose picture is not stored — the two are written in that order, so this is a marker with nothing behind it — is
+dropped when the route is asked for it, with a game-state push, so the map control disappears instead of staying
+broken and the next world step renders the picture again.
+
 The modal zooms by resizing the picture's box rather than by CSS-scaling it: a scaled layer is rasterised once at the
 fitted size, so every zoom level enlarged those pixels and the map looked blocky. With a resized box the browser
 samples the stored picture at the size it is drawn at.

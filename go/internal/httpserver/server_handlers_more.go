@@ -889,6 +889,18 @@ func (s *Server) handleWorldMapImage(w http.ResponseWriter, r *http.Request, uid
 	full := r.URL.Query().Get("full") == "1"
 	contentType, data, err := gamesession.LoadWorldMapImage(r.Context(), s.GS, gid, full)
 	if err != nil {
+		// A marker with no picture behind it is the one state nothing inside the game repairs: the world step only
+		// re-renders a game whose marker is gone, so a stale marker would leave the table with a broken map forever.
+		// Dropping it makes the next client reload hide the map instead of asking again, and lets the next campaign
+		// step render the picture anew.
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			res, uerr := s.coll().UpdateOne(r.Context(), bson.M{"gameId": gid},
+				bson.M{"$unset": bson.M{"campaignSpec.mapImage": ""}})
+			if uerr == nil && res.ModifiedCount > 0 {
+				log.Printf("campaign map for gameId=%s: the game carried a map marker but no picture was stored; dropped the marker so the map is rendered again", gid)
+				s.Hub.NotifyGameStateUpdated(gid)
+			}
+		}
 		writeJSONCoded(w, r, http.StatusNotFound, "WORLD_MAP_IMAGE_MISSING", "This game has no rendered map")
 		return
 	}

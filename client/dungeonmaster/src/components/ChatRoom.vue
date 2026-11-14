@@ -637,6 +637,12 @@ export default {
                 backgroundVisible: false,
                 /** campaignSpec.mapImage — marker that this game has a rendered map players can be shown. */
                 campaignMapImage: null,
+                /**
+                 * The game that marker was read for. The picture is stored per game, so a marker left over from the
+                 * game this browser was in before says nothing about the current one: its version in the URL would
+                 * ask the server for a picture this game does not have, and the answer is 404.
+                 */
+                campaignMapGameId: null,
                 /** campaignSpec.mapImageError — why the rendered map could not be stored, for the host only. */
                 mapImageError: '',
                 /** campaignSpec.partyMapPosition — the party's spot as a fraction of the image (client-visible). */
@@ -1404,6 +1410,12 @@ export default {
                     this.lobbyInlineWizardHold = false;
                     this.localPlayerCharacter = null;
                     this.lobbyInlineConfirmSheet = null;
+                    // The previous game's map marker died with the previous game: nothing may ask for that picture on
+                    // this game's id until this game's own state has been read back.
+                    this.campaignMapImage = null;
+                    this.campaignMapGameId = null;
+                    this.mapPreloadKey = null;
+                    this.closeMapModal();
                 }
             },
             '$route.params.id'(to, from) {
@@ -2244,6 +2256,8 @@ export default {
                 const gid = this.$store.state.gameId != null ? String(this.$store.state.gameId).trim() : '';
                 const token = this.$store.state.authToken ? String(this.$store.state.authToken).trim() : '';
                 if (!gid || !token || !this.campaignMapImage) return '';
+                // A marker read for another game, or before this game's state was read back, is not this game's map.
+                if (String(this.campaignMapGameId || '') !== gid) return '';
                 const version = this.campaignMapImage.updatedAt ? String(this.campaignMapImage.updatedAt) : '';
                 const query = `access_token=${encodeURIComponent(token)}${version ? `&v=${encodeURIComponent(version)}` : ''}${full ? '&full=1' : ''}`;
                 return `${resolveApiBaseURL()}/api/game-state/map/${encodeURIComponent(gid)}?${query}`;
@@ -2909,6 +2923,13 @@ export default {
             async loadGameState(gameId, opts = {}) {
                 const gidRaw = gameId != null ? String(gameId).trim() : '';
                 if (!gidRaw) return false;
+                // Drop a marker that belongs to another game before the first request goes out, so a load that is slow,
+                // fails or is still being written cannot leave the map URL pointing at a picture for the old version.
+                if (this.campaignMapGameId !== gidRaw) {
+                    this.campaignMapImage = null;
+                    this.campaignMapGameId = null;
+                    this.mapPreloadKey = null;
+                }
                 const replaceLocalCharacter = opts.replaceLocalCharacter === true;
                 /** When true, SSE may skip a follow-up sync for ~2s (same server notify as this load). */
                 const markPushSyncCooldown = opts.markPushSyncCooldown === true;
@@ -2996,6 +3017,7 @@ export default {
                     // The map marker and its visibility flag come from the server so every client agrees on both.
                     this.campaignMapImage =
                         spec && spec.mapImage && typeof spec.mapImage === 'object' ? spec.mapImage : null;
+                    this.campaignMapGameId = String(gameState.gameId != null ? gameState.gameId : gidRaw).trim();
                     // The picture is stored while the campaign is still being written, so this is the moment it can start
                     // crossing the wire instead of on the click that opens the map.
                     this.preloadMapImages();
