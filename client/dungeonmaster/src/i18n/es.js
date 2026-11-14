@@ -181,8 +181,7 @@ export default {
     party_you: 'tú',
     party_host: 'Anfitrión',
     party_character_pending: 'Sin personaje aún',
-    party_sync_tip:
-      'Multijugador: actualizaciones en vivo (SSE) cuando hay varios jugadores; también al volver a la pestaña. Recarga la página si ves algo desactualizado.',
+    party_sync_tip: 'El grupo se sincroniza solo. Si algo se ve atrasado, recarga la página.',
     map_show: 'Mostrar el mapa',
     map_hide: 'Ocultar el mapa',
     map_close: 'Cerrar el mapa',

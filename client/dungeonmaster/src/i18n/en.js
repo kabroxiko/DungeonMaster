@@ -183,7 +183,7 @@ export default {
     party_host: 'Host',
     party_character_pending: 'No character yet',
     party_sync_tip:
-        'Multiplayer: live updates over SSE when possible; we also reload when you return to this tab. Refresh the page if something looks out of date.',
+        'The party keeps itself in sync. If something looks out of date, reload the page.',
     map_show: 'Show map',
     map_hide: 'Hide map',
     map_close: 'Close map',
