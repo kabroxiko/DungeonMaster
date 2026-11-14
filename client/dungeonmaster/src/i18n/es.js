@@ -173,7 +173,7 @@ export default {
         'Este enlace de invitación ya se usó o ya no es válido. Pide un enlace nuevo a alguien de la partida, o abre la partida desde Cargar partida si ya te uniste.',
     join_already_in_party: 'Ya estás en esta partida.',
     join_game_missing_token: 'Falta el token de invitación en la URL.',
-    join_game_sign_in_first: 'Inicia sesión y vuelve a abrir el enlace de invitación.',
+    join_game_sign_in_first: 'Inicia sesión con Google para unirte al grupo: esta página termina sola.',
     state_refresh_failed: 'No se pudo actualizar desde el servidor. Recarga la página o inténtalo de nuevo.',
     game_load_not_found:
         'No se encontró esta partida. Puede haberse eliminado o expirado. Elige otro guardado en la lista.',
@@ -254,7 +254,6 @@ export default {
       'Esta página es solo informativa: no se cargan datos de personaje ni campaña aquí.',
     ],
     public_footer_note: 'Código abierto. Configura OAuth de Google y variables de entorno para tu propia instancia.',
-    join_go_home_sign_in: 'Ir al inicio para iniciar sesión',
     nickname_title: 'Elige tu nombre de jugador',
     nickname_hint: 'Así te verán los demás en la partida. Elige algo que te guste.',
     nickname_label: 'Apodo',

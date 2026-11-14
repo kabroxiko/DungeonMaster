@@ -174,7 +174,7 @@ export default {
         'This invite link was already used or is no longer valid. Ask a player in the game for a new invite, or open the game from Load game if you already joined.',
     join_already_in_party: 'You are already in this party.',
     join_game_missing_token: 'Missing invite token in the URL.',
-    join_game_sign_in_first: 'Sign in first, then open your invite link again.',
+    join_game_sign_in_first: 'Sign in with Google to join the party — this page finishes on its own.',
     state_refresh_failed: 'Could not refresh from server. Reload the page or try again.',
     game_load_not_found:
         'This game was not found. It may have been removed or expired. Choose another save below.',
@@ -258,7 +258,6 @@ export default {
       'This page is informational only—no character or campaign data is loaded below.',
     ],
     public_footer_note: 'Open source. Configure Google OAuth and environment variables to run your own instance.',
-    join_go_home_sign_in: 'Go to home to sign in',
     nickname_title: 'Choose your player name',
     nickname_hint: 'This is how other players see you in the game (1–40 characters).',
     nickname_label: 'Nickname',
