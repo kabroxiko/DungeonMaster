@@ -481,7 +481,9 @@
              * adventure is prepared for one party at one level. Null for the host and while the host has no sheet yet.
              */
             partyLevelFromHost() {
-                if (this.setupViewerIsGameOwner === true) return null;
+                // Only once the payload has positively said this viewer is a guest: a host must keep choosing the level
+                // their own table will play at, including on the first load, before any role has been read.
+                if (this.setupViewerIsGameOwner !== false) return null;
                 const owner = this.setupGameOwnerUserId;
                 if (!owner) return null;
                 const gs = (this.$store.state && this.$store.state.gameSetup) || {};
