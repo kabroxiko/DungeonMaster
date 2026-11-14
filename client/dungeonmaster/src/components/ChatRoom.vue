@@ -2239,27 +2239,20 @@ export default {
                 }, 600);
             },
             /**
-             * Warms the browser cache with the picture the map modal will show.
+             * Warms the browser cache with the picture the map modal paints.
              *
-             * The map is rendered and stored while the campaign text is still being written, so the picture can cross the
-             * wire during that wait rather than on the click that opens it. Every version is cached immutably, so each
-             * picture is fetched once per map; the render is asked for after the preview, because that is the copy the
-             * modal paints and the one worth having first.
+             * The map is rendered and stored while the campaign text is still being written, so the preview can cross the
+             * wire during that wait rather than on the click that opens it. Only the preview is fetched: it is the copy
+             * the fitted view paints, and it is a fraction of the render's bytes, so the render is asked for when an open
+             * map actually needs the detail (see scheduleFullMapFetch) instead of being downloaded for a map nobody may
+             * open. Every version is cached immutably, so each picture is fetched once per map.
              */
             preloadMapImages() {
                 const previewUrl = this.mapImageURL(false);
                 if (!previewUrl) return;
-                const fullUrl = this.mapImageURL(true);
-                const key = `${previewUrl}|${fullUrl}`;
-                if (this.mapPreloadKey === key) return;
-                this.mapPreloadKey = key;
+                if (this.mapPreloadKey === previewUrl) return;
+                this.mapPreloadKey = previewUrl;
                 const preview = new Image();
-                preview.onload = preview.onerror = () => {
-                    // Only follow with the render while this is still the map version being prepared.
-                    if (!fullUrl || this.mapPreloadKey !== key) return;
-                    const full = new Image();
-                    full.src = fullUrl;
-                };
                 preview.src = previewUrl;
             },
             /**

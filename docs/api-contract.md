@@ -100,10 +100,11 @@ else's view and no owner permission is involved.
 
 Two renditions are stored for each game: the picture exactly as rendered (2.7 MB for a 4096×2304 world) and a
 pre-scaled 2048px copy (about 530 KB) built once by `storeWorldMapImage`. The route answers the preview, and the render
-only when the client asks for `?full=1` — which it does as soon as the preview is on screen, and immediately when the
-view is zoomed past 1.25, fading it in over the preview. Both carry the version in the URL
+only when the client asks for `?full=1` — which it does once the map is open and the preview has painted, or immediately
+when the view is zoomed past 1.25, fading it in over the preview. Both carry the version in the URL
 (`v=<campaignSpec.mapImage.updatedAt>`), so both are served `Cache-Control: private, max-age=31536000, immutable`. The
-client preloads the preview as soon as game state announces a map, so opening the modal paints without a download.
+client preloads **the preview only** as soon as game state announces a map: that is the copy the fitted view paints, so
+opening the modal needs no download, while the render is never fetched for a map nobody opens.
 
 The version is only meaningful on the game that wrote it: the picture is stored per game, and the client keys the URL
 on both, so a marker left over from the game a browser was in before never asks this game for that picture. A marker
