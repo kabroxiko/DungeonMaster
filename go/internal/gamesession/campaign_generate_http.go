@@ -346,8 +346,11 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": coreOutbound}, map[string]interface{}{
 		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID,
 	})
-	if err != nil || aiMessage == "" {
-		return 500, map[string]interface{}{"error": "AI response empty"}
+	if err != nil {
+		return 500, map[string]interface{}{"error": "Campaign generation failed: " + err.Error(), "code": "CAMPAIGN_CORE_EMPTY"}
+	}
+	if strings.TrimSpace(aiMessage) == "" {
+		return 500, map[string]interface{}{"error": "Campaign generation failed: the model returned no text", "code": "CAMPAIGN_CORE_EMPTY"}
 	}
 
 	parsedObj, ok := llm.ParseModelStructuredObject(aiMessage)

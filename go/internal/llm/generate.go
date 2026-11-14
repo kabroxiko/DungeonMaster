@@ -103,16 +103,25 @@ func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]
 		backend.name, model, maxTok, temp, gameID, len(messages))
 	debugLogRequestMessages(cfg, messages)
 
-	var out string
-	var err2 error
-	if backend.name == lmStudioBackendName {
-		out, err2 = lmStudioChat(ctx, cfg, messages, model, maxTok, temp, opts)
-	} else {
-		out, err2 = openAICompatibleChat(ctx, backend, messages, model, maxTok, temp, opts)
+	ask := func() (string, error) {
+		if backend.name == lmStudioBackendName {
+			return lmStudioChat(ctx, cfg, messages, model, maxTok, temp, opts)
+		}
+		return openAICompatibleChat(ctx, backend, messages, model, maxTok, temp, opts)
+	}
+	out, err2 := ask()
+	if err2 == nil && strings.TrimSpace(out) == "" {
+		// A reasoning model can end its turn without a visible answer - its whole budget went to the analysis it never
+		// got past. That is not reliably repeatable, so ask once more before failing the stage on it.
+		debugLog(cfg, "empty reply for gameId=%q; asking once more", gameID)
+		out, err2 = ask()
 	}
 	if err2 != nil {
 		debugLog(cfg, "error: %v", err2)
 		return "", err2
+	}
+	if strings.TrimSpace(out) == "" {
+		return "", fmt.Errorf("%s: the model returned no text at all (a reply spent entirely on reasoning is the usual cause); raise max_tokens or use a model that answers directly", backend.name)
 	}
 	debugLog(cfg, "ok gameId=%q out_len=%d", gameID, len(out))
 	debugLogLongLines(cfg, "llm-debug out|", out)
@@ -298,11 +307,10 @@ func openAICompatibleChat(ctx context.Context, backend chatBackend, messages []i
 	if strings.EqualFold(data.Choices[0].FinishReason, "length") {
 		return "", truncatedReplyError(backend.name, maxTok)
 	}
-	out := normalizeAssistantContent(data.Choices[0].Message.Content)
-	if out != "" {
+	if out := stripHarmonyChannels(normalizeAssistantContent(data.Choices[0].Message.Content)); out != "" {
 		return out, nil
 	}
-	return coerceAssistantOutputToString(data.Choices[0].Message.Content), nil
+	return stripHarmonyChannels(coerceAssistantOutputToString(data.Choices[0].Message.Content)), nil
 }
 
 // truncatedReplyError names the budget that ran out. Reasoning models spend part of max_tokens on hidden tokens, so
@@ -362,11 +370,10 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 	if strings.EqualFold(data.Choices[0].FinishReason, "length") {
 		return "", truncatedReplyError(lmStudioBackendName, maxTok)
 	}
-	out := normalizeAssistantContent(data.Choices[0].Message.Content)
-	if out != "" {
+	if out := stripHarmonyChannels(normalizeAssistantContent(data.Choices[0].Message.Content)); out != "" {
 		return out, nil
 	}
-	return coerceAssistantOutputToString(data.Choices[0].Message.Content), nil
+	return stripHarmonyChannels(coerceAssistantOutputToString(data.Choices[0].Message.Content)), nil
 }
 
 func lmStudioNative(ctx context.Context, cfg *config.Config, messages []interface{}, model string, temp float64) (string, error) {

@@ -758,8 +758,13 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	aiCore, err := llm.GenerateResponse(ctx, d.Cfg, outbound, map[string]interface{}{
 		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID,
 	})
-	if err != nil || aiCore == "" {
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "AI response empty", Code: "CAMPAIGN_CORE_EMPTY", Detail: errString(err)}
+	if err != nil {
+		// The reason is what the lobby's lastStartError shows: this runs after the start already answered, so a
+		// separate detail field would never reach the table.
+		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Campaign generation failed: " + err.Error(), Code: "CAMPAIGN_CORE_EMPTY", Detail: errString(err)}
+	}
+	if strings.TrimSpace(aiCore) == "" {
+		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Campaign generation failed: the model returned no text", Code: "CAMPAIGN_CORE_EMPTY"}
 	}
 	parsed, ok := llm.ParseModelStructuredObject(aiCore)
 	if !ok || parsed == nil {
