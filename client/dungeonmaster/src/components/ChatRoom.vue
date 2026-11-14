@@ -84,18 +84,18 @@
                                 v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen"
                                 class="party-lobby__ready-actions"
                             >
-                                <!-- Whichever control started a roll, the cell is where it reports: one chip, one spinner. -->
-                                <UIButton
-                                    v-if="lobbyCellGenerating"
-                                    class="party-lobby__roster-regenerate-btn"
-                                    :disabled="true"
-                                    :aria-label="$i18n.generating_character"
+                                <!-- Whichever control started a roll, the cell reports it with the same chip the rest of
+                                     the table sees on this row, so a roll reads alike on every card. The server's busy
+                                     marker also counts: a reload mid-roll must not offer the buttons again. -->
+                                <span
+                                    v-if="lobbyCellGenerating || row.isGenerating"
+                                    class="party-lobby__badge party-lobby__badge--starting"
+                                    role="status"
+                                    aria-live="polite"
                                 >
-                                    <span class="party-lobby__roster-ready-btn__busy">
-                                        <span class="party-lobby__spin" aria-hidden="true"></span>
-                                        {{ $i18n.generating_character }}
-                                    </span>
-                                </UIButton>
+                                    <span class="party-lobby__spin" aria-hidden="true"></span>
+                                    <span>{{ $i18n.generating_character }}</span>
+                                </span>
                                 <template v-else>
                                     <UIButton
                                         v-if="row.hasSheet && showLobbyRosterRegenerate && !lobbyCellCreating"
