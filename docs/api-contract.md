@@ -118,6 +118,25 @@ the map place the first scene happens in and the server resolves it into `partyM
 the map does not have — a region, or an invented name — falls through to the campaign's key locations, which are
 settlement names, so the party opens on an exact spot and never on a territory.
 
+### Asking the map questions
+
+The map service is a general map: it knows terrain, water and coast, and nothing about the game. Two of its answers
+keep the DM off guesswork, and both are stored with the world so the DM has them every turn without a request:
+
+- `POST /api/world` carries `terrain`, a coarse raster of the land (one character per patch about a town wide, capitals
+  for land that touches the sea) plus its legend, cell size and origin, and every place and region reports the cell it
+  occupies as `gridColumn`/`gridRow`. That is what lets the DM put "the nearest beach" on the map instead of naming the
+  nearest town that happens to be on a coast.
+- `POST /api/find` (or `POST /api/maps/{id}/find` for a stored map) answers "where is the nearest ground like this"
+  from a point or a place name: `terrain` names, `coast`, `river`, `lake` and `water`, with `limit`, `maxDistance` and
+  `spacing`. Each match carries coordinates, distance, compass `direction`, terrain, region and the nearest named place,
+  and can be handed straight back to `/api/route` for a travel time. `POST /api/nearest` describes the ground at one
+  point, including whether it is on the coast at all.
+
+Nothing about these is game-specific: they are terrain, distance and direction, so a world is playable by anything that
+can read a map. Vocabulary that belongs to the game — a beach, a harbour, a camp site — is the caller's, mapped onto
+`coastal`, `river` and `terrain` rather than asked for as its own endpoint.
+
 The projection lives in `campaignSpec.mapGeometry` (DM-only): `xPerUnit`, `yPerUnit`, `xOffset`, `yOffset`. It is
 derived once from the map's settings — `resolution`, `generatedWidth`/`generatedHeight`, and the border padding when
 `drawBorder` is on and `borderPosition` is `Outside map` — and then reused, so a game does not refetch the settings each

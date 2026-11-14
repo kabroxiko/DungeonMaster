@@ -10,6 +10,11 @@ const vellarisMaxRegions = 24
 const vellarisMaxPlaces = 60
 const vellarisMaxRoutes = 20
 
+// vellarisMaxTerrainChars caps the coarse terrain picture that reaches the prompt. A grid for a large world is about
+// six thousand characters; anything far beyond that is not a picture of a map and would crowd out the rest of the
+// world block.
+const vellarisMaxTerrainChars = 12000
+
 // placeRank orders named places so that truncation keeps the settlements a DM is most likely to be asked about.
 var placeRank = map[string]int{
 	"city":    0,
@@ -54,6 +59,13 @@ func NormalizeVellarisWorld(in map[string]interface{}) map[string]interface{} {
 		"hasRoutes":   len(routes) > 0,
 		"routeCount":  len(routes),
 		"routes":      routes,
+	}
+
+	// The terrain picture is what lets the DM answer a question about ground rather than about names: which way the sea
+	// is, and which stretch of it is nearest to where the party stands.
+	if terrain := normalizeVellarisTerrain(in["terrain"]); terrain != nil {
+		out["hasTerrain"] = true
+		out["terrain"] = terrain
 	}
 
 	if url := stringFrom(in["mapImageUrl"]); url != "" {
@@ -148,6 +160,7 @@ func normalizeVellarisPlaces(raw interface{}, regionNames map[string]string) ([]
 		kind         string
 		x            string
 		y            string
+		grid         string
 		rank         int
 		regionID     string
 		regionName   string
@@ -177,8 +190,8 @@ func normalizeVellarisPlaces(raw interface{}, regionNames map[string]string) ([]
 			rank = 3
 		}
 		regionID := regionIDText(m["regionId"])
-		places = append(places, place{name: name, kind: typeName, x: numText(m["x"], 0), y: numText(m["y"], 0), rank: rank,
-			regionID: regionID, regionName: regionNames[regionID], surroundings: placeSurroundings(m["surroundings"])})
+		places = append(places, place{name: name, kind: typeName, x: numText(m["x"], 0), y: numText(m["y"], 0), grid: gridCellText(m),
+			rank: rank, regionID: regionID, regionName: regionNames[regionID], surroundings: placeSurroundings(m["surroundings"])})
 	}
 	if len(places) == 0 {
 		return nil, 0
@@ -211,6 +224,10 @@ func normalizeVellarisPlaces(raw interface{}, regionNames map[string]string) ([]
 			entry["regionName"] = p.regionName
 			entry["regionSuffix"] = " — in " + p.regionName
 		}
+		if p.grid != "" {
+			entry["grid"] = p.grid
+			entry["gridSuffix"] = " — grid " + p.grid
+		}
 		if text := surroundingsText(p.surroundings); text != "" {
 			entry["surroundingsText"] = text
 			entry["surroundingsSuffix"] = " — " + text
@@ -227,6 +244,19 @@ func regionIDText(v interface{}) string {
 		return fmt.Sprintf("%.0f", n)
 	}
 	return stringFrom(v)
+}
+
+// gridCellText renders the cell a place occupies in the world's terrain picture as "column, row".
+//
+// The map service reports the cell with the place because finding it means dividing coordinates by the cell size,
+// which is arithmetic the DM would otherwise have to do mid-scene - and get wrong.
+func gridCellText(m map[string]interface{}) string {
+	column := numText(m["gridColumn"], 0)
+	row := numText(m["gridRow"], 0)
+	if column == "" || row == "" {
+		return ""
+	}
+	return column + ", " + row
 }
 
 // placeSurroundings keeps the map's description of the ground around a place, in the terms the prompt speaks.
@@ -247,7 +277,7 @@ func placeSurroundings(raw interface{}) map[string]interface{} {
 	if nearby := stringFrom(m["nearbyTerrain"]); nearby != "" {
 		out["nearbyTerrain"] = nearby
 	}
-	for _, key := range []string{"coastal", "lake", "river", "riverNearby", "mountains", "island"} {
+	for _, key := range []string{"coastal", "lake", "seaNearby", "lakeNearby", "river", "riverNearby", "mountains", "island"} {
 		if truthy(m[key]) {
 			out[key] = true
 		}
@@ -288,6 +318,8 @@ func surroundingsText(surroundings map[string]interface{}) string {
 		}
 	} else if truthy(surroundings["coastal"]) {
 		parts = append(parts, "on the coast")
+	} else if truthy(surroundings["seaNearby"]) {
+		parts = append(parts, "sea within reach, not on it")
 	}
 	if truthy(surroundings["river"]) && terrain != "river" {
 		parts = append(parts, "on a river")
@@ -296,6 +328,8 @@ func surroundingsText(surroundings map[string]interface{}) string {
 	}
 	if truthy(surroundings["lake"]) && terrain != "lake" {
 		parts = append(parts, "beside a lake")
+	} else if truthy(surroundings["lakeNearby"]) && terrain != "lake" {
+		parts = append(parts, "near a lake")
 	}
 	if truthy(surroundings["mountains"]) && terrain != "mountain" {
 		parts = append(parts, "near mountains")
@@ -684,6 +718,107 @@ func truthy(v interface{}) bool {
 	}
 }
 
+// normalizeVellarisTerrain turns the world's coarse terrain picture into the block the DM reads: one line per row of
+// cells, plus the legend that decodes the characters in it.
+//
+// This exists because a list of named places cannot answer "the party walks to the nearest beach". The nearest shore is
+// often a stretch of coast with nothing built on it, and a DM holding only names can do no better than send the party
+// to the closest town that happens to be on a coast. The picture is coarse - one character per patch of ground, about a
+// town wide - which is exactly the scale a journey is decided at.
+//
+// Returns nil when the world carries no usable picture, which keeps a world from an older service reading as a world
+// with no terrain rather than as one with an empty grid.
+func normalizeVellarisTerrain(raw interface{}) map[string]interface{} {
+	m, _ := raw.(map[string]interface{})
+	if m == nil {
+		return nil
+	}
+	rows := terrainRows(m["map"])
+	if len(rows) == 0 {
+		return nil
+	}
+	grid := strings.Join(rows, "\n")
+	if len(grid) > vellarisMaxTerrainChars {
+		return nil
+	}
+
+	out := map[string]interface{}{
+		"columns": numText(m["columns"], 0),
+		"rows":    numText(m["rows"], 0),
+		"grid":    grid,
+	}
+	if width := numText(m["cellWidth"], 1); width != "" {
+		out["cellWidth"] = width
+	}
+	if height := numText(m["cellHeight"], 1); height != "" {
+		out["cellHeight"] = height
+	}
+	if legend := terrainLegend(m["legend"]); legend != "" {
+		out["legend"] = legend
+	}
+	return out
+}
+
+// terrainRows reads the grid's rows whether they arrived from JSON as a slice of interfaces or from storage as a slice
+// of strings, and drops anything that is not a line of the picture.
+func terrainRows(raw interface{}) []string {
+	switch rows := raw.(type) {
+	case []string:
+		return rows
+	case []interface{}:
+		out := make([]string, 0, len(rows))
+		for _, row := range rows {
+			if line, ok := row.(string); ok && line != "" {
+				out = append(out, line)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// terrainLegend renders the character-to-ground mapping in one deterministic line, so the same world always produces
+// the same prompt.
+func terrainLegend(raw interface{}) string {
+	m, _ := raw.(map[string]interface{})
+	if len(m) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if meaning := stringFrom(m[key]); meaning != "" {
+			parts = append(parts, key+" "+meaning)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// sanitizeVellarisTerrain keeps the terrain picture for storage, without its explanatory prose and only while it is
+// small enough to belong in a world document.
+func sanitizeVellarisTerrain(raw interface{}) map[string]interface{} {
+	m, _ := raw.(map[string]interface{})
+	if m == nil {
+		return nil
+	}
+	rows := terrainRows(m["map"])
+	if len(rows) == 0 || len(strings.Join(rows, "")) > vellarisMaxTerrainChars {
+		return nil
+	}
+	out := map[string]interface{}{"map": rows}
+	for _, key := range []string{"columns", "rows", "cellWidth", "cellHeight", "coordinateSpace", "legend"} {
+		if v, ok := m[key]; ok && v != nil {
+			out[key] = v
+		}
+	}
+	return out
+}
+
 // SanitizeVellarisWorld keeps a whitelisted, size-capped copy of an imported world for storage.
 //
 // It deliberately does not format anything: the prompt-facing formatting lives in NormalizeVellarisWorld and is
@@ -709,6 +844,9 @@ func SanitizeVellarisWorld(in map[string]interface{}) map[string]interface{} {
 		if v, ok := in[key]; ok && v != nil {
 			out[key] = v
 		}
+	}
+	if terrain := sanitizeVellarisTerrain(in["terrain"]); terrain != nil {
+		out["terrain"] = terrain
 	}
 	if url := stringFrom(in["mapImageUrl"]); url != "" {
 		if len(url) > 300 {

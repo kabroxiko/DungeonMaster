@@ -107,6 +107,124 @@ func TestNormalizeVellarisWorldIsEmptyForNoWorld(t *testing.T) {
 	}
 }
 
+// The terrain picture is the only part of an imported world that says where the sea is. Without it the DM can answer
+// "walk to the beach" only by naming the nearest coastal town, which is a different place from the nearest coast.
+func TestNormalizeVellarisWorldPrintsTheTerrainGrid(t *testing.T) {
+	world := sampleVellarisWorld(2)
+	world["terrain"] = map[string]interface{}{
+		"columns":    4.0,
+		"rows":       2.0,
+		"cellWidth":  100.25,
+		"cellHeight": 90.5,
+		"map":        []interface{}{"..fP", "ffff"},
+		"legend":     map[string]interface{}{".": "ocean", "f": "forest", "P": "coastal plains"},
+		"note":       "this prose is not part of the picture",
+	}
+
+	got := NormalizeVellarisWorld(world)
+
+	if got["hasTerrain"] != true {
+		t.Fatalf("a world with a grid must say it has one: %v", got["hasTerrain"])
+	}
+	terrain := got["terrain"].(map[string]interface{})
+	if terrain["grid"] != "..fP\nffff" {
+		t.Fatalf("rows should join into one block: %q", terrain["grid"])
+	}
+	if terrain["columns"] != "4" || terrain["rows"] != "2" {
+		t.Fatalf("unexpected dimensions: %v x %v", terrain["columns"], terrain["rows"])
+	}
+	if terrain["cellWidth"] != "100.2" {
+		t.Fatalf("cell size should be readable, got %v", terrain["cellWidth"])
+	}
+	// The legend decodes the characters, so its order must not depend on Go's map iteration.
+	if terrain["legend"] != ". ocean, P coastal plains, f forest" {
+		t.Fatalf("unexpected legend: %q", terrain["legend"])
+	}
+	if _, ok := terrain["note"]; ok {
+		t.Fatalf("the service's prose should not reach the prompt: %v", terrain["note"])
+	}
+}
+
+func TestNormalizeVellarisWorldOmitsAnAbsurdTerrainGrid(t *testing.T) {
+	world := sampleVellarisWorld(1)
+	rows := make([]interface{}, 0, 40)
+	for i := 0; i < 40; i++ {
+		rows = append(rows, strings.Repeat("f", 500))
+	}
+	world["terrain"] = map[string]interface{}{"map": rows}
+
+	got := NormalizeVellarisWorld(world)
+
+	if got["hasTerrain"] == true {
+		t.Fatalf("a picture too large to be a map must not be handed to the prompt")
+	}
+}
+
+// A place's cell is what makes the grid readable: it says where the party's town sits on the picture without the DM
+// dividing coordinates by a cell size mid-scene.
+func TestNormalizeVellarisWorldKeepsEachPlaceGridCell(t *testing.T) {
+	world := map[string]interface{}{
+		"places": []interface{}{
+			map[string]interface{}{"name": "Azureenci", "type": "City", "x": 10.0, "y": 20.0, "gridColumn": 104.0, "gridRow": 69.0},
+			map[string]interface{}{"name": "Ostrel", "type": "City", "x": 30.0, "y": 40.0},
+		},
+	}
+
+	places := NormalizeVellarisWorld(world)["places"].([]interface{})
+	byName := make(map[string]map[string]interface{}, len(places))
+	for _, item := range places {
+		entry := item.(map[string]interface{})
+		byName[entry["name"].(string)] = entry
+	}
+
+	if byName["Azureenci"]["gridSuffix"] != " — grid 104, 69" {
+		t.Fatalf("a place on the grid must say its cell: %q", byName["Azureenci"]["gridSuffix"])
+	}
+	if _, ok := byName["Ostrel"]["gridSuffix"]; ok {
+		t.Fatalf("a place the service did not place on a grid must not invent one")
+	}
+}
+
+func TestSurroundingsTextSeparatesTheCoastFromTheSeaBeingNear(t *testing.T) {
+	near := surroundingsText(map[string]interface{}{"terrain": "plains", "seaNearby": true})
+	if near != "plains, sea within reach, not on it" {
+		t.Fatalf("a place short of the shore is not a coastal place: %q", near)
+	}
+
+	on := surroundingsText(map[string]interface{}{"terrain": "plains", "coastal": true})
+	if on != "plains, on the coast" {
+		t.Fatalf("unexpected phrasing for a coastal place: %q", on)
+	}
+
+	lake := surroundingsText(map[string]interface{}{"terrain": "forest", "lakeNearby": true})
+	if lake != "forest, near a lake" {
+		t.Fatalf("unexpected phrasing for a place near a lake: %q", lake)
+	}
+}
+
+func TestSanitizeVellarisWorldKeepsTheTerrainGridButNotItsProse(t *testing.T) {
+	world := sampleVellarisWorld(1)
+	world["terrain"] = map[string]interface{}{
+		"columns": 2.0,
+		"rows":    1.0,
+		"map":     []interface{}{"P."},
+		"legend":  map[string]interface{}{"P": "coastal plains", ".": "ocean"},
+		"note":    "prose that belongs in no stored document",
+	}
+
+	stored := SanitizeVellarisWorld(world)
+	terrain, ok := stored["terrain"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("a stored world has to keep its terrain picture: %v", stored["terrain"])
+	}
+	if len(terrainRows(terrain["map"])) != 1 {
+		t.Fatalf("unexpected rows: %v", terrain["map"])
+	}
+	if _, ok := terrain["note"]; ok {
+		t.Fatalf("the service's prose should not be stored")
+	}
+}
+
 func TestNormalizeVellarisWorldFormatsValuesForPrompt(t *testing.T) {
 	got := NormalizeVellarisWorld(sampleVellarisWorld(3))
 	if got == nil {

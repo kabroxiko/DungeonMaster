@@ -24,8 +24,14 @@ func sampleVellarisSpec() map[string]interface{} {
 			},
 			"places": []interface{}{
 				map[string]interface{}{"name": "Azureenci", "type": "City", "x": 1794.97, "y": 612.86, "regionId": 7.0,
+					"gridColumn": 3.0, "gridRow": 2.0,
 					"surroundings": map[string]interface{}{"terrain": "forest", "river": true, "coastal": true}},
 				map[string]interface{}{"name": "Aditarie", "type": "City", "x": 2040.92, "y": 914.52, "regionId": 4.0},
+			},
+			"terrain": map[string]interface{}{
+				"columns": 6.0, "rows": 3.0, "cellWidth": 669.5, "cellHeight": 767.3,
+				"map":    []interface{}{"..ffPP", ".ffPPp", "ffpppp"},
+				"legend": map[string]interface{}{".": "ocean", "f": "forest", "p": "plains", "P": "coastal plains"},
 			},
 			"routes": []interface{}{
 				map[string]interface{}{
@@ -72,6 +78,14 @@ func TestRenderVellarisWorldInjectCarriesRulesGeometryAndTravel(t *testing.T) {
 		"Venetzaddana, Suste",
 		" — in Venetzaddana — forest, on the coast, on a river",
 		"https://vellaris.example/api/world/map.jpg",
+		// The picture of the land, and where each place sits on it, so the DM can answer "where is the nearest shore"
+		// without substituting a coastal town for a coast.
+		"Terrain grid (6 columns x 3 rows",
+		"Legend: . ocean, P coastal plains, f forest, p plains",
+		"..ffPP",
+		"ffpppp",
+		"nearest capital to a place's cell is the nearest shore",
+		" — grid 3, 2",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("injected block is missing %q\n---\n%s", want, got)
