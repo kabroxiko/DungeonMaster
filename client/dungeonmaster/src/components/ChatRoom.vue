@@ -51,7 +51,24 @@
         </details>
         <section v-if="lobbyMemberRows.length" class="party-lobby__roster" aria-labelledby="party-lobby-roster-title">
             <h3 id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
-            <ul class="party-lobby__list">
+            <!-- While the adventure starts there is nothing left to do on a player's card, so the table gets one
+                 card that names the wait once instead of a row per player repeating it. -->
+            <div v-if="partyStarting" class="party-lobby__group" role="status" aria-live="polite">
+                <div class="party-lobby__group-head">
+                    <span class="party-lobby__group-title">{{ $i18n.party_heading }}</span>
+                    <span class="party-lobby__group-count">{{ interpolate($i18n.load_game_members, lobbyMemberRows.length) }}</span>
+                </div>
+                <ul class="party-lobby__group-list">
+                    <li v-for="row in lobbyMemberRows" :key="row.id" class="party-lobby__group-item">
+                        {{ row.display }}
+                    </li>
+                </ul>
+                <p class="party-lobby__badge party-lobby__badge--starting party-lobby__group-status">
+                    <span class="party-lobby__spin" aria-hidden="true"></span>
+                    <span>{{ $i18n.lobby_starting }}</span>
+                </p>
+            </div>
+            <ul v-else class="party-lobby__list">
                 <li
                     v-for="row in lobbyMemberRows"
                     :key="row.id"
@@ -66,20 +83,10 @@
                         <span class="party-lobby__name">{{ row.display }}</span>
                         <span v-if="row.detailsLine" class="party-lobby__meta">{{ row.detailsLine }}</span>
                     </div>
-                    <!-- A start in progress is the table's wait, so every card names it whichever member it belongs
-                         to. Everything else in a card describes its own player, and the viewer's own cell owns
-                         regenerate / ready. -->
+                    <!-- One slot per row, and the viewer's own slot owns everything about their lobby state:
+                         regenerate and ready. Nothing about the viewer's party status belongs anywhere else. -->
                     <div class="party-lobby__ready-cell">
-                        <span
-                            v-if="partyStarting"
-                            class="party-lobby__badge party-lobby__badge--starting"
-                            role="status"
-                            aria-live="polite"
-                        >
-                            <span class="party-lobby__spin" aria-hidden="true"></span>
-                            <span>{{ $i18n.lobby_starting }}</span>
-                        </span>
-                        <div v-else-if="row.isYou" class="party-lobby__ready-stack">
+                        <div v-if="row.isYou" class="party-lobby__ready-stack">
                             <div
                                 v-if="!row.isReady && !partyLobbyRosterOwnRowFrozen"
                                 class="party-lobby__ready-actions"
@@ -286,7 +293,7 @@
             <div v-if="partyRosterRows.length > 1" class="party-roster" role="status" :aria-label="$i18n.party_heading">
                 <div class="party-roster__head">
                     <span class="party-roster__title">{{ $i18n.party_heading }}</span>
-                    <span class="party-roster__count">{{ partyRosterRows.length }}</span>
+                    <span class="party-roster__count">{{ interpolate($i18n.load_game_members, partyRosterRows.length) }}</span>
                 </div>
                 <ul class="party-roster__list">
                     <li v-for="row in partyRosterRows" :key="row.id" class="party-roster__item" :class="{ 'party-roster__item--you': row.isYou }">
@@ -1583,6 +1590,11 @@ export default {
         },
 
         methods: {
+            /** Fills the `{n}` in copy that counts things (players, exchanges). */
+            interpolate(template, n) {
+                const v = n != null && !Number.isNaN(Number(n)) ? Number(n) : 0;
+                return String(template || '').replace(/\{n\}/g, String(v));
+            },
             /** Same id/label resolution as FloatingCard (race/class lists from $i18n). */
             localizePartySheetField(value, list) {
                 if (value == null || value === '') return '';
@@ -3961,6 +3973,56 @@ export default {
     font-weight: 600;
     color: var(--gm-text, #e6e1d8);
     letter-spacing: 0.02em;
+  }
+
+  /* One card for the table while the adventure starts: it names the group, who is at the table, and the wait. */
+  .party-lobby__group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.85rem 0.9rem;
+    border-radius: 10px;
+    border: 1px solid rgba(212, 180, 106, 0.18);
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .party-lobby__group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .party-lobby__group-title {
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.72rem;
+    color: rgba(230, 225, 216, 0.75);
+  }
+
+  .party-lobby__group-count {
+    font-size: 0.78rem;
+    color: var(--gm-muted, #9a8f85);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .party-lobby__group-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--gm-text, #e8e4dc);
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+
+  /* A badge is a chip, not a lane: the status keeps its own width inside the card. */
+  .party-lobby__group-status {
+    align-self: flex-start;
+    margin: 0;
   }
 
   .party-lobby__list {
