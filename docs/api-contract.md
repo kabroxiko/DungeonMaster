@@ -25,6 +25,15 @@ configuration from the game: an administrator may read `GET /api/admin/config` a
 game, and nothing in the app offers those screens to a player (the routes refuse them with `403 ADMIN_REQUIRED` even if
 a stale browser still asks). Being the owner of a game is a different thing and never grants either.
 
+### Logging
+
+The server writes one line per request with the method, **path**, status, size and duration. The query string is never
+logged, because `/api/game-state/map/:gameId` and `/api/game-state/events/:gameId` carry the session token as
+`?access_token=` (an `<img>` and an `EventSource` cannot send a header). nginx does the same: its access log records the
+path without arguments and masks the `/join-party/:token` route. A database connection failure is logged with the URI's
+credentials replaced. Secrets — session tokens, invite tokens, API keys, the JWT secret, `X-Vellaris-Token`, the database
+password — never appear in a log line.
+
 ## Admin (`/api/admin`)
 
 | Method | Path | Auth | Notes |

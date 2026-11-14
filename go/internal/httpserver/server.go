@@ -37,6 +37,10 @@ func (s *Server) coll() *mongo.Collection {
 
 // logRequests prints one line per API request: method, path, status, response size and duration.
 //
+// Only the path is logged, never the query: the map image and the event stream carry the session token as
+// `?access_token=...`, because an <img> and an EventSource cannot send an Authorization header, and a token written to a
+// log line travels into every backup, log shipper and support ticket that line reaches.
+//
 // The writer wrapper is chi's, not a hand-written one, because it keeps Flush and Hijack working; the event stream
 // and the WebSocket route need both.
 func logRequests(next http.Handler) http.Handler {
@@ -44,7 +48,7 @@ func logRequests(next http.Handler) http.Handler {
 		start := time.Now()
 		ww := chimiddleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
-		log.Printf("%s %s -> %d (%d bytes, %s)", r.Method, r.URL.RequestURI(), ww.Status(), ww.BytesWritten(), time.Since(start).Round(time.Millisecond))
+		log.Printf("%s %s -> %d (%d bytes, %s)", r.Method, r.URL.Path, ww.Status(), ww.BytesWritten(), time.Since(start).Round(time.Millisecond))
 	})
 }
 

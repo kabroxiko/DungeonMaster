@@ -114,7 +114,9 @@ func main() {
 	defer cancel()
 	client, err := store.Dial(ctx, cfg.MongoURI)
 	if err != nil {
-		log.Fatalf("mongo connect: %v", err)
+		// The URI holds the database password and the driver echoes a malformed one back, so the message is redacted
+		// before it is printed.
+		log.Fatalf("mongo connect: %s", store.RedactSecrets(err.Error(), cfg.MongoURI))
 	}
 	defer func() {
 		dcCtx, dcCancel := context.WithTimeout(context.Background(), 10*time.Second)
