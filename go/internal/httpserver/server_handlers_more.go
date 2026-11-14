@@ -339,6 +339,16 @@ func (s *Server) handleCreateParty(w http.ResponseWriter, r *http.Request, uid s
 		writeJSONCoded(w, r, http.StatusBadRequest, "INVALID_SESSION_USER_ID", "Invalid session user id")
 		return
 	}
+	ctx := r.Context()
+	// One table starts at a time: a second lobby would leave the first abandoned with its world already drawn, so "new
+	// game" hands back the lobby the caller already has.
+	if existing := gamesession.FindUnstartedGameID(ctx, s.GS, oid); existing != "" {
+		var row map[string]interface{}
+		if err := s.coll().FindOne(ctx, bson.M{"gameId": existing}).Decode(&row); err == nil && row != nil {
+			writeJSON(w, http.StatusOK, gamesession.GameStateDocForClient(row))
+			return
+		}
+	}
 	gameID := fmt.Sprintf("%d-%s", time.Now().UnixMilli(), randomHex(6))
 	gameSetup := party.MergeParty(map[string]interface{}{"language": lang}, party.DefaultParty())
 	createPayload := bson.M{
@@ -357,7 +367,6 @@ func (s *Server) handleCreateParty(w http.ResponseWriter, r *http.Request, uid s
 			createPayload["draftPartyExpiresAt"] = at
 		}
 	}
-	ctx := r.Context()
 	_, err = s.coll().InsertOne(ctx, createPayload)
 	if err != nil {
 		writeJSONCoded(w, r, http.StatusInternalServerError, "PARTY_CREATE_FAILED", "Could not create party")

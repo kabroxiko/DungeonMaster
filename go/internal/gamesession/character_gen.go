@@ -94,7 +94,12 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 	if gameID != nil {
 		persistGameID = *gameID
 	} else {
-		persistGameID = AllocateNewPartyGameID()
+		// A caller that asks for a brand-new party but already has an unstarted table is opening that table, not
+		// making a second one: its world is already drawn and its invites already sent.
+		persistGameID = FindUnstartedGameID(ctx, d, uidOID)
+		if persistGameID == "" {
+			persistGameID = AllocateNewPartyGameID()
+		}
 	}
 	world, worldStatus, worldCode, worldProblem := campaignWorldForCharacter(ctx, d, persistGameID, uidOID, body, language)
 	if worldProblem != "" {
