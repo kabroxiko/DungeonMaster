@@ -31,12 +31,13 @@
         </header>
         <!-- One world for the table, so its progress belongs to the table rather than to any player's row. The animation
              is a decorative asset, so it lives in CSS as the art box's background and stays out of the a11y tree.
-             The world is drawn once, in the lobby; the wait while the adventure starts is the campaign written on it. -->
-        <section v-if="tableLongStepTitle" class="party-lobby__world" role="status" aria-live="polite">
+             The world is drawn once, in the lobby; starting the adventure only writes text on it, which the party's
+             own status already names. -->
+        <section v-if="partyGeneratingWorld" class="party-lobby__world" role="status" aria-live="polite">
             <div class="party-lobby__world-art" aria-hidden="true"></div>
             <div class="party-lobby__world-copy">
-                <p class="party-lobby__world-title">{{ tableLongStepTitle }}</p>
-                <p class="party-lobby__world-hint">{{ tableLongStepHint }}</p>
+                <p class="party-lobby__world-title">{{ $i18n.lobby_generating_world }}</p>
+                <p class="party-lobby__world-hint">{{ $i18n.lobby_generating_world_hint }}</p>
             </div>
         </section>
         <details v-if="partyLobbyDebugEnabled" class="party-lobby__debug" open>
@@ -1112,7 +1113,7 @@ export default {
                 }
                 return true;
             },
-            /** Which long step the table is on while the party starts: 'world' (map), 'campaign' (campaign text) or 'opening' (first scene). */
+            /** Which long step the table is on while the party starts: 'world' (map drawn in the lobby) or 'opening' (first scene). */
             partyStage() {
                 const p = this.$store.state.gameSetup && this.$store.state.gameSetup.party;
                 const stage = p && p.stage != null ? String(p.stage).trim() : '';
@@ -1121,22 +1122,6 @@ export default {
             /** The world is being written for everyone at once, so every row says so instead of naming its own state. */
             partyGeneratingWorld() {
                 return this.partyStage === 'world';
-            },
-            /** The campaign is being written on a world that already exists, so the map must not be announced again. */
-            partyGeneratingCampaign() {
-                return this.partyStage === 'campaign';
-            },
-            /** Title of the table-wide progress banner; empty when no long step of the lobby or the start is running. */
-            tableLongStepTitle() {
-                if (this.partyGeneratingWorld) return this.$i18n.lobby_generating_world;
-                if (this.partyGeneratingCampaign) return this.$i18n.lobby_generating_campaign;
-                return '';
-            },
-            /** Hint under that title, describing what the table can do while the step runs. */
-            tableLongStepHint() {
-                if (this.partyGeneratingWorld) return this.$i18n.lobby_generating_world_hint;
-                if (this.partyGeneratingCampaign) return this.$i18n.lobby_generating_campaign_hint;
-                return '';
             },
             /** Lobby toolbar + inline setup: no further ready toggles while starting or everyone is ready. */
             partyLobbyActionsFrozen() {

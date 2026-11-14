@@ -58,10 +58,10 @@ func TestLobbyWorldStageIsDroppedOnceTheWorldIsStored(t *testing.T) {
 		"campaignSpec": map[string]interface{}{"vellarisWorld": world},
 		"gameSetup": map[string]interface{}{
 			"language": "English",
-			"party":    map[string]interface{}{"phase": "starting", "stage": "campaign"},
+			"party":    map[string]interface{}{"phase": "starting", "stage": "opening"},
 		},
 	}
-	if stage := lobbyStageOf(t, GameStateDocForClient(starting)); stage != "campaign" {
-		t.Fatalf("the campaign step must survive the world being stored, got %q", stage)
+	if stage := lobbyStageOf(t, GameStateDocForClient(starting)); stage != "opening" {
+		t.Fatalf("the opening step must survive the world being stored, got %q", stage)
 	}
 }

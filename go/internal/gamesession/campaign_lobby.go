@@ -681,8 +681,6 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	if problem != "" {
 		return LobbyCampaignOutcome{OK: false, Status: st, Error: problem, Code: code}
 	}
-	// The map exists now, so the long step ahead is the campaign written on it rather than the world itself.
-	setPartyStage(ctx, d, gameID, "campaign")
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
 

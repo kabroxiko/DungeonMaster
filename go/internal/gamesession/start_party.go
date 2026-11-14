@@ -169,13 +169,13 @@ func clearLobbyStage(ctx context.Context, d *Deps, gameID, stage string) {
 }
 
 // startStageForWorld names the first long step of a start. The lobby already writes the table's world, so a game that
-// has one is writing the campaign text on it; announcing the map again would show the players a second
-// "generating the world" wait for work that is already done. Only a game without a world waits on one.
+// has one has nothing left to draw: it starts without a stage, because the world banner would announce work that is
+// already done. Only a game without a world waits on one.
 func startStageForWorld(world map[string]interface{}) string {
 	if world == nil {
 		return "world"
 	}
-	return "campaign"
+	return ""
 }
 
 // HandleStartPartyAdventure mirrors POST /start-party-adventure.
