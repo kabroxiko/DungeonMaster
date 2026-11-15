@@ -21,6 +21,6 @@ Each item must have:
 - resources (1 sentence)
 - currentDisposition (1 sentence about attitude toward outsiders, travelers, or the local power balance — not toward a named player character)
 
-**Setting (hard):** pre-industrial medieval fantasy. A faction's `goal` and `resources` must be things this world actually has — levies, coin, ships, horses, stores, relics, spies, oaths, magic, a fortress, a guild monopoly, a road, a well-guarded ford. Never technology, industry, science, media, or a corporate/consortium structure; no drones, engines, firearms, screens, or "consortium of X" style bodies.
+**Setting (hard):** pre-industrial medieval fantasy. A faction's `goal` and `resources` must be limited to things this world can actually hold and spend, produced by its own crafts; never anything this world cannot make, and no organisation whose name or remit belongs to the modern world.
 
 A bare YAML sequence of those mappings at the root is also acceptable.

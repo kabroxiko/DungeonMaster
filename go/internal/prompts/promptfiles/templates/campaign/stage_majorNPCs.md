@@ -19,6 +19,6 @@ Each item must have:
 - role (string)
 - briefDescription (2 sentences)
 
-**Setting (hard):** pre-industrial medieval fantasy. Roles and descriptions must use medieval means and trades — smith, herbalist, abbot, shipwright, hedge wizard, sergeant, tax-farmer — never technology, science, or a modern profession, and never a device that a medieval world could not have.
+**Setting (hard):** pre-industrial medieval fantasy. Roles and descriptions must stay within this world's means and trades; never technology, science, a modern profession, or a thing this world could not make.
 
 A bare YAML sequence at the root is also acceptable.

@@ -24,9 +24,9 @@ creativeSeed:
 **Scalars:** Quote values that contain `: ` or could be read as YAML booleans. Do not emit channel tags (`<|...|>`) or prose outside the document.
 
 Fields:
-- **titleMood** (string, required): 1 short phrase describing how the **player-facing title** should *feel* (e.g. wry mercantile dread, sun-bleached hope, cold legal thriller) — not a title itself.
+- **titleMood** (string, required): 1 short phrase describing how the **player-facing title** should *feel* — not a title itself, and not a phrase lifted from this instruction.
 - **preferAngles** (list of 2–5 strings): thematic or structural angles the **campaign core** should visibly lean into in `campaignConcept`, `majorConflicts`, `toneAndStyle`, and the hidden objective — specific to this world draw. Every angle stays inside **pre-industrial medieval fantasy**: no science fiction, no technology, no modern institutions or corporate powers.
 - **avoidRepeatedFantasyTropesThisRun** (list of 3–8 strings): clichés, stock metaphors, or **specific words** the core pass must **not** lean on in the **title** or spine of the concept (you choose different items each run — do not output a generic static list).
-- **namingNote** (string, optional): one sentence on **naming** variety for factions/places later (e.g. favor trade guilds and toponyms over “dark lords”).
+- **namingNote** (string, optional): one sentence on **naming** variety for factions and places later, stated as guidance about shape and register — never as example names.
 
 **Randomness:** Treat this as a **dice roll** — vary mood, angles, and the avoid-list strongly across generations.
