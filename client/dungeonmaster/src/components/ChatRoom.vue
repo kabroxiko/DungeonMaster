@@ -49,21 +49,32 @@
             </p>
             <pre class="party-lobby__debug-pre" aria-live="polite">{{ partyLobbyDebugText }}</pre>
         </details>
-        <section v-if="lobbyMemberRows.length" class="party-lobby__roster" aria-labelledby="party-lobby-roster-title">
-            <h3 id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
-            <!-- While the adventure starts there is nothing left to do on a player's card, so the table gets one
-                 card that names the wait once instead of a row per player repeating it. -->
-            <div v-if="partyStarting" class="party-lobby__group" role="status" aria-live="polite">
-                <div class="party-lobby__group-head">
-                    <span class="party-lobby__group-title">{{ $i18n.party_heading }}</span>
-                    <span class="party-lobby__group-count">{{ interpolate($i18n.load_game_members, lobbyMemberRows.length) }}</span>
+        <section
+            v-if="lobbyMemberRows.length"
+            class="party-lobby__roster"
+            :aria-labelledby="partyStarting ? null : 'party-lobby-roster-title'"
+        >
+            <h3 v-if="!partyStarting" id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
+            <!-- While the adventure starts there is nothing left to do on a player's card, so the table gets the same
+                 group card it keeps while playing, with the wait named once at its foot. -->
+            <div v-if="partyStarting" class="party-roster" role="status" aria-live="polite">
+                <div class="party-roster__head">
+                    <span class="party-roster__title">{{ $i18n.party_heading }}</span>
+                    <span class="party-roster__count">{{ interpolate($i18n.load_game_members, lobbyMemberRows.length) }}</span>
                 </div>
-                <ul class="party-lobby__group-list">
-                    <li v-for="row in lobbyMemberRows" :key="row.id" class="party-lobby__group-item">
-                        {{ row.display }}
+                <ul class="party-roster__list">
+                    <li
+                        v-for="row in lobbyMemberRows"
+                        :key="row.id"
+                        class="party-roster__item"
+                        :class="{ 'party-roster__item--you': row.isYou }"
+                    >
+                        <span class="party-roster__name">{{ row.display }}</span>
+                        <span v-if="row.detailsLine" class="party-roster__meta">{{ row.detailsLine }}</span>
                     </li>
                 </ul>
-                <p class="party-lobby__badge party-lobby__badge--starting party-lobby__group-status">
+                <p class="party-roster__tip">{{ $i18n.party_sync_tip }}</p>
+                <p class="party-lobby__badge party-lobby__badge--starting party-lobby__group-starting">
                     <span class="party-lobby__spin" aria-hidden="true"></span>
                     <span>{{ $i18n.lobby_starting }}</span>
                 </p>
@@ -868,14 +879,10 @@ export default {
                     const nameRaw = sheet && sheet.name != null && String(sheet.name).trim();
                     const label = nameRaw ? String(sheet.name).trim() : this.memberPrimaryLabel(id);
                     const isYou = Boolean(uid && this.normalizeLobbyUserIdKey(uid) === this.normalizeLobbyUserIdKey(id));
-                    const isHost = Boolean(
-                        owner && this.normalizeLobbyUserIdKey(owner) === this.normalizeLobbyUserIdKey(id)
-                    );
                     let display = label;
                     if (isYou) display += ` (${this.$i18n.party_you})`;
-                    if (isHost) display += ` — ${this.$i18n.party_host}`;
                     const detailsLine = this.formatPartyMemberSheetSummary(sheet);
-                    return { id, display, detailsLine, isYou, isHost };
+                    return { id, display, detailsLine, isYou };
                 });
             },
             /**
@@ -1229,10 +1236,8 @@ export default {
                         : this.effectivePlayerCharacterForMember(id);
                     const hasSheet = isYou ? this.viewerHasLobbyReadySheet : this.lobbySheetIsCommitted(sheet);
                     const primary = this.memberPrimaryLabel(id);
-                    const isHost = Boolean(ownerNorm && this.normalizeLobbyUserIdKey(id) === ownerNorm);
                     let display = primary;
                     if (isYou) display += ` (${this.$i18n.party_you})`;
-                    if (isHost) display += ` — ${this.$i18n.party_host}`;
                     const detailsLine = hasSheet ? this.formatPartyMemberSheetSummary(sheet) : '';
                     let initial = '?';
                     if (hasSheet && sheet && typeof sheet === 'object') {
@@ -1259,7 +1264,6 @@ export default {
                         isGenerating: this.memberBusyUntilMs(busyRaw, id) > busyNow,
                         initial,
                         isYou,
-                        isHost,
                     };
                 });
             },
@@ -3975,54 +3979,10 @@ export default {
     letter-spacing: 0.02em;
   }
 
-  /* One card for the table while the adventure starts: it names the group, who is at the table, and the wait. */
-  .party-lobby__group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.85rem 0.9rem;
-    border-radius: 10px;
-    border: 1px solid rgba(212, 180, 106, 0.18);
-    background: rgba(0, 0, 0, 0.2);
-  }
-
-  .party-lobby__group-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .party-lobby__group-title {
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-size: 0.72rem;
-    color: rgba(230, 225, 216, 0.75);
-  }
-
-  .party-lobby__group-count {
-    font-size: 0.78rem;
-    color: var(--gm-muted, #9a8f85);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .party-lobby__group-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    color: var(--gm-text, #e8e4dc);
-    font-size: 0.84rem;
-    line-height: 1.4;
-  }
-
-  /* A badge is a chip, not a lane: the status keeps its own width inside the card. */
-  .party-lobby__group-status {
+  /* The start's chip sits under the group card's own contents: a badge is a chip, not a lane. */
+  .party-lobby__group-starting {
     align-self: flex-start;
-    margin: 0;
+    margin: 0.5rem 0 0;
   }
 
   .party-lobby__list {

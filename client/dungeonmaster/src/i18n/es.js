@@ -178,7 +178,6 @@ export default {
         'No se encontró esta partida. Puede haberse eliminado o expirado. Elige otro guardado en la lista.',
     party_heading: 'Grupo',
     party_you: 'tú',
-    party_host: 'Anfitrión',
     party_character_pending: 'Sin personaje aún',
     party_sync_tip: 'El grupo se sincroniza solo. Si algo se ve atrasado, recarga la página.',
     map_show: 'Mostrar el mapa',

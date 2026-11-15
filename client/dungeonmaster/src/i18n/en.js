@@ -179,7 +179,6 @@ export default {
         'This game was not found. It may have been removed or expired. Choose another save below.',
     party_heading: 'Party',
     party_you: 'you',
-    party_host: 'Host',
     party_character_pending: 'No character yet',
     party_sync_tip:
         'The party keeps itself in sync. If something looks out of date, reload the page.',
