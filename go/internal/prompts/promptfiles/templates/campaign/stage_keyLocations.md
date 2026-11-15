@@ -74,5 +74,7 @@ Each keyLocations item must have:
 - significance (1-2 sentences; use `|` for multiline if needed){{#hasVellarisPlaces}} — what happens at this inhabited
   place (a local problem, a power, a threat); it is not a ruin unless its own name says so{{/hasVellarisPlaces}}
 
+**Setting (hard):** pre-industrial medieval fantasy. What happens at each location must be something this world can stage — a quarrel over a ford, a shrine's relic, a failing mill wheel, a levy, a feud, a plague — never machinery, technology, industry, or a modern institution.
+
 Return a single root mapping whose only key is **keyLocations** — a bare sequence at the root is **not** enough. Never
 emit a `worldMap` block, a region list or neighbours: the geography comes from the map service, not from you.

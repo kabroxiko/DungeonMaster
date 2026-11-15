@@ -65,7 +65,7 @@ Spellcasting (server-assigned — do **not** output `spells` or `spell_slots`):
 - Narration and flavor may still mention spellcasting in general terms; sheet spell names and preparation flags come **only** from the server JSON.
 
 Consistency:
-- PHB-style class packages only; no impossible extra weapons. **Incomplete gear** (wrong array, missing mandatory class lines, or missing mandatory **`equipment`** coin/pack/carrier lines) is unacceptable — fix before output.
+- PHB-style class packages only; no impossible extra weapons. Every gear line is pre-industrial and PHB-legal: no firearms, technology, vehicles, or modern equipment of any kind. **Incomplete gear** (wrong array, missing mandatory class lines, or missing mandatory **`equipment`** coin/pack/carrier lines) is unacceptable — fix before output.
 - **Cross-array (MUST):** **`equipment`** must never repeat **`weapons`**. **Ammunition quantities** only in **`ammunition`**; **carrier** only as the dedicated line in **`equipment`**. Run the **Final sweep** above every time.
 - All human-readable strings in playerCharacter (background, brief_backstory, armor, equipment, **ammunition**, tools, weapons[].name, languages, clothing line in equipment, spell names) MUST match languageInstruction.
 - **Ability scores, HP, AC, coinage:** Do **not** output **`stats`**, **`max_hp`**, **`ac`**, **`coinage`**, or **`skills`**. The **server** assigns ability scores (**PHB 4d6 drop lowest**, deterministic; highest rolls go to the class’s primary and secondary abilities, then CON, then the rest) + racial modifiers, hit points, armor class, background starting gp, and skill modifiers — not the model.
