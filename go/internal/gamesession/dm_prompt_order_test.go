@@ -24,6 +24,62 @@ func TestDmSystemPromptPrefixIsStableAcrossTurns(t *testing.T) {
 	}
 }
 
+// The tone is campaign state, so every turn carries it. It used to be injected only into the opening, which let the
+// voice evaporate from the second turn onward — precisely what a table that chose a tone notices.
+func TestCampaignToneReachesEveryTurn(t *testing.T) {
+	gs := map[string]interface{}{
+		"campaignSpec": map[string]interface{}{
+			"title":           "A Campaign",
+			"campaignConcept": "A concept.",
+			"toneAndStyle":    "dry and ominous",
+		},
+	}
+	for _, mode := range []string{"initial", "exploration"} {
+		prompt := composeDmSystemPrompt(mode, "English", "", gs, "")
+		if !strings.Contains(prompt, "dry and ominous") {
+			t.Fatalf("the %s turn lost the campaign tone", mode)
+		}
+		// A small local model anchors on the first block it reads, so the voice has to lead the stack.
+		if !strings.HasPrefix(prompt, "Campaign voice (MUST") {
+			t.Fatalf("the %s turn did not lead with the campaign voice", mode)
+		}
+	}
+}
+
+// A menu of options is the habit a tabletop GM falls into and the model imitates; the rule has to lead the stack, not
+// sit inside a long prohibition list a small model may skim.
+func TestNoPlayerOptionsRuleLeadsEveryTurn(t *testing.T) {
+	for _, mode := range []string{"initial", "exploration"} {
+		prompt := composeDmSystemPrompt(mode, "English", "", nil, "")
+		if !strings.Contains(prompt, "Narration never hands the player a menu") {
+			t.Fatalf("the %s turn lost the no-options rule", mode)
+		}
+		if !strings.HasPrefix(prompt, "Narration never hands the player a menu") {
+			t.Fatalf("the %s turn did not lead with the no-options rule", mode)
+		}
+	}
+
+	spanish := composeDmSystemPrompt("exploration", "Spanish", "", nil, "")
+	if !strings.Contains(spanish, "Sin menús de opciones") {
+		t.Fatal("a Spanish turn lost the Spanish no-options rule")
+	}
+}
+
+// A campaign with no stored tone must not gain one from the renderer: formatting a missing value would print a
+// placeholder into the voice block and tell the model to narrate in it.
+func TestCampaignWithoutAToneGetsNoVoiceBlock(t *testing.T) {
+	gs := map[string]interface{}{
+		"campaignSpec": map[string]interface{}{"title": "A Campaign"},
+	}
+	prompt := composeDmSystemPrompt("exploration", "English", "", gs, "")
+	if strings.Contains(prompt, "Campaign voice (MUST") {
+		t.Fatal("a campaign with no tone must not carry a voice block")
+	}
+	if strings.Contains(prompt, "<nil>") {
+		t.Fatal("a missing tone was rendered as text")
+	}
+}
+
 func TestDmSystemPromptStaticRulesLeadPerTurnState(t *testing.T) {
 	prompt := composeDmSystemPrompt("exploration", "English", "Summary text.", nil, "")
 

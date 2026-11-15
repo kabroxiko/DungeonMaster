@@ -257,9 +257,26 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 // Anything that changes every turn must stay below the static rules, because changing the head of the prompt
 // invalidates the cache for every message that follows it.
 func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]interface{}, requestingUserID string) string {
-	parts := []string{
-		promptmgr.LoadPrompt("templates/dm/player_response_envelope.md"),
+	// Campaign-scoped blocks: identical for every turn of this game.
+	var spec map[string]interface{}
+	if gs != nil {
+		spec, _ = gs["campaignSpec"].(map[string]interface{})
 	}
+	var parts []string
+	// The table's voice leads the stack: it is the register every block below is read in. It is also campaign state,
+	// not an opening flourish, so a table that chose a voice keeps it on every turn instead of only the first.
+	if spec != nil {
+		tone, _ := spec["toneAndStyle"].(string)
+		if voice := promptmgr.CampaignVoiceBlock(tone); voice != "" {
+			parts = append(parts, voice)
+		}
+	}
+	// The player never gets a menu. This leads the rules because a small model that reads it late tends to close on
+	// "you could do A or B" even when the rule exists further down the stack.
+	if rule := promptmgr.LoadPrompt("rules/no_player_options.md"); rule != "" {
+		parts = append(parts, rule)
+	}
+	parts = append(parts, promptmgr.LoadPrompt("templates/dm/player_response_envelope.md"))
 	if guard := promptmgr.LoadPrompt("rules/json_output_guard_dm_play.md"); guard != "" {
 		parts = append(parts, guard)
 	} else {
@@ -268,11 +285,6 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 	// Empty summary here: the memory block is per-turn state and joins the per-turn group below.
 	for _, m := range promptmgr.ComposeSystemMessages(mode, "", true, language) {
 		parts = append(parts, m["content"])
-	}
-	// Campaign-scoped blocks: identical for every turn of this game.
-	var spec map[string]interface{}
-	if gs != nil {
-		spec, _ = gs["campaignSpec"].(map[string]interface{})
 	}
 	if mode == "initial" && spec != nil {
 		// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs
@@ -459,7 +471,6 @@ func renderInitialCampaignInject(spec map[string]interface{}) string {
 	data := map[string]interface{}{
 		"campaignTitle":              strings.TrimSpace(fmt.Sprint(spec["title"])),
 		"campaignConcept":            strings.TrimSpace(fmt.Sprint(spec["campaignConcept"])),
-		"campaignToneAndStyle":       strings.TrimSpace(fmt.Sprint(spec["toneAndStyle"])),
 		"factions":                   sliceFirst(llm.CoerceCampaignStageToArray("factions", spec["factions"]), 6),
 		"majorConflicts":             TakeCampaignFieldItems(spec["majorConflicts"], 6),
 		"majorNPCs":                  sliceFirst(llm.CoerceCampaignStageToArray("majorNPCs", spec["majorNPCs"]), 6),

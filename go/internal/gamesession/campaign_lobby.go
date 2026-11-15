@@ -19,6 +19,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/draftparty"
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
 	"github.com/deckofdmthings/gmai/internal/llm"
+	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/promptmgr"
 	"github.com/deckofdmthings/gmai/internal/validate"
 )
@@ -34,6 +35,55 @@ type LobbyCampaignOutcome struct {
 	Combined map[string]interface{}
 	// MapImageWarning describes why the rendered map could not be stored; the campaign itself still succeeded.
 	MapImageWarning string
+}
+
+// CampaignDirection is the direction the table owner gave the campaign: the premise it is written from, and the tone
+// and style it is written and played in. Both live on gameSetup.party, so they are one value read once per generation
+// rather than a pair of strings carried through every function that happens to need one of them.
+type CampaignDirection struct {
+	Premise      string
+	ToneAndStyle string
+}
+
+// newCampaignDirection normalizes the direction in one place. The cap is counted in runes after trimming: slicing bytes
+// would cut a non-Latin premise in half, and capping the untrimmed length panicked before.
+func newCampaignDirection(premise, toneAndStyle string) CampaignDirection {
+	premise = strings.TrimSpace(premise)
+	if r := []rune(premise); len(r) > 2000 {
+		premise = string(r[:2000])
+	}
+	return CampaignDirection{Premise: premise, ToneAndStyle: strings.TrimSpace(toneAndStyle)}
+}
+
+// campaignDirectionForGame reads the direction the owner stored on the game.
+//
+// A read failure is an error rather than an empty direction: silently generating without the premise and voice the
+// table chose is exactly the divergence this value exists to prevent.
+func campaignDirectionForGame(ctx context.Context, d *Deps, gameID string) (CampaignDirection, error) {
+	gid := strings.TrimSpace(gameID)
+	if gid == "" {
+		return CampaignDirection{}, fmt.Errorf("campaign direction: gameId is required")
+	}
+	if d == nil || d.Coll == nil {
+		return CampaignDirection{}, fmt.Errorf("campaign direction: no database")
+	}
+	var doc map[string]interface{}
+	if err := d.Coll.FindOne(ctx, bson.M{"gameId": gid}).Decode(&doc); err != nil {
+		return CampaignDirection{}, fmt.Errorf("campaign direction: %w", err)
+	}
+	p := party.GetParty(toMap(doc["gameSetup"]))
+	premise, _ := p["hostPremise"].(string)
+	tone, _ := p["hostToneAndStyle"].(string)
+	return newCampaignDirection(premise, tone), nil
+}
+
+// campaignDirectionForRequest resolves a generation request's direction: a game-scoped request reads the game's stored
+// choice, and a stateless request carries it in the body.
+func campaignDirectionForRequest(ctx context.Context, d *Deps, gameID string, body map[string]interface{}) (CampaignDirection, error) {
+	if strings.TrimSpace(gameID) != "" {
+		return campaignDirectionForGame(ctx, d, gameID)
+	}
+	return newCampaignDirection(strParam(body, "hostPremise"), strParam(body, "hostToneAndStyle")), nil
 }
 
 func normalizeCreativeSeed(raw map[string]interface{}) map[string]interface{} {
@@ -125,6 +175,18 @@ func ensureCampaignCoreTitle(core map[string]interface{}) {
 	core["title"] = fallback
 }
 
+// applyHostToneAndStyle makes the table owner's chosen tone and style the campaign's own. The model is told to write
+// the core in that voice, and this makes the stored value the choice itself rather than a paraphrase of it; when the
+// owner chose nothing, the generated value stands.
+func applyHostToneAndStyle(core map[string]interface{}, hostToneAndStyle string) {
+	if core == nil {
+		return
+	}
+	if tone := strings.TrimSpace(hostToneAndStyle); tone != "" {
+		core["toneAndStyle"] = tone
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -155,25 +217,25 @@ func persistCreativeSeedToGameState(ctx context.Context, coll *mongo.Collection,
 	return nil
 }
 
-func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, language, hostPremise string, persist bool) (ok bool, seed map[string]interface{}, raw string, code string) {
-	hostPremiseTrim := strings.TrimSpace(hostPremise)
-	// Cap after trimming, on the value that is actually sliced: guarding on the untrimmed length panicked whenever
-	// whitespace made the trimmed text shorter than the cap.
-	if r := []rune(hostPremiseTrim); len(r) > 2000 {
-		hostPremiseTrim = string(r[:2000])
-	}
+func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, language string, dir CampaignDirection) (ok bool, seed map[string]interface{}, raw string, code string) {
+	premise := dir.Premise
 	tpl := promptmgr.LoadPrompt("templates/campaign/stage_creativeSeed.md")
 	if strings.TrimSpace(tpl) == "" {
 		return false, nil, "", "CAMPAIGN_STAGE_CREATIVE_SEED_TEMPLATE"
 	}
 	userPrompt, err := mustache.Render(tpl, map[string]interface{}{
 		"language":    language,
-		"hostPremise": hostPremiseTrim,
+		"hostPremise": premise,
 	})
 	if err != nil {
 		return false, nil, "", "CAMPAIGN_STAGE_CREATIVE_SEED_TEMPLATE"
 	}
 	consolidated := promptmgr.ConsolidateSystemMessages(promptmgr.BuildCampaignStageSystemMsgs(language))
+	// The seed decides the angles the core leans into, so it is drawn for the owner's voice as well: a comedic
+	// campaign seeded with grim angles can only fight its own tone.
+	if voice := promptmgr.CampaignVoiceBlock(dir.ToneAndStyle); voice != "" {
+		consolidated = voice + "\n\n" + consolidated
+	}
 	msgs := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
 		map[string]interface{}{"role": "user", "content": userPrompt},
@@ -297,6 +359,10 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 	if block := campaignWorldSystemBlock(world, maxWorldPlaces); block != "" {
 		consolidated = block + "\n\n" + consolidated
 	}
+	tone, _ := campaignCore["toneAndStyle"].(string)
+	if voice := promptmgr.CampaignVoiceBlock(tone); voice != "" {
+		consolidated = voice + "\n\n" + consolidated
+	}
 	msgs := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
 		map[string]interface{}{"role": "user", "content": userPrompt},
@@ -395,7 +461,7 @@ func sliceFirst(a []interface{}, n int) []interface{} {
 	return a[:n]
 }
 
-func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, language string) bool {
+func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, language string, dir CampaignDirection) bool {
 	var doc map[string]interface{}
 	err := d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc)
 	if err != nil {
@@ -414,7 +480,7 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 		"title":           spec["title"],
 		"campaignConcept": spec["campaignConcept"],
 		"majorConflicts":  TakeCampaignFieldItems(spec["majorConflicts"], 6),
-		"toneAndStyle":    spec["toneAndStyle"],
+		"toneAndStyle":    dir.ToneAndStyle,
 		"factions":        sliceFirst(llm.CoerceCampaignStageToArray("factions", spec["factions"]), 5),
 		"majorNPCs":       sliceFirst(llm.CoerceCampaignStageToArray("majorNPCs", spec["majorNPCs"]), 5),
 		"keyLocations":    sliceFirst(locs, 8),
@@ -445,6 +511,9 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 	consolidated := promptmgr.ConsolidateSystemMessages(promptmgr.BuildCampaignStageSystemMsgs(language))
 	if block := campaignWorldSystemBlock(world, 12); block != "" {
 		consolidated = block + "\n\n" + consolidated
+	}
+	if voice := promptmgr.CampaignVoiceBlock(dir.ToneAndStyle); voice != "" {
+		consolidated = voice + "\n\n" + consolidated
 	}
 	msgs := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
@@ -652,9 +721,12 @@ func runStageWithTimeout(ctx context.Context, d time.Duration, fn func(context.C
 
 // RunLobbyCampaignCoreWithStages mirrors server runLobbyCampaignCoreWithStages.
 //
+// The premise and the tone and style the owner chose are read from the game itself, so every step of the pipeline - the
+// creative seed, the core, the stages and the opening frame - works from the same value.
+//
 // worldSettings is the map-settings document the lobby's campaign world should be generated from; an empty value falls
 // back to the server's configured settings file. A game that already carries a world ignores it.
-func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, language, hostPremise, actingUserID string, worldSettings map[string]interface{}) LobbyCampaignOutcome {
+func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, language, actingUserID string, worldSettings map[string]interface{}) LobbyCampaignOutcome {
 	if _, err := gameaccess.AssertGameMember(ctx, d.Coll, actingUserID, gameID); err != nil {
 		st := 403
 		if err == gameaccess.ErrGameNotFound {
@@ -662,14 +734,15 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}
 		return LobbyCampaignOutcome{OK: false, Status: st, Error: err.Error()}
 	}
+	dir, err := campaignDirectionForGame(ctx, d, gameID)
+	if err != nil {
+		return LobbyCampaignOutcome{OK: false, Status: 500, Error: err.Error(), Code: "CAMPAIGN_DIRECTION_UNAVAILABLE"}
+	}
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Server misconfiguration: templates/campaign/generator.md is required", Code: "CAMPAIGN_TEMPLATE_MISSING"}
 	}
-	hostPremiseTrim := strings.TrimSpace(hostPremise)
-	if len(hostPremiseTrim) > 2000 {
-		hostPremiseTrim = hostPremiseTrim[:2000]
-	}
+	premise := dir.Premise
 
 	// The party's adventure is written on a world that already exists, so the map comes first and its image is
 	// rendered while the campaign text is being generated.
@@ -693,7 +766,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		code string
 	}, 1)
 	go func() {
-		ok, seed, raw, code := generateCampaignCreativeSeedStage(seedCtx, d, gameID, language, hostPremiseTrim, false)
+		ok, seed, raw, code := generateCampaignCreativeSeedStage(seedCtx, d, gameID, language, dir)
 		ch <- struct {
 			ok   bool
 			seed map[string]interface{}
@@ -734,12 +807,12 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}
 		creativeJSON = s
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON, worldContext, worldData)
+	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, dir.ToneAndStyle, creativeJSON, worldContext, worldData)
 	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
 	userPromptRendered, err := mustache.Render(userTemplate, map[string]interface{}{
 		"sessionSummary":   "",
 		"language":         language,
-		"hostPremise":      hostPremiseTrim,
+		"hostPremise":      premise,
 		"creativeSeedJson": creativeJSON,
 	})
 	if err != nil {
@@ -774,6 +847,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed to parse campaign core (YAML)", Code: "CAMPAIGN_CORE_PARSE", Raw: trunc200k(aiCore)[:min(4000, len(trunc200k(aiCore)))]}
 	}
 	ensureCampaignCoreTitle(parsed)
+	applyHostToneAndStyle(parsed, dir.ToneAndStyle)
 	stageMs := resolveLobbyPipelineStageTimeout()
 	for _, stage := range []string{"factions", "majorNPCs", "keyLocations"} {
 		var reason string
@@ -792,7 +866,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	// The world's text is written; what remains is the opening scene, which is a different wait for the table.
 	setPartyStage(ctx, d, gameID, "opening")
 	if !runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
-		return generateCampaignOpeningFrameStage(c, d, gameID, language)
+		return generateCampaignOpeningFrameStage(c, d, gameID, language, dir)
 	}) {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed generating opening scene frame stage", Code: "CAMPAIGN_STAGE_OPENING_FRAME"}
 	}

@@ -233,6 +233,10 @@ Set `DM_VELLARIS_URL` to the map service. Campaign generation (`generate-campaig
 3. Stores the world on the game and writes the campaign from its regions.
 4. Renders the player-facing map image (`POST /api/world/map`) in parallel with the campaign stages.
 
+The table owner sets the campaign's direction in the party lobby: an optional premise and an optional tone and style.
+Both live on `gameSetup.party`, so the choice survives a reload. A tone the owner chose is written into every generated
+field and stored as `campaignSpec.toneAndStyle`, so the DM narrates in the same voice the owner asked for.
+
 Campaign and adventure place names come from the map, not from the model. The campaign core receives the world's
 region **and named-place** lists, every campaign stage gets the world block in its system stack, the `keyLocations`
 stage may only choose among the map's **settlements**, and `campaignspec.AlignKeyLocationsToWorld` enforces it before
@@ -243,8 +247,9 @@ respect that (never “the market of <region>”). The opening narration is rend
 (`templates/dm/inject_initial.md`) with its key locations reconciled to the map again, so even a campaign generated
 before this rule existed opens on places the players can find on their map.
 
-Every player gets a map button in the chat header and opens the campaign map in their own browser; opening or closing
-it never changes what anyone else at the table sees, and no host permission is involved.
+Every player gets a map button in the chat header — and in the party lobby, because the world is drawn before play
+starts — and opens the campaign map in their own browser; opening or closing it never changes what anyone else at the
+table sees, and no host permission is involved.
 
 A world can also be imported directly, which skips step 2:
 

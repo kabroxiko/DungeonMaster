@@ -369,12 +369,6 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 			lang = strings.TrimSpace(l)
 		}
 	}
-	hostPremise := ""
-	if pp := party.GetParty(toMap(transitioned["gameSetup"])); pp != nil {
-		if h, ok := pp["hostPremise"].(string); ok {
-			hostPremise = h
-		}
-	}
 
 	// The start writes several model stages, which can outlast any proxy in front of this server: a gateway timeout
 	// used to kill the request while the table waited on a start that had already been claimed. The claim above is
@@ -396,7 +390,7 @@ func HandleStartPartyAdventure(ctx context.Context, d *Deps, cfg *config.Config,
 		}()
 		startCtx, cancel := context.WithTimeout(context.Background(), partyStartBudget)
 		defer cancel()
-		if st, out := runPartyStart(startCtx, d, cfg, hub, gameID, userID, lang, hostPremise, worldSettings); st != 200 {
+		if st, out := runPartyStart(startCtx, d, cfg, hub, gameID, userID, lang, worldSettings); st != 200 {
 			log.Printf("party start: game %s did not start (%d): %v", gameID, st, out["error"])
 		} else {
 			log.Printf("party start: game %s is playing", gameID)
@@ -416,8 +410,8 @@ const partyStartBudget = 20 * time.Minute
 // runPartyStart writes the campaign, the session shell and the opening scene for a start that has already claimed the
 // table. It returns the status and payload the synchronous path used to answer with; the caller only logs them, because
 // once the start runs on its own the game state is the answer.
-func runPartyStart(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, gameID, userID, lang, hostPremise string, worldSettings map[string]interface{}) (int, map[string]interface{}) {
-	camp := RunLobbyCampaignCoreWithStages(ctx, d, gameID, lang, hostPremise, userID, worldSettings)
+func runPartyStart(ctx context.Context, d *Deps, cfg *config.Config, hub *realtime.Hub, gameID, userID, lang string, worldSettings map[string]interface{}) (int, map[string]interface{}) {
+	camp := RunLobbyCampaignCoreWithStages(ctx, d, gameID, lang, userID, worldSettings)
 	if !camp.OK {
 		_ = revertPartyLobbyPhaseOnly(ctx, d.Coll, gameID, camp.Error)
 		if hub != nil {

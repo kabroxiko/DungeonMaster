@@ -21,6 +21,26 @@ func TestLoadCampaignGeneratorParts(t *testing.T) {
 	}
 }
 
+// The owner's tone is a system-level constraint for generation: the creative seed's mood must not outrank it, so it
+// belongs in the generator's build context and not only in the user message.
+func TestCampaignGeneratorSystemContextCarriesTheHostTone(t *testing.T) {
+	joined := ""
+	for _, m := range BuildCampaignCoreSystemMsgs("English", "dry and ominous", "{}", "", nil) {
+		joined += m["content"] + "\n"
+	}
+	if !strings.Contains(joined, "dry and ominous") {
+		t.Fatal("the generator system context lost the host's tone")
+	}
+
+	withoutTone := ""
+	for _, m := range BuildCampaignCoreSystemMsgs("English", "", "{}", "", nil) {
+		withoutTone += m["content"] + "\n"
+	}
+	if strings.Contains(withoutTone, "Campaign voice (MUST") {
+		t.Fatal("a campaign with no chosen tone must not carry the tone rule")
+	}
+}
+
 func TestComposeSystemMessagesHasNoFrontmatter(t *testing.T) {
 	for _, m := range ComposeSystemMessages("combat", "", true, "english") {
 		content := m["content"]

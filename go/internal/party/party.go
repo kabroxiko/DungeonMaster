@@ -17,6 +17,7 @@ func DefaultParty() map[string]interface{} {
 		"readyUserIds":                        []interface{}{},
 		"characterBusyUntil":                  map[string]interface{}{},
 		"hostPremise":                         "",
+		"hostToneAndStyle":                    "",
 		"pendingNarrativeIntroductionUserIds": []interface{}{},
 		"narrativeIntroducedUserIds":          []interface{}{},
 		"lastStartError":                      nil,

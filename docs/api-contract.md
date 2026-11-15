@@ -61,7 +61,7 @@ password — never appear in a log line.
 | GET | `/debug/:gameId/prompts` | Bearer, **admin only** | Raw prompt stack and model output of any game |
 | POST | `/create-party` | Bearer | 201 + lobby `gameSetup`; **reuses** the caller's unstarted lobby (200) instead of creating a second |
 | POST | `/party-ready` | Bearer | |
-| PATCH | `/party-premise` | Bearer | Owner only |
+| PATCH | `/party-campaign-direction` | Bearer | Owner only; body names `hostPremise`, `hostToneAndStyle`, or both |
 | GET | `/mine` | Bearer only (no query token) | Summary rows |
 | DELETE | `/mine/:gameId` | Bearer | Owner delete |
 
@@ -81,6 +81,12 @@ password — never appear in a log line.
 | POST | `/measure-travel` | Bearer |
 
 ### Campaign generation and the map
+
+The table owner sets the campaign's direction in the lobby with `PATCH /api/game-state/party-campaign-direction`: the
+optional `hostPremise` the campaign is written from, and the optional `hostToneAndStyle` it is written and played in.
+The fields live on `gameSetup.party` and a game-scoped generation reads them there, so the choice survives a reload. A
+non-empty `hostToneAndStyle` is the campaign's own `toneAndStyle`: the generator writes every field in that voice, and
+the stored `campaignSpec.toneAndStyle` is the owner's wording, which live play reads back through the DM prompt.
 
 `generate-campaign`, `generate-campaign-core` and `start-party-adventure` resolve the campaign's world **before**
 generating any text:
@@ -103,9 +109,10 @@ one, otherwise by the stored settings. Deleting a game deletes its stored map fr
 A failed world step fails the campaign (a campaign is never written without its map). A failed image render does not:
 the campaign still succeeds and the response carries `mapImageWarning`, with `campaignSpec.mapImageError` on the game.
 
-`GET /api/game-state/map/:gameId` serves the rendered map to any game member. The chat header's map button is
-per-browser: each player opens and closes the campaign map on their own screen, so opening it never affects anyone
-else's view and no owner permission is involved.
+`GET /api/game-state/map/:gameId` serves the rendered map to any game member. The map control is per-browser: each
+player opens and closes the campaign map on their own screen, so opening it never affects anyone else's view and no
+owner permission is involved. It is offered in the party lobby as well as in play, because the world is drawn before the
+adventure starts.
 
 Two renditions are stored for each game: the picture exactly as rendered (2.7 MB for a 4096×2304 world) and a
 pre-scaled 2048px copy (about 530 KB) built once by `storeWorldMapImage`. The route answers the preview, and the render

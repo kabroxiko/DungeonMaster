@@ -575,7 +575,10 @@ func (s *Server) handlePartyCharacterBusy(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "characterBusyUntil": stamps})
 }
 
-func (s *Server) handlePartyPremise(w http.ResponseWriter, r *http.Request, uid string) {
+// handlePartyCampaignDirection patches the direction the table owner gave the campaign: the optional premise it is
+// written from, and the tone and style it is written and played in. A field the request does not name is left alone, so
+// saving one choice never clears the other.
+func (s *Server) handlePartyCampaignDirection(w http.ResponseWriter, r *http.Request, uid string) {
 	var body map[string]interface{}
 	if !readJSON(w, r, &body) {
 		return
@@ -590,13 +593,16 @@ func (s *Server) handlePartyPremise(w http.ResponseWriter, r *http.Request, uid 
 		sendAccessError(w, r, err)
 		return
 	}
-	hostPremise := ""
+	if body["hostPremise"] == nil && body["hostToneAndStyle"] == nil {
+		writeJSONCoded(w, r, http.StatusBadRequest, "CAMPAIGN_DIRECTION_EMPTY", "send hostPremise or hostToneAndStyle")
+		return
+	}
+	patch := map[string]interface{}{}
 	if body["hostPremise"] != nil {
-		s := fmt.Sprint(body["hostPremise"])
-		if len(s) > 8000 {
-			s = s[:8000]
-		}
-		hostPremise = s
+		patch["hostPremise"] = cappedText(body["hostPremise"], 8000)
+	}
+	if body["hostToneAndStyle"] != nil {
+		patch["hostToneAndStyle"] = cappedText(body["hostToneAndStyle"], 400)
 	}
 	var doc map[string]interface{}
 	err := s.coll().FindOne(ctx, bson.M{"gameId": gid}).Decode(&doc)
@@ -606,15 +612,25 @@ func (s *Server) handlePartyPremise(w http.ResponseWriter, r *http.Request, uid 
 	}
 	ownerStr := gameaccess.EffectiveGameOwnerIDStr(doc)
 	if ownerStr == "" || !strings.EqualFold(ownerStr, uid) {
-		writeJSONCoded(w, r, http.StatusForbidden, "NOT_OWNER_PREMISE", "Only the table owner can set the premise")
+		writeJSONCoded(w, r, http.StatusForbidden, "NOT_OWNER_CAMPAIGN_DIRECTION", "Only the table owner can set the campaign direction")
 		return
 	}
-	nextSetup := party.MergeParty(toMap(doc["gameSetup"]), map[string]interface{}{"hostPremise": hostPremise})
+	nextSetup := party.MergeParty(toMap(doc["gameSetup"]), patch)
 	_, _ = s.coll().UpdateOne(ctx, bson.M{"gameId": gid}, bson.M{"$set": bson.M{"gameSetup": nextSetup}})
 	s.Hub.NotifyGameStateUpdated(gid)
 	var fresh map[string]interface{}
 	_ = s.coll().FindOne(ctx, bson.M{"gameId": gid}).Decode(&fresh)
 	writeJSON(w, http.StatusOK, gamesession.GameStateDocForClient(fresh))
+}
+
+// cappedText renders a JSON value as text and bounds it to the width the campaign prompt can carry. The bound is
+// counted in runes, because slicing bytes would cut a non-Latin choice in half.
+func cappedText(v interface{}, maxRunes int) string {
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if r := []rune(s); len(r) > maxRunes {
+		s = string(r[:maxRunes])
+	}
+	return s
 }
 
 func (s *Server) handleMine(w http.ResponseWriter, r *http.Request, uid string) {

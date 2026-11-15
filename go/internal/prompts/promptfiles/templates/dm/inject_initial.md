@@ -13,11 +13,6 @@ Campaign title (for your orientation only; do not read aloud as a label to playe
 Campaign concept:
 {{campaignConcept}}
 
-{{#campaignToneAndStyle}}
-Tone and style:
-{{campaignToneAndStyle}}
-
-{{/campaignToneAndStyle}}
 Relevant factions (brief):
 {{#factions}}
 - {{name}} — {{goal}}. Resources: {{resources}}. Disposition: {{currentDisposition}}

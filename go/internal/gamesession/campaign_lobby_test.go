@@ -46,6 +46,38 @@ func TestStagePanicBecomesAStageFailure(t *testing.T) {
 	}
 }
 
+// The owner's tone is the campaign's tone, so the stored value is the choice itself rather than the model's paraphrase
+// of it; a table that chose nothing keeps whatever the model wrote.
+func TestApplyHostToneAndStyle(t *testing.T) {
+	chosen := map[string]interface{}{"toneAndStyle": "whatever the model wrote"}
+	applyHostToneAndStyle(chosen, "  dry and ominous  ")
+	if chosen["toneAndStyle"] != "dry and ominous" {
+		t.Fatalf("the owner's choice must win, got %v", chosen["toneAndStyle"])
+	}
+
+	generated := map[string]interface{}{"toneAndStyle": "whatever the model wrote"}
+	applyHostToneAndStyle(generated, "   ")
+	if generated["toneAndStyle"] != "whatever the model wrote" {
+		t.Fatalf("a blank choice must leave the generated tone alone, got %v", generated["toneAndStyle"])
+	}
+}
+
+// The direction is normalized once, when it is read, so the cap has to be counted in runes and applied after trimming.
+func TestNewCampaignDirectionNormalizesOnce(t *testing.T) {
+	dir := newCampaignDirection("  "+strings.Repeat("á", 2500)+"  ", "  comedia  ")
+	if got := len([]rune(dir.Premise)); got != 2000 {
+		t.Fatalf("premise cap = %d runes, want 2000", got)
+	}
+	if dir.ToneAndStyle != "comedia" {
+		t.Fatalf("tone = %q, want the trimmed choice", dir.ToneAndStyle)
+	}
+
+	empty := newCampaignDirection("   ", "   ")
+	if empty.Premise != "" || empty.ToneAndStyle != "" {
+		t.Fatalf("blank values must stay empty, got %+v", empty)
+	}
+}
+
 func TestStageTimeoutStillReportsFailure(t *testing.T) {
 	got := runStageWithTimeout(context.Background(), 50*time.Millisecond, func(ctx context.Context) bool {
 		<-ctx.Done()

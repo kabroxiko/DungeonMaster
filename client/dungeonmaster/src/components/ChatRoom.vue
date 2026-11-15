@@ -14,21 +14,81 @@
                     <h2 class="party-lobby__title">{{ $i18n.lobby_title }}</h2>
                     <p class="party-lobby__desc">{{ $i18n.lobby_desc }}</p>
                 </div>
-                <button
-                    v-if="!partyLobbyActionsFrozen && canShareInviteLink"
-                    type="button"
-                    class="party-lobby__invite app-banner__tool chat-room__invite-tool"
-                    :disabled="inviteLoading"
-                    :aria-busy="inviteLoading"
-                    :title="$i18n.invite_players"
-                    :aria-label="$i18n.invite_players"
-                    @click="copyInviteLink"
-                >
-                    <span class="visually-hidden">{{ $i18n.invite_players }}</span>
-                    <FontAwesomeIcon :icon="faUserPlus" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
-                </button>
+                <div class="party-lobby__hero-tools">
+                    <!-- The world exists before play does, so the map is readable while the table is still choosing
+                         characters: a map that only appears once play starts is a map the table never saw being drawn. -->
+                    <button
+                        v-if="showMapButton"
+                        type="button"
+                        class="app-banner__tool chat-room__map-tool"
+                        :class="{ 'chat-room__map-tool--on': mapVisible }"
+                        :aria-pressed="mapVisible ? 'true' : 'false'"
+                        :title="mapVisible ? $i18n.map_hide : $i18n.map_show"
+                        :aria-label="mapVisible ? $i18n.map_hide : $i18n.map_show"
+                        @click="toggleMap"
+                    >
+                        <span class="visually-hidden">{{ mapVisible ? $i18n.map_hide : $i18n.map_show }}</span>
+                        <FontAwesomeIcon :icon="faMap" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
+                    </button>
+                    <button
+                        v-if="!partyLobbyActionsFrozen && canShareInviteLink"
+                        type="button"
+                        class="party-lobby__invite app-banner__tool chat-room__invite-tool"
+                        :disabled="inviteLoading"
+                        :aria-busy="inviteLoading"
+                        :title="$i18n.invite_players"
+                        :aria-label="$i18n.invite_players"
+                        @click="copyInviteLink"
+                    >
+                        <span class="visually-hidden">{{ $i18n.invite_players }}</span>
+                        <FontAwesomeIcon :icon="faUserPlus" class="ui-icon ui-icon--toolbar" aria-hidden="true" />
+                    </button>
+                </div>
             </div>
         </header>
+        <!-- The table's tone is the owner's call, and it is made before the campaign is written rather than corrected
+             after. Only the owner sees the control; everyone reads the result in the campaign background. -->
+        <section v-if="showHostToneChooser" class="party-lobby__direction" :aria-label="$i18n.lobby_tone_and_style_label">
+            <form class="party-lobby__direction-form" @submit.prevent="saveHostToneAndStyle">
+                <span class="party-lobby__direction-label">{{ $i18n.lobby_tone_and_style_label }}</span>
+                <div class="party-lobby__direction-row">
+                    <!-- A preset is a shortcut, not a closed list: the text field beside it accepts any wording, and
+                         "no preference" leaves the choice empty. -->
+                    <select
+                        class="control party-lobby__direction-select"
+                        :value="hostTonePresetValue"
+                        :aria-label="$i18n.lobby_tone_and_style_preset_aria"
+                        @change="onHostTonePresetChange"
+                    >
+                        <option value="">{{ $i18n.lobby_tone_and_style_none }}</option>
+                        <option v-for="preset in hostTonePresets" :key="preset" :value="preset">{{ preset }}</option>
+                        <option value="__custom__">{{ $i18n.lobby_tone_and_style_custom }}</option>
+                    </select>
+                    <input
+                        id="lobby-tone-and-style"
+                        ref="hostToneInput"
+                        class="control party-lobby__direction-input"
+                        type="text"
+                        maxlength="240"
+                        v-model="hostToneDraft"
+                        :placeholder="$i18n.lobby_tone_and_style_placeholder"
+                        :aria-label="$i18n.lobby_tone_and_style_free_aria"
+                        @input="onHostToneInput"
+                        @blur="flushHostToneSave"
+                        @keydown.enter.prevent="flushHostToneSave"
+                    />
+                    <!-- No Save button: the value is stored as it is edited, and this reports the last write. -->
+                    <span
+                        v-if="hostToneStatusText"
+                        class="party-lobby__direction-status"
+                        role="status"
+                        aria-live="polite"
+                    >{{ hostToneStatusText }}</span>
+                </div>
+                <p class="party-lobby__direction-hint">{{ $i18n.lobby_tone_and_style_hint }}</p>
+                <p v-if="hostToneError" class="party-lobby__alert party-lobby__alert--table" role="alert">{{ hostToneError }}</p>
+            </form>
+        </section>
         <!-- One world for the table, so its progress belongs to the table rather than to any player's row. The animation
              is a decorative asset, so it lives in CSS as the art box's background and stays out of the a11y tree.
              The world is drawn once, in the lobby; starting the adventure only writes text on it, which the party's
@@ -696,6 +756,21 @@ export default {
                 gameOwnerUserId: null,
                 /** From GET /game-state/load — host vs member for invite UI. */
                 viewerIsGameOwner: null,
+                /** The owner's in-progress answer to "what tone and style is this campaign played in". */
+                hostToneDraft: '',
+                /** The draft differs from the stored choice; a sync must not overwrite it mid-edit. */
+                hostToneDraftDirty: false,
+                hostToneSaving: false,
+                hostToneSaved: false,
+                hostToneError: '',
+                /** Pending auto-save for edited text; cleared when the value is flushed. */
+                hostToneSaveTimer: null,
+                /** The value the server last confirmed, so an unchanged draft is never sent again. */
+                hostToneLastSaved: '',
+                /** A save was requested while one was in flight; it runs when the first one ends. */
+                hostToneSaveAgain: false,
+                /** The request currently in flight, so a flush can wait for it instead of racing it. */
+                hostToneSavePromise: null,
                 inviteToastVisible: false,
                 inviteToastMessage: '',
                 inviteToastVariant: 'success',
@@ -1011,9 +1086,36 @@ export default {
                 const ph = this.partyPhase;
                 return ph === 'lobby' || ph === 'starting';
             },
-            /** Every member can open the campaign map in their own browser; only a game with a rendered map has one. */
+            /**
+             * Every member can open the campaign map in their own browser, in the lobby as well as in play: the world
+             * is drawn before the adventure starts, so hiding the map until the start would hide it exactly while the
+             * table is waiting to see it.
+             */
             showMapButton() {
-                return Boolean(this.campaignMapImage) && !this.isPartyLobby;
+                return Boolean(this.campaignMapImage);
+            },
+            /** Only the table owner may set the campaign's tone, and only while the campaign can still be written. */
+            showHostToneChooser() {
+                return this.isPartyLobby && this.isGameOwner && !this.partyLobbyActionsFrozen;
+            },
+            /** Preset wording the owner may pick; a preset only fills the field, so the list is never a closed set. */
+            hostTonePresets() {
+                const presets = this.$i18n && Array.isArray(this.$i18n.lobby_tone_presets)
+                    ? this.$i18n.lobby_tone_presets
+                    : [];
+                return presets.filter((preset) => typeof preset === 'string' && preset.trim());
+            },
+            /** '' = no preference, a preset label = that preset, '__custom__' = whatever the owner typed. */
+            hostTonePresetValue() {
+                const value = String(this.hostToneDraft || '').trim();
+                if (!value) return '';
+                return this.hostTonePresets.includes(value) ? value : '__custom__';
+            },
+            /** Quiet confirmation beside the field; the choice saves itself. */
+            hostToneStatusText() {
+                if (this.hostToneSaving) return this.$i18n.lobby_tone_and_style_saving;
+                if (!this.hostToneDraftDirty && this.hostToneSaved) return this.$i18n.lobby_tone_and_style_saved;
+                return '';
             },
             /** The written campaign background is readable whenever the campaign has content and play has begun. */
             showBackgroundButton() {
@@ -1457,18 +1559,25 @@ export default {
 
         watch: {
             '$store.state.gameId'(to, from) {
-                if (String(to ?? '') !== String(from ?? '')) {
-                    this.lobbyCharacterEditorOpen = false;
-                    this.lobbyInlineWizardHold = false;
-                    this.localPlayerCharacter = null;
-                    this.lobbyInlineConfirmSheet = null;
-                    // The previous game's map marker died with the previous game: nothing may ask for that picture on
-                    // this game's id until this game's own state has been read back.
-                    this.campaignMapImage = null;
-                    this.campaignMapGameId = null;
-                    this.mapPreloadKey = null;
-                    this.closeMapModal();
-                }
+                const next = to != null ? String(to).trim() : '';
+                const prev = from != null ? String(from).trim() : '';
+                if (next === prev) return;
+                // Hydrating the room from the game already in the URL is not a switch: loadGameState writes that
+                // game's map marker right after committing its id, and this watcher runs after it, so clearing here
+                // deleted the very marker the load had just read back and the map button vanished on every reload.
+                const routeId = this.$route.params.id ? String(this.$route.params.id).trim() : '';
+                if (next && next === routeId) return;
+                this.lobbyCharacterEditorOpen = false;
+                this.lobbyInlineWizardHold = false;
+                this.localPlayerCharacter = null;
+                this.lobbyInlineConfirmSheet = null;
+                // The previous game's map marker died with the previous game: nothing may ask for that picture on
+                // this game's id until this game's own state has been read back.
+                this.campaignMapImage = null;
+                this.campaignMapGameId = null;
+                this.mapPreloadKey = null;
+                this.resetHostToneDraft();
+                this.closeMapModal();
             },
             '$route.params.id'(to, from) {
                 if (!this.$store.getters.isAuthenticated) return;
@@ -1479,6 +1588,7 @@ export default {
                 this.lobbyCharacterEditorOpen = false;
                 this.lobbyInlineWizardHold = false;
                 this.lobbyInlineConfirmSheet = null;
+                this.resetHostToneDraft();
                 void this.loadGameState(next, { replaceLocalCharacter: true });
             },
             partyLobbyDebugFingerprint() {
@@ -1611,6 +1721,10 @@ export default {
             if (this.inviteToastTimer) {
                 clearTimeout(this.inviteToastTimer);
                 this.inviteToastTimer = null;
+            }
+            if (this.hostToneSaveTimer) {
+                clearTimeout(this.hostToneSaveTimer);
+                this.hostToneSaveTimer = null;
             }
             this.stopPendingReplyPoller();
             this.stopGameStateEventSource();
@@ -2518,6 +2632,127 @@ export default {
                 }
             },
 
+            /** The stored tone and style choice, from any gameSetup payload (load response or store). */
+            storedHostToneAndStyle(gameSetup) {
+                const p = gameSetup && typeof gameSetup === 'object' ? gameSetup.party : null;
+                return p && typeof p.hostToneAndStyle === 'string' ? p.hostToneAndStyle : '';
+            },
+            /** Drops an edit that belonged to the game this room is leaving. */
+            resetHostToneDraft() {
+                if (this.hostToneSaveTimer) {
+                    clearTimeout(this.hostToneSaveTimer);
+                    this.hostToneSaveTimer = null;
+                }
+                this.hostToneSaveAgain = false;
+                this.hostToneSavePromise = null;
+                this.hostToneDraft = '';
+                this.hostToneDraftDirty = false;
+                this.hostToneSaving = false;
+                this.hostToneSaved = false;
+                this.hostToneLastSaved = '';
+                this.hostToneError = '';
+            },
+            /** Marks the draft as the owner's own text so a state push cannot replace it mid-edit. */
+            onHostToneInput() {
+                this.hostToneDraftDirty = true;
+                this.hostToneSaved = false;
+                this.hostToneError = '';
+                this.scheduleHostToneSave();
+            },
+            /** Waits for typing to pause before storing, so a sentence is one request and not one per key. */
+            scheduleHostToneSave(delayMs = 700) {
+                if (this.hostToneSaveTimer) clearTimeout(this.hostToneSaveTimer);
+                this.hostToneSaveTimer = setTimeout(() => {
+                    this.hostToneSaveTimer = null;
+                    void this.saveHostToneAndStyle();
+                }, delayMs);
+            },
+            /** Stores a pending draft now: a preset pick, the field losing focus, Enter, or a start. */
+            async flushHostToneSave() {
+                if (this.hostToneSaveTimer) {
+                    clearTimeout(this.hostToneSaveTimer);
+                    this.hostToneSaveTimer = null;
+                }
+                // A request may already be on the wire; wait for it, then send whatever is still pending.
+                if (this.hostToneSaving && this.hostToneSavePromise) await this.hostToneSavePromise;
+                if (this.hostToneDraftDirty && !this.hostToneSaving) await this.saveHostToneAndStyle();
+            },
+            /** A preset fills the field; the field stays the source of truth and can always be edited freely. */
+            onHostTonePresetChange(event) {
+                const value = String((event && event.target && event.target.value) || '');
+                if (value === '__custom__') {
+                    this.$nextTick(() => {
+                        if (this.$refs.hostToneInput) this.$refs.hostToneInput.focus();
+                    });
+                    return;
+                }
+                this.hostToneDraft = value;
+                this.onHostToneInput();
+                // A pick is a finished choice, so it is stored at once instead of waiting out the typing debounce.
+                void this.flushHostToneSave();
+            },
+            /**
+             * Stores the owner's tone and style on the game. The next start reads it from there, so the choice survives
+             * a reload and does not depend on this tab still being open when the campaign is written.
+             *
+             * A second request while the first is in flight is remembered and sent when that one ends, so the last
+             * thing the owner typed is always the thing the server keeps.
+             */
+            async saveHostToneAndStyle() {
+                const gid = this.$route.params.id ? String(this.$route.params.id).trim() : '';
+                if (!gid) return;
+                if (this.hostToneSaveTimer) {
+                    clearTimeout(this.hostToneSaveTimer);
+                    this.hostToneSaveTimer = null;
+                }
+                if (this.hostToneSaving) {
+                    this.hostToneSaveAgain = true;
+                    if (this.hostToneSavePromise) await this.hostToneSavePromise;
+                    return;
+                }
+                const value = String(this.hostToneDraft || '').trim();
+                if (!this.hostToneDraftDirty) return;
+                if (value === this.hostToneLastSaved) {
+                    this.hostToneDraftDirty = false;
+                    this.hostToneSaved = true;
+                    return;
+                }
+                this.hostToneSaving = true;
+                this.hostToneError = '';
+                const stillHere = () => String(this.$route.params.id || '').trim() === gid;
+                this.hostToneSavePromise = axios
+                    .patch('/api/game-state/party-campaign-direction', {
+                        gameId: gid,
+                        hostToneAndStyle: value,
+                    })
+                    .then(() => {
+                        if (!stillHere()) return;
+                        this.hostToneLastSaved = value;
+                        if (String(this.hostToneDraft || '').trim() === value) {
+                            this.hostToneDraftDirty = false;
+                            this.hostToneSaved = true;
+                        }
+                    })
+                    .catch(() => {
+                        if (!stillHere()) return;
+                        this.hostToneSaved = false;
+                        this.hostToneError = this.$i18n.lobby_tone_and_style_save_failed;
+                    })
+                    .finally(() => {
+                        this.hostToneSaving = false;
+                        this.hostToneSavePromise = null;
+                        if (!stillHere()) return;
+                        if (this.hostToneSaveAgain) {
+                            this.hostToneSaveAgain = false;
+                            this.scheduleHostToneSave(0);
+                        } else if (String(this.hostToneDraft || '').trim() !== value) {
+                            // Typed while the request was in flight: store the newer text too.
+                            this.scheduleHostToneSave();
+                        }
+                    });
+                await this.hostToneSavePromise;
+            },
+
             /**
              * Pull latest conversation from DB (other players / other tabs).
              * SSE (`/api/game-state/events/:gameId`) signals updates; this GET applies the snapshot.
@@ -2655,6 +2890,13 @@ export default {
                 }
                 this.lobbyRosterConfirmPosting = true;
                 try {
+                    // The tone saves itself as it is typed; make sure the last keystroke reached the server before the
+                    // campaign is generated from it.
+                    await this.flushHostToneSave();
+                    if (this.hostToneError) {
+                        this.showInviteToast(this.hostToneError, 'error');
+                        return;
+                    }
                     const setup = this.$refs.lobbyInlineSetup;
                     if (setup && typeof setup.runLobbyRosterConfirmAndReady === 'function') {
                         const handled = await setup.runLobbyRosterConfirmAndReady();
@@ -2798,6 +3040,13 @@ export default {
                 if (this.lobbyRetryPosting) return;
                 this.lobbyRetryPosting = true;
                 try {
+                    // A repeated start regenerates the campaign from the direction, so a pending edit has to be stored
+                    // first or the retry would use the previous tone.
+                    await this.flushHostToneSave();
+                    if (this.hostToneError) {
+                        this.showInviteToast(this.hostToneError, 'error');
+                        return;
+                    }
                     const uid = this.myUserIdStr;
                     if (!uid || !this.memberHasCommittedSheet(uid)) {
                         // The failure may be about the sheet itself; say so and send the player to the character flow,
@@ -3053,6 +3302,7 @@ export default {
                     this.campaignMapImage = null;
                     this.campaignMapGameId = null;
                     this.mapPreloadKey = null;
+                    this.resetHostToneDraft();
                 }
                 const replaceLocalCharacter = opts.replaceLocalCharacter === true;
                 /** When true, SSE may skip a follow-up sync for ~2s (same server notify as this load). */
@@ -3100,6 +3350,11 @@ export default {
                     // Restore the game state
                     this.$store.commit('setGameId', gameState.gameId);
                     this.$store.commit('setGameSetup', gameState.gameSetup);
+                    // The stored choice is the truth; the draft only follows it while the owner is not editing.
+                    if (!this.hostToneDraftDirty) {
+                        this.hostToneDraft = this.storedHostToneAndStyle(gameState.gameSetup);
+                        this.hostToneLastSaved = this.hostToneDraft;
+                    }
                     // A start this tab asked for has now been read back from the server: either the party is claimed
                     // ("starting", and the row already says so) or it is not, and the row must stop claiming it is.
                     const loadedPartyPhase =
@@ -3899,9 +4154,76 @@ export default {
     max-width: 42rem;
   }
 
-  .party-lobby__invite {
+  .party-lobby__hero-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     flex-shrink: 0;
     margin-top: 0.15rem;
+  }
+
+  .party-lobby__invite {
+    flex-shrink: 0;
+  }
+
+  /* The owner writes the campaign's voice down before the campaign is written; everyone else only reads the result. */
+  .party-lobby__direction {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.75rem 1rem;
+    border-radius: 14px;
+    border: 1px solid rgba(212, 180, 106, 0.22);
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .party-lobby__direction-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .party-lobby__direction-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(230, 225, 216, 0.75);
+  }
+
+  .party-lobby__direction-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .party-lobby__direction-input {
+    flex: 1 1 16rem;
+    min-width: 0;
+  }
+
+  .party-lobby__direction-select {
+    flex: 0 1 14rem;
+    min-width: 0;
+  }
+
+  .party-lobby__direction-status {
+    align-self: center;
+    flex-shrink: 0;
+    font-size: 0.78rem;
+    color: var(--gm-muted, #9a8f85);
+    white-space: nowrap;
+  }
+
+  .party-lobby__direction-save {
+    flex-shrink: 0;
+  }
+
+  .party-lobby__direction-hint {
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--gm-muted, #9a8f85);
   }
 
   .party-lobby__debug {

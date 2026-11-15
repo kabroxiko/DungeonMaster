@@ -106,11 +106,7 @@ func resolveCampaignCoreStageTimeout() time.Duration {
 	return 120 * time.Second
 }
 
-func creativeSeedRace(ctx context.Context, d *Deps, gameID, language, hostPremise string) (ok bool, seed map[string]interface{}, raw string, code string) {
-	hostTrim := strings.TrimSpace(hostPremise)
-	if len(hostTrim) > 2000 {
-		hostTrim = hostTrim[:2000]
-	}
+func creativeSeedRace(ctx context.Context, d *Deps, gameID, language string, dir CampaignDirection) (ok bool, seed map[string]interface{}, raw string, code string) {
 	seedRaceMs := resolveCreativeSeedRaceTimeout()
 	seedCtx, cancelSeed := context.WithTimeout(ctx, seedRaceMs)
 	defer cancelSeed()
@@ -121,7 +117,7 @@ func creativeSeedRace(ctx context.Context, d *Deps, gameID, language, hostPremis
 		code string
 	}, 1)
 	go func() {
-		o, s, r, c := generateCampaignCreativeSeedStage(seedCtx, d, gameID, language, hostTrim, false)
+		o, s, r, c := generateCampaignCreativeSeedStage(seedCtx, d, gameID, language, dir)
 		ch <- struct {
 			ok   bool
 			seed map[string]interface{}
@@ -146,7 +142,6 @@ func accessErrHTTP(err error) (int, map[string]interface{}) {
 
 // HandleGenerateCampaign mirrors POST /api/game-session/generate-campaign.
 func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[string]interface{}, queryGameID string) (int, interface{}) {
-	hostPremise := strParam(body, "hostPremise")
 	gameID := strParam(body, "gameId")
 	if gameID == "" {
 		gameID = queryGameID
@@ -159,6 +154,10 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	}
 	// The map is named in the game's language, and so is the campaign written on it.
 	language := resolveCampaignLanguage(ctx, d, gameID, strParam(body, "language"))
+	dir, dirErr := campaignDirectionForRequest(ctx, d, gameID, body)
+	if dirErr != nil {
+		return 500, map[string]interface{}{"error": dirErr.Error(), "code": "CAMPAIGN_DIRECTION_UNAVAILABLE"}
+	}
 
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
@@ -174,7 +173,7 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
 
-	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, hostPremise)
+	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, dir)
 	if !ok {
 		return 500, map[string]interface{}{
 			"error": "Failed generating campaign creative-seed stage",
@@ -201,13 +200,13 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	rendered, err := mustache.Render(userTemplate, map[string]interface{}{
 		"sessionSummary":   "",
 		"language":         language,
-		"hostPremise":      strings.TrimSpace(hostPremise),
+		"hostPremise":      dir.Premise,
 		"creativeSeedJson": creativeJSON,
 	})
 	if err != nil {
 		return 500, map[string]interface{}{"error": "Failed rendering campaign generator prompt"}
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON, worldContext, worldData)
+	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, dir.ToneAndStyle, creativeJSON, worldContext, worldData)
 	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
 	campaignOutbound := []interface{}{
 		map[string]interface{}{"role": "system", "content": consolidated},
@@ -225,6 +224,7 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 		parsedObj = nil
 	} else {
 		ensureCampaignCoreTitle(parsedObj)
+		applyHostToneAndStyle(parsedObj, dir.ToneAndStyle)
 	}
 
 	gameIDPersist := strParam(body, "gameId")
@@ -270,7 +270,6 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 // HandleGenerateCampaignCore mirrors POST /api/game-session/generate-campaign-core.
 func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body map[string]interface{}) (int, interface{}) {
 	gameID := strParam(body, "gameId")
-	hostPremise := strParam(body, "hostPremise")
 	waitForStages := boolParam(body, "waitForStages", true)
 
 	if gameID != "" {
@@ -281,6 +280,10 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	}
 	// The map is named in the game's language, and so is the campaign written on it.
 	language := resolveCampaignLanguage(ctx, d, gameID, strParam(body, "language"))
+	dir, dirErr := campaignDirectionForRequest(ctx, d, gameID, body)
+	if dirErr != nil {
+		return 500, map[string]interface{}{"error": dirErr.Error(), "code": "CAMPAIGN_DIRECTION_UNAVAILABLE"}
+	}
 
 	_, userTemplate := promptmgr.LoadCampaignGeneratorParts()
 	if strings.TrimSpace(userTemplate) == "" {
@@ -296,7 +299,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
 
-	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, hostPremise)
+	ok, seed, rawSeed, code := creativeSeedRace(ctx, d, gameID, language, dir)
 	if !ok {
 		return 500, map[string]interface{}{
 			"error": "Failed generating campaign creative-seed stage",
@@ -320,12 +323,12 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		}
 		creativeJSON = s
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, creativeJSON, worldContext, worldData)
+	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, dir.ToneAndStyle, creativeJSON, worldContext, worldData)
 	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
 	userPromptRendered, err := mustache.Render(userTemplate, map[string]interface{}{
 		"sessionSummary":   "",
 		"language":         language,
-		"hostPremise":      strings.TrimSpace(hostPremise),
+		"hostPremise":      dir.Premise,
 		"creativeSeedJson": creativeJSON,
 	})
 	if err != nil {
@@ -363,6 +366,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 		return 500, map[string]interface{}{"error": "Failed to parse campaign core (YAML)", "raw": aiMessage}
 	}
 	ensureCampaignCoreTitle(parsedObj)
+	applyHostToneAndStyle(parsedObj, dir.ToneAndStyle)
 
 	stageDur := resolveCampaignCoreStageTimeout()
 
@@ -382,7 +386,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 			}
 		}
 		if !runStageWithTimeout(ctx, stageDur, func(c context.Context) bool {
-			return generateCampaignOpeningFrameStage(c, d, gameID, language)
+			return generateCampaignOpeningFrameStage(c, d, gameID, language, dir)
 		}) {
 			return 500, map[string]interface{}{"error": "Failed generating opening scene frame stage"}
 		}
@@ -456,7 +460,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 				})
 			}
 			_ = runStageWithTimeout(bg, stageDur, func(c context.Context) bool {
-				return generateCampaignOpeningFrameStage(c, d2, gid, lang)
+				return generateCampaignOpeningFrameStage(c, d2, gid, lang, dir)
 			})
 		}()
 	}
