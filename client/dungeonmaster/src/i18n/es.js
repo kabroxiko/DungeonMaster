@@ -89,7 +89,7 @@ export default {
     attributes: 'Atributos',
     dm_label: 'Dungeon Master',
     party_waiting_others: 'Esperando las acciones del resto del grupo en esta ronda…',
-    subtitle: 'Aventuras de fantasía en grupo con un Maestro de Calabozos de IA',
+    subtitle: 'Aventuras de fantasía en grupo con IA',
     background: 'Historia',
     sheet_story: 'Historia',
     sheet_tab_stats: 'Atributos',
