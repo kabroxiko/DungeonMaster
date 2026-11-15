@@ -26,6 +26,13 @@ appear on the players' map, and they cannot be changed. Name them exactly as wri
 {{#vellarisRegions}}
 - id: "{{id}}" — {{name}}{{#terrain}} ({{terrain}}){{/terrain}}
 {{/vellarisRegions}}
+{{#hasVellarisLandmasses}}
+Regions listed under one landmass share a continent or an island; regions under different landmasses are across open
+water.
+{{#vellarisLandmasses}}
+- {{label}}: {{regionText}}
+{{/vellarisLandmasses}}
+{{/hasVellarisLandmasses}}
 
 The terrain in parentheses is what that region is. Build its economy and conflicts from that ground and never
 contradict it: a desert region has no rivers, streams or woods, and an inland region has no harbour.

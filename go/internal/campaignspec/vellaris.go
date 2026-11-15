@@ -9,6 +9,7 @@ import (
 const vellarisMaxRegions = 24
 const vellarisMaxPlaces = 60
 const vellarisMaxRoutes = 20
+const vellarisMaxLandmasses = 24
 
 // vellarisMaxTerrainChars caps the coarse terrain picture that reaches the prompt. A grid for a large world is about
 // six thousand characters; anything far beyond that is not a picture of a map and would crowd out the rest of the
@@ -40,6 +41,7 @@ func NormalizeVellarisWorld(in map[string]interface{}) map[string]interface{} {
 
 	regions := normalizeVellarisRegions(in["regions"])
 	places, placeTotal := normalizeVellarisPlaces(in["places"], regionNameByID(regions))
+	landmasses := normalizeVellarisLandmasses(in["landmasses"], regions)
 	routes := normalizeVellarisRoutes(in["routes"])
 	if len(regions) == 0 && len(places) == 0 {
 		return nil
@@ -59,6 +61,11 @@ func NormalizeVellarisWorld(in map[string]interface{}) map[string]interface{} {
 		"hasRoutes":   len(routes) > 0,
 		"routeCount":  len(routes),
 		"routes":      routes,
+		// Which regions stand on the same continent or island. A list of regions alone cannot say that two of them are
+		// across an ocean from each other, and a reader with only names has to guess.
+		"hasLandmasses": len(landmasses) > 0,
+		"landmassCount": len(landmasses),
+		"landmasses":    landmasses,
 	}
 
 	// The terrain picture is what lets the DM answer a question about ground rather than about names: which way the sea
@@ -109,7 +116,7 @@ func normalizeVellarisRegions(raw interface{}) []interface{} {
 			continue
 		}
 		seen[id] = struct{}{}
-		regions = append(regions, map[string]interface{}{
+		entry := map[string]interface{}{
 			"id":          id,
 			"name":        name,
 			"type":        "Region",
@@ -118,7 +125,11 @@ func normalizeVellarisRegions(raw interface{}) []interface{} {
 			"centerCount": numText(m["centerCount"], 0),
 			"centerX":     numText(m["centerX"], 0),
 			"centerY":     numText(m["centerY"], 0),
-		})
+		}
+		if landmassID := regionIDText(m["landmassId"]); landmassID != "" && landmassID != "0" {
+			entry["landmassId"] = landmassID
+		}
+		regions = append(regions, entry)
 	}
 	return regions
 }
@@ -140,6 +151,117 @@ func regionNameByID(regions []interface{}) map[string]string {
 		}
 	}
 	return names
+}
+
+// normalizeVellarisLandmasses groups the kept regions by the continent or island the map puts them on.
+//
+// The map service reads the land itself: two regions on one landmass share continuous ground, while a region under
+// another landmass is across water with no road to it. Grouping is done here, once, instead of beside each region,
+// because the useful statement is not "region 3 is on landmass 2" but "these three regions are one island" - and a
+// model reading a list of ids has to do that comparison itself, badly.
+//
+// Returns nil when no kept region reports a landmass, which is how a world from an older map service reads: its
+// regions are still listed, they simply do not say which land they share.
+func normalizeVellarisLandmasses(raw interface{}, regions []interface{}) []interface{} {
+	if len(regions) == 0 {
+		return nil
+	}
+
+	kindByID := map[string]string{}
+	for _, item := range neighborSliceAny(raw) {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		id := regionIDText(m["id"])
+		if id == "" {
+			continue
+		}
+		kindByID[id] = landmassKind(stringFrom(m["kind"]))
+	}
+
+	type group struct {
+		id      string
+		kind    string
+		regions []string
+	}
+	byID := map[string]*group{}
+	order := make([]string, 0, len(regions))
+	for _, item := range regions {
+		m, _ := item.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		id := stringFrom(m["landmassId"])
+		name := stringFrom(m["name"])
+		if id == "" || name == "" {
+			continue
+		}
+		g, ok := byID[id]
+		if !ok {
+			g = &group{id: id, kind: kindByID[id]}
+			if g.kind == "" {
+				// The region says which land it is on but the world table is missing or unreadable, so the group is
+				// reported as what it is without claiming to be a continent or an island.
+				g.kind = "landmass"
+			}
+			byID[id] = g
+			order = append(order, id)
+		}
+		g.regions = append(g.regions, name)
+	}
+	if len(order) == 0 {
+		return nil
+	}
+
+	// The map service numbers landmasses largest first, so sorting by id reads the world from its main continent down
+	// to its smallest isle instead of in whatever order the regions happened to arrive.
+	sort.SliceStable(order, func(i, j int) bool {
+		a, aOK := floatFrom(order[i])
+		b, bOK := floatFrom(order[j])
+		if aOK && bOK {
+			return a < b
+		}
+		return order[i] < order[j]
+	})
+
+	out := make([]interface{}, 0, len(order))
+	for _, id := range order {
+		g := byID[id]
+		out = append(out, map[string]interface{}{
+			"id":          g.id,
+			"kind":        g.kind,
+			"label":       strings.ToUpper(g.kind[:1]) + g.kind[1:] + " " + g.id,
+			"regionText":  joinNameList(g.regions),
+			"regionCount": len(g.regions),
+		})
+	}
+	return out
+}
+
+// landmassKind keeps the map service's own two words for a piece of land, and refuses anything else rather than
+// passing an unknown word into the prompt.
+func landmassKind(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "island", "isle":
+		return "island"
+	case "continent":
+		return "continent"
+	default:
+		return ""
+	}
+}
+
+// joinNameList reads a list of names as prose: "A, B and C".
+func joinNameList(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	default:
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	}
 }
 
 // normalizeVellarisPlaces returns the kept places plus the true total, so the prompt can say how much it is showing.
@@ -832,13 +954,15 @@ func SanitizeVellarisWorld(in map[string]interface{}) map[string]interface{} {
 	regions := capList(in["regions"], vellarisMaxRegions*2)
 	places := capList(in["places"], 400)
 	routes := capList(in["routes"], vellarisMaxRoutes*2)
+	landmasses := capList(in["landmasses"], vellarisMaxLandmasses)
 	if len(regions) == 0 && len(places) == 0 {
 		return nil
 	}
 	out := map[string]interface{}{
-		"regions": regions,
-		"places":  places,
-		"routes":  routes,
+		"regions":    regions,
+		"places":     places,
+		"routes":     routes,
+		"landmasses": landmasses,
 	}
 	for _, key := range []string{"seed", "worldSize", "imageWidth", "imageHeight"} {
 		if v, ok := in[key]; ok && v != nil {

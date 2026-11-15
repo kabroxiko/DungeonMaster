@@ -11,6 +11,12 @@ Regions ({{{regionCount}}}) — territories, not settlements:
 {{#regions}}- {{{name}}} (region, id {{{id}}}){{#terrain}}, {{{terrain}}}{{/terrain}} — {{{centerCount}}} cells, centre {{{centerX}}}, {{{centerY}}}
 {{/regions}}
 {{/hasRegions}}
+{{#hasLandmasses}}
+Landmasses — the regions under one heading share a continent or an island, so land runs between them; a region under
+another heading is across open water:
+{{#landmasses}}- {{{label}}}: {{{regionText}}}
+{{/landmasses}}
+{{/hasLandmasses}}
 {{#hasPlaces}}
 Named places ({{{placeCount}}}){{{placesNotice}}}:
 {{#places}}- {{{name}}} ({{{kind}}}) at {{{x}}}, {{{y}}}{{{gridSuffix}}}{{{regionSuffix}}}{{{surroundingsSuffix}}}

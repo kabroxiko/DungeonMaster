@@ -293,6 +293,83 @@ func TestNormalizeVellarisWorldKeepsCitiesWhenTruncating(t *testing.T) {
 
 // A place is in exactly one region. The map reports which one, so the prompt can state it instead of leaving the model
 // to guess and file a place under a territory it is not in.
+func TestNormalizeVellarisWorldGroupsRegionsByLandmass(t *testing.T) {
+	world := map[string]interface{}{
+		"regions": []interface{}{
+			map[string]interface{}{"id": 1.0, "name": "Kannis", "landmassId": 2.0},
+			map[string]interface{}{"id": 2.0, "name": "Jodommisa", "landmassId": 1.0},
+			map[string]interface{}{"id": 3.0, "name": "Gele", "landmassId": 1.0},
+			// A region the map never placed on a landmass: it is still a region, it just does not join a group.
+			map[string]interface{}{"id": 4.0, "name": "Unplaced"},
+		},
+		"landmasses": []interface{}{
+			map[string]interface{}{"id": 1.0, "kind": "continent", "landCells": 900.0, "regionCount": 2.0},
+			map[string]interface{}{"id": 2.0, "kind": "island", "landCells": 40.0, "regionCount": 1.0},
+		},
+	}
+
+	normalized := NormalizeVellarisWorld(world)
+	groups, _ := normalized["landmasses"].([]interface{})
+	if len(groups) != 2 {
+		t.Fatalf("expected one entry per inhabited landmass, got %v", groups)
+	}
+
+	continent, _ := groups[0].(map[string]interface{})
+	if continent["id"] != "1" || continent["kind"] != "continent" {
+		t.Fatalf("the largest landmass should come first, got %v", continent)
+	}
+	if continent["label"] != "Continent 1" {
+		t.Fatalf("a group is labelled by its kind and id, got %q", continent["label"])
+	}
+	if continent["regionText"] != "Jodommisa and Gele" {
+		t.Fatalf("a group must name the regions that share it, got %q", continent["regionText"])
+	}
+	if continent["regionCount"] != 2 {
+		t.Fatalf("unexpected region count: %v", continent["regionCount"])
+	}
+
+	island, _ := groups[1].(map[string]interface{})
+	if island["label"] != "Island 2" || island["regionText"] != "Kannis" {
+		t.Fatalf("an island is reported apart from the continent, got %v", island)
+	}
+
+	// The region list keeps the landmass each region is on, so a template can point from one to the other.
+	regions, _ := normalized["regions"].([]interface{})
+	for _, raw := range regions {
+		region, _ := raw.(map[string]interface{})
+		if region["name"] == "Unplaced" {
+			if _, ok := region["landmassId"]; ok {
+				t.Fatal("a region with no landmass must not be given one")
+			}
+			continue
+		}
+		if stringFrom(region["landmassId"]) == "" {
+			t.Fatalf("a region the map placed on a landmass must say which: %v", region)
+		}
+	}
+}
+
+func TestNormalizeVellarisLandmassesKeepsAnUnknownKindOutOfThePrompt(t *testing.T) {
+	normalized := NormalizeVellarisWorld(map[string]interface{}{
+		"regions": []interface{}{
+			map[string]interface{}{"name": "Kannis", "landmassId": 3.0},
+		},
+		// A world whose landmass table says something this build does not know must not leak that word into the prompt.
+		"landmasses": []interface{}{
+			map[string]interface{}{"id": 3.0, "kind": "archipelago"},
+		},
+	})
+
+	groups, _ := normalized["landmasses"].([]interface{})
+	if len(groups) != 1 {
+		t.Fatalf("expected one group, got %v", groups)
+	}
+	group, _ := groups[0].(map[string]interface{})
+	if group["kind"] != "landmass" || group["label"] != "Landmass 3" {
+		t.Fatalf("an unknown kind should still group its regions, got %v", group)
+	}
+}
+
 func TestNormalizeVellarisWorldSaysWhichRegionEachPlaceIsIn(t *testing.T) {
 	world := map[string]interface{}{
 		"regions": []interface{}{
@@ -329,6 +406,7 @@ func TestSanitizeVellarisWorldKeepsOnlyKnownKeys(t *testing.T) {
 		"mapImageUrl": "https://example/map.jpg",
 		"regions":     []interface{}{map[string]interface{}{"name": "Suste"}},
 		"places":      []interface{}{map[string]interface{}{"name": "Azureenci"}},
+		"landmasses":  []interface{}{map[string]interface{}{"id": 1.0, "kind": "continent"}},
 		"junk":        "should not be stored",
 		"settings":    map[string]interface{}{"huge": "blob"},
 	})
@@ -343,6 +421,10 @@ func TestSanitizeVellarisWorldKeepsOnlyKnownKeys(t *testing.T) {
 	}
 	if got["mapImageUrl"] != "https://example/map.jpg" {
 		t.Fatalf("map url was lost, got %v", got["mapImageUrl"])
+	}
+	// The landmass table is how a stored world still knows which regions share a continent after the response is gone.
+	if landmasses, _ := got["landmasses"].([]interface{}); len(landmasses) != 1 {
+		t.Fatalf("the landmass table was lost, got %v", got["landmasses"])
 	}
 }
 

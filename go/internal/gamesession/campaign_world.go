@@ -475,9 +475,11 @@ func campaignWorldTemplateData(world map[string]interface{}) map[string]interfac
 		return map[string]interface{}{"hasVellarisWorld": false}
 	}
 	return map[string]interface{}{
-		"hasVellarisWorld": true,
-		"vellarisRegions":  normalized["regions"],
-		"vellarisPlaces":   limitWorldPlaces(normalized["places"], 24),
+		"hasVellarisWorld":      true,
+		"vellarisRegions":       normalized["regions"],
+		"vellarisPlaces":        limitWorldPlaces(normalized["places"], 24),
+		"hasVellarisLandmasses": normalized["hasLandmasses"],
+		"vellarisLandmasses":    normalized["landmasses"],
 	}
 }
 

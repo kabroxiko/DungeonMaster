@@ -277,7 +277,9 @@ With no `DM_VELLARIS_URL`, send an already-measured leg as `"leg": {...}` and no
 
 Once a world exists (generated during campaign creation or imported), `rules/vellaris_world.md` and
 `templates/dm/world_vellaris.md` are injected into every `/generate` turn, and the campaign's key locations are placed
-inside the world's real regions. The world itself is DM-only: clients only receive the rendered map image.
+inside the world's real regions. The world block also groups its regions by landmass — the regions listed together
+share a continent or island, and the rest are across water — so the DM never marches an army across an ocean. The world
+itself is DM-only: clients only receive the rendered map image.
 
 ### Usage
 

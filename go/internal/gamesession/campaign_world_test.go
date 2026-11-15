@@ -143,9 +143,13 @@ func TestCampaignWorldPromptDataCarriesTheRegions(t *testing.T) {
 	if len(regions) == 0 {
 		t.Fatal("the generator needs the region list to place conflicts")
 	}
+	landmasses, _ := data["vellarisLandmasses"].([]interface{})
+	if len(landmasses) == 0 || data["hasVellarisLandmasses"] != true {
+		t.Fatal("the generator needs to know which regions share a continent or island")
+	}
 
 	context := renderCampaignWorldContext(world)
-	for _, want := range []string{"DM-ONLY VELLARIS WORLD", "Venetzaddana", "Suste", "Azureenci"} {
+	for _, want := range []string{"DM-ONLY VELLARIS WORLD", "Venetzaddana", "Suste", "Azureenci", "Continent 1: Venetzaddana", "Island 2: Suste"} {
 		if !strings.Contains(context, want) {
 			t.Fatalf("campaign world block is missing %q\n---\n%s", want, context)
 		}
@@ -174,7 +178,9 @@ func TestCampaignWorldSystemBlockCarriesRulesRegionsAndPlaces(t *testing.T) {
 	world, _ := sampleVellarisSpec()["vellarisWorld"].(map[string]interface{})
 
 	block := campaignWorldSystemBlock(world, 10)
-	for _, want := range []string{"VELLARIS WORLD", "Do not invent geography", "DM-ONLY VELLARIS WORLD", "Venetzaddana (region, id 7), hills", "Azureenci"} {
+	for _, want := range []string{"VELLARIS WORLD", "Do not invent geography", "DM-ONLY VELLARIS WORLD", "Venetzaddana (region, id 7), hills", "Azureenci",
+		// Regions on one landmass share a continent or island; another heading is across water.
+		"Continent 1: Venetzaddana", "Island 2: Suste"} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("stage world block is missing %q\n---\n%s", want, block)
 		}

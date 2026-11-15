@@ -19,8 +19,12 @@ func sampleVellarisSpec() map[string]interface{} {
 			"imageHeight": 2302.0,
 			"mapImageUrl": "https://vellaris.example/api/world/map.jpg",
 			"regions": []interface{}{
-				map[string]interface{}{"id": 7.0, "name": "Venetzaddana", "terrain": "hills", "centerX": 1773.46, "centerY": 678.34, "centerCount": 812.0},
-				map[string]interface{}{"id": 4.0, "name": "Suste", "centerX": 2100.4, "centerY": 900.1, "centerCount": 640.0},
+				map[string]interface{}{"id": 7.0, "name": "Venetzaddana", "terrain": "hills", "centerX": 1773.46, "centerY": 678.34, "centerCount": 812.0, "landmassId": 1.0},
+				map[string]interface{}{"id": 4.0, "name": "Suste", "centerX": 2100.4, "centerY": 900.1, "centerCount": 640.0, "landmassId": 2.0},
+			},
+			"landmasses": []interface{}{
+				map[string]interface{}{"id": 1.0, "kind": "continent", "landCells": 1400.0, "regionCount": 1.0},
+				map[string]interface{}{"id": 2.0, "kind": "island", "landCells": 90.0, "regionCount": 1.0},
 			},
 			"places": []interface{}{
 				map[string]interface{}{"name": "Azureenci", "type": "City", "x": 1794.97, "y": 612.86, "regionId": 7.0,
@@ -86,6 +90,10 @@ func TestRenderVellarisWorldInjectCarriesRulesGeometryAndTravel(t *testing.T) {
 		"ffpppp",
 		"nearest capital to a place's cell is the nearest shore",
 		" — grid 3, 2",
+		// Which regions share land: a region on another landmass is across water, which the region list alone cannot say.
+		"Landmasses",
+		"Continent 1: Venetzaddana",
+		"Island 2: Suste",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("injected block is missing %q\n---\n%s", want, got)

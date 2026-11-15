@@ -13,6 +13,12 @@ where a conflict, a faction or a hidden objective sits:
 {{#regions}}- {{{name}}} (region, id {{{id}}}){{#terrain}}, {{{terrain}}}{{/terrain}}
 {{/regions}}
 {{/hasRegions}}
+{{#hasLandmasses}}
+Landmasses ({{{landmassCount}}}) — the regions under one heading share a continent or an island, so continuous land
+runs between them; a region under another heading is across open water:
+{{#landmasses}}- {{{label}}}: {{{regionText}}}
+{{/landmasses}}
+{{/hasLandmasses}}
 {{#hasPlaces}}
 Named places ({{{placeCount}}}){{{placesNotice}}}:
 {{#places}}- {{{name}}} ({{{kind}}}){{{regionSuffix}}}{{{surroundingsSuffix}}}
