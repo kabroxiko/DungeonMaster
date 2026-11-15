@@ -52,12 +52,18 @@
         <section
             v-if="lobbyMemberRows.length"
             class="party-lobby__roster"
-            :aria-labelledby="partyStarting ? null : 'party-lobby-roster-title'"
+            :aria-labelledby="lobbyShowsGroupCard ? null : 'party-lobby-roster-title'"
         >
-            <h3 v-if="!partyStarting" id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
-            <!-- While the adventure starts there is nothing left to do on a player's card, so the table gets the same
-                 group card it keeps while playing, with the wait named once at its foot. -->
-            <div v-if="partyStarting" class="party-roster" role="status" aria-live="polite">
+            <h3 v-if="!lobbyShowsGroupCard" id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
+            <!-- While the adventure starts, and after a start fails, there is nothing left to do on a player's card: the
+                 table gets the same group card it keeps while playing, with the wait or the failure named once at its
+                 foot. Rows come back only when a member has something of their own to do again. -->
+            <div
+                v-if="lobbyShowsGroupCard"
+                class="party-roster"
+                :role="partyStarting ? 'status' : null"
+                :aria-live="partyStarting ? 'polite' : null"
+            >
                 <div class="party-roster__head">
                     <span class="party-roster__title">{{ $i18n.party_heading }}</span>
                     <span class="party-roster__count">{{ interpolate($i18n.load_game_members, lobbyMemberRows.length) }}</span>
@@ -74,10 +80,24 @@
                     </li>
                 </ul>
                 <p class="party-roster__tip">{{ $i18n.party_sync_tip }}</p>
-                <p class="party-lobby__badge party-lobby__badge--starting party-lobby__group-starting">
+                <p v-if="partyStarting" class="party-lobby__badge party-lobby__badge--starting party-lobby__group-starting">
                     <span class="party-lobby__spin" aria-hidden="true"></span>
                     <span>{{ $i18n.lobby_starting }}</span>
                 </p>
+                <!-- A failed start is the table's, not a player's: the attempt spent everyone's ready mark, so any
+                     member can repeat it from the card. Deliberately not gated on partyLobbyActionsFrozen — a start
+                     that failed before the server cleared the marks leaves that flag true exactly when this is needed. -->
+                <div v-else class="party-lobby__alert party-lobby__alert--table" role="alert">
+                    <span class="party-lobby__alert-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
+                    <UIButton
+                        class="party-lobby__retry-btn"
+                        :aria-label="$i18n.lobby_retry_start"
+                        :disabled="lobbyRetryPosting"
+                        @click="retryPartyStart"
+                    >
+                        {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
+                    </UIButton>
+                </div>
             </div>
             <ul v-else class="party-lobby__list">
                 <li
@@ -204,20 +224,6 @@
                 </li>
             </ul>
         </section>
-        <!-- A failed start is the table's, not a player's: the attempt spent everyone's ready mark, so any member can
-             repeat it from here. Deliberately not gated on partyLobbyActionsFrozen — a start that failed before the
-             server cleared the marks leaves that flag true exactly when this control is needed. -->
-        <div v-if="lastStartError && !partyStarting" class="party-lobby__alert party-lobby__alert--table" role="alert">
-            <span class="party-lobby__alert-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
-            <UIButton
-                class="party-lobby__retry-btn"
-                :aria-label="$i18n.lobby_retry_start"
-                :disabled="lobbyRetryPosting"
-                @click="retryPartyStart"
-            >
-                {{ lobbyRetryPosting ? $i18n.lobby_retry_busy : $i18n.lobby_retry_start }}
-            </UIButton>
-        </div>
 
         <section
             v-if="showLobbyCharacterSetupPanel"
@@ -1152,12 +1158,20 @@ export default {
                 return this.partyStage === 'world';
             },
             /**
-             * The table's start: every roster card names it, because the wait belongs to the table rather than to the
-             * member whose card it is. `lobbyStartPending` covers the press before the server's phase reaches this
-             * client, so the cards never flash a ready mark on the way to starting.
+             * The table's start: the wait belongs to the table rather than to the member whose card it is.
+             * `lobbyStartPending` covers the press before the server's phase reaches this client, so the cards never
+             * flash a ready mark on the way to starting.
              */
             partyStarting() {
                 return this.partyPhase === 'starting' || this.lobbyStartPending;
+            },
+            /**
+             * One card for the whole table while it starts or after a start fails. A player's own ready cell has
+             * nothing left to say in either state: the group card is where the wait lives, and where the failure and
+             * its retry live. The per-player rows return only when someone has their own action again.
+             */
+            lobbyShowsGroupCard() {
+                return this.partyStarting || Boolean(this.lastStartError);
             },
             /** Lobby toolbar + inline setup: no further ready toggles while starting or everyone is ready. */
             partyLobbyActionsFrozen() {
