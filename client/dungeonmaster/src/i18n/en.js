@@ -89,7 +89,7 @@ export default {
     attributes: 'Attributes',
     dm_label: 'Dungeon Master',
     party_waiting_others: "Waiting for other players' actions this round...",
-    subtitle: 'Dark Fantasy — DnD inspired',
+    subtitle: 'Co-op fantasy adventures with an AI Dungeon Master',
     background: 'Background',
     sheet_story: 'Story',
     sheet_tab_stats: 'Stats',
