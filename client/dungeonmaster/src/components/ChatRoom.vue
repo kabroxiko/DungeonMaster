@@ -868,15 +868,22 @@ export default {
                 const idSet = new Set([...listed, ...Object.keys(pcMap).map(String)]);
                 const ids = [...idSet];
                 if (ids.length < 2) return [];
-                const owner = this.gameOwnerUserId ? String(this.gameOwnerUserId) : '';
+                const ownerNorm = this.gameOwnerUserId ? this.normalizeLobbyUserIdKey(this.gameOwnerUserId) : '';
+                const uid = this.myUserIdStr;
+                const youNorm = uid ? this.normalizeLobbyUserIdKey(uid) : '';
                 ids.sort((a, b) => {
-                    if (owner) {
-                        if (a === owner) return -1;
-                        if (b === owner) return 1;
+                    // Every player reads their own character first: the card is about the party, but the row a player
+                    // looks for is theirs.
+                    if (youNorm) {
+                        if (this.normalizeLobbyUserIdKey(a) === youNorm) return -1;
+                        if (this.normalizeLobbyUserIdKey(b) === youNorm) return 1;
+                    }
+                    if (ownerNorm) {
+                        if (this.normalizeLobbyUserIdKey(a) === ownerNorm) return -1;
+                        if (this.normalizeLobbyUserIdKey(b) === ownerNorm) return 1;
                     }
                     return a.localeCompare(b);
                 });
-                const uid = this.myUserIdStr;
                 return ids.map((id) => {
                     const sheet = this.pickPlayerCharacterFromStore(id);
                     const nameRaw = sheet && sheet.name != null && String(sheet.name).trim();
@@ -1226,9 +1233,15 @@ export default {
                         .filter(Boolean)
                 );
                 const uid = this.myUserIdStr;
+                const youNorm = uid ? this.normalizeLobbyUserIdKey(uid) : '';
                 const ownerNorm = owner ? this.normalizeLobbyUserIdKey(owner) : '';
                 const ids = [...idSet];
                 ids.sort((a, b) => {
+                    // Every player reads their own character first, then the table in a stable order.
+                    if (youNorm) {
+                        if (this.normalizeLobbyUserIdKey(a) === youNorm) return -1;
+                        if (this.normalizeLobbyUserIdKey(b) === youNorm) return 1;
+                    }
                     if (ownerNorm) {
                         if (this.normalizeLobbyUserIdKey(a) === ownerNorm) return -1;
                         if (this.normalizeLobbyUserIdKey(b) === ownerNorm) return 1;
