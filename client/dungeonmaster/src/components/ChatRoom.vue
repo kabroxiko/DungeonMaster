@@ -52,18 +52,13 @@
         <section
             v-if="lobbyMemberRows.length"
             class="party-lobby__roster"
-            :aria-labelledby="lobbyShowsGroupCard ? null : 'party-lobby-roster-title'"
+            :aria-labelledby="showPartyTableCard ? null : 'party-lobby-roster-title'"
         >
-            <h3 v-if="!lobbyShowsGroupCard" id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
-            <!-- While the adventure starts, and after a start fails, there is nothing left to do on a player's card: the
-                 table gets the same group card it keeps while playing, with the wait or the failure named once at its
-                 foot. Rows come back only when a member has something of their own to do again. -->
-            <div
-                v-if="lobbyShowsGroupCard"
-                class="party-roster"
-                :role="partyStarting ? 'status' : null"
-                :aria-live="partyStarting ? 'polite' : null"
-            >
+            <h3 v-if="!showPartyTableCard" id="party-lobby-roster-title" class="party-lobby__roster-title">{{ $i18n.lobby_roster_heading }}</h3>
+            <!-- A table that is starting, or whose start failed, has a state of its own and nothing for an individual
+                 player to do, so it gets the same group card the playing stage keeps, with the wait or the failure at
+                 its foot. Player rows return only when a player has an action of their own again. -->
+            <div v-if="showPartyTableCard" class="party-roster" role="status" aria-live="polite">
                 <div class="party-roster__head">
                     <span class="party-roster__title">{{ $i18n.party_heading }}</span>
                     <span class="party-roster__count">{{ interpolate($i18n.load_game_members, lobbyMemberRows.length) }}</span>
@@ -80,14 +75,16 @@
                     </li>
                 </ul>
                 <p class="party-roster__tip">{{ $i18n.party_sync_tip }}</p>
-                <p v-if="partyStarting" class="party-lobby__badge party-lobby__badge--starting party-lobby__group-starting">
+                <p
+                    v-if="partyStarting"
+                    class="party-lobby__badge party-lobby__badge--starting party-lobby__group-foot"
+                >
                     <span class="party-lobby__spin" aria-hidden="true"></span>
                     <span>{{ $i18n.lobby_starting }}</span>
                 </p>
-                <!-- A failed start is the table's, not a player's: the attempt spent everyone's ready mark, so any
-                     member can repeat it from the card. Deliberately not gated on partyLobbyActionsFrozen — a start
-                     that failed before the server cleared the marks leaves that flag true exactly when this is needed. -->
-                <div v-else class="party-lobby__alert party-lobby__alert--table" role="alert">
+                <!-- The failed attempt keeps the readiness it was made from, so repeating it does not ask anyone to
+                     mark ready again; the control sits where the start's own chip goes. -->
+                <div v-else class="party-lobby__alert party-lobby__alert--table party-lobby__group-foot" role="alert">
                     <span class="party-lobby__alert-text">{{ $i18n.lobby_last_error }}: {{ lastStartError }}</span>
                     <UIButton
                         class="party-lobby__retry-btn"
@@ -1158,19 +1155,18 @@ export default {
                 return this.partyStage === 'world';
             },
             /**
-             * The table's start: the wait belongs to the table rather than to the member whose card it is.
-             * `lobbyStartPending` covers the press before the server's phase reaches this client, so the cards never
-             * flash a ready mark on the way to starting.
+             * The table's start: every roster card names it, because the wait belongs to the table rather than to the
+             * member whose card it is. `lobbyStartPending` covers the press before the server's phase reaches this
+             * client, so the cards never flash a ready mark on the way to starting.
              */
             partyStarting() {
                 return this.partyPhase === 'starting' || this.lobbyStartPending;
             },
             /**
-             * One card for the whole table while it starts or after a start fails. A player's own ready cell has
-             * nothing left to say in either state: the group card is where the wait lives, and where the failure and
-             * its retry live. The per-player rows return only when someone has their own action again.
+             * The roster shows one card for the table while the adventure starts and after a start failed: neither
+             * state has anything for an individual player to do. Player rows return once a player has an action.
              */
-            lobbyShowsGroupCard() {
+            showPartyTableCard() {
                 return this.partyStarting || Boolean(this.lastStartError);
             },
             /** Lobby toolbar + inline setup: no further ready toggles while starting or everyone is ready. */
@@ -2779,11 +2775,11 @@ export default {
 
             /**
              * Repeats the start that failed. The server records the reason in gameSetup.party.lastStartError, which is
-             * what puts this control on screen, so pressing it runs the same party-ready + start-party-adventure
-             * sequence as the roster button rather than merely reloading the page.
+             * what puts this control on screen. A failed attempt keeps the readiness it was made from, so this asks for
+             * the start again instead of making the table mark ready a second time.
              *
-             * The sheet check is what decides between retrying and asking for a character, and the party-ready call is
-             * idempotent, so a repeat press while already marked ready still reaches start-party-adventure.
+             * The sheet check is what decides between retrying and asking for a character: a failure about the sheet
+             * itself cannot be repeated into success, so that player is sent to the character flow.
              */
             async retryPartyStart() {
                 if (this.lobbyRetryPosting) return;
@@ -2797,7 +2793,32 @@ export default {
                         this.openLobbyCharacterEditor();
                         return;
                     }
-                    await this.postPartyReadyFromLobbyRoster();
+                    const gid =
+                        (this.$store.state.gameId && String(this.$store.state.gameId).trim()) ||
+                        (this.$route.params.id ? String(this.$route.params.id).trim() : '');
+                    if (!gid) {
+                        this.showInviteToast(this.$i18n.join_missing_game_id, 'error');
+                        return;
+                    }
+                    try {
+                        await axios.post('/api/game-session/start-party-adventure', { gameId: gid });
+                        // The card says starting from the press, before the server's phase reaches this client.
+                        this.lobbyStartPending = true;
+                    } catch (startErr) {
+                        const code =
+                            startErr.response && startErr.response.data && startErr.response.data.code;
+                        if (code !== 'PARTY_START_IN_PROGRESS') {
+                            const detail =
+                                startErr.response && startErr.response.data && startErr.response.data.error;
+                            const suffix = code && String(code).trim() ? ` (${String(code).trim()})` : '';
+                            this.showInviteToast(
+                                (detail || startErr.message || this.$i18n.error_saving_game) + suffix,
+                                'error'
+                            );
+                        }
+                    }
+                    // The server's own state is what shows whether the start was claimed or failed again.
+                    void this.syncFromServer();
                 } finally {
                     this.lobbyRetryPosting = false;
                 }
@@ -3993,8 +4014,8 @@ export default {
     letter-spacing: 0.02em;
   }
 
-  /* The start's chip sits under the group card's own contents: a badge is a chip, not a lane. */
-  .party-lobby__group-starting {
+  /* The start's chip, or the failure that replaced it, sits under the group card's own contents. */
+  .party-lobby__group-foot {
     align-self: flex-start;
     margin: 0.5rem 0 0;
   }
