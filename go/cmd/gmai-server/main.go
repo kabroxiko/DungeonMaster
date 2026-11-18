@@ -127,6 +127,12 @@ func main() {
 		// before it is printed.
 		log.Fatalf("mongo connect: %s", store.RedactSecrets(err.Error(), cfg.MongoURI))
 	}
+	// mongo.Connect is lazy: it validates the URI and returns, so without this ping a server whose database is
+	// unreachable starts cleanly and then answers every account lookup with a 500. Fail at boot with the real reason
+	// instead, the same way a bad AI provider selector does.
+	if err := client.Ping(ctx, nil); err != nil {
+		log.Fatalf("mongo ping: %s", store.RedactSecrets(err.Error(), cfg.MongoURI))
+	}
 	defer func() {
 		dcCtx, dcCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer dcCancel()

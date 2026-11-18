@@ -272,6 +272,10 @@ func (s *Server) handleGoogle(w http.ResponseWriter, r *http.Request) {
 		u.Picture = picture
 		u.Role = role
 	} else if err != nil {
+		// This line is the only place the driver's reason can be seen: the client gets a generic code, and an
+		// unreachable database, bad credentials and a missing database name all land here. The URI holds the
+		// password, so it is redacted before it can reach the log.
+		log.Printf("google sign-in: reading the account failed: %s", store.RedactSecrets(err.Error(), s.Cfg.MongoURI))
 		writeJSONCoded(w, r, http.StatusInternalServerError, "GOOGLE_USER_DB_ERROR", "db error")
 		return
 	} else {
