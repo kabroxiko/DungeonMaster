@@ -251,7 +251,7 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		map[string]interface{}{"role": "user", "content": userContent},
 	}
 	aiMessage, err := llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens": 4096, "temperature": 0.75,
+		"max_tokens": 4096, "temperature": 0.75, "heavy": true,
 	})
 	if err != nil || strings.TrimSpace(aiMessage) == "" {
 		return 503, map[string]interface{}{

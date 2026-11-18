@@ -214,7 +214,7 @@ func HandleGenerateCampaign(ctx context.Context, d *Deps, uid string, body map[s
 	}
 	budget := campaignCompletionBudget(campaignOutbound)
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": campaignOutbound}, map[string]interface{}{
-		"max_tokens": budget, "temperature": 0.8, "gameId": gameID,
+		"max_tokens": budget, "temperature": 0.8, "gameId": gameID, "heavy": true,
 	})
 	if err != nil || aiMessage == "" {
 		return 500, map[string]interface{}{"error": "AI response was empty or failed (see server logs)."}
@@ -347,7 +347,7 @@ func HandleGenerateCampaignCore(ctx context.Context, d *Deps, uid string, body m
 	}
 
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": coreOutbound}, map[string]interface{}{
-		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID,
+		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID, "heavy": true,
 	})
 	if err != nil {
 		return 500, map[string]interface{}{"error": "Campaign generation failed: " + err.Error(), "code": "CAMPAIGN_CORE_EMPTY"}

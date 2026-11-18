@@ -103,13 +103,22 @@ func main() {
 	if cfg.MongoURI == "" {
 		log.Fatal("DM_MONGODB_URI is required (set in the environment or copy env.example to .env in the repository root)")
 	}
-	// Say which AI backend this process will use, and refuse to start when the selector is wrong: a misconfigured
+	// Say which AI backends this process will use, and refuse to start when a selector is wrong: a misconfigured
 	// provider should not look like a broken model on a player's first request.
-	provider, providerURL, providerModel, err := llm.BackendFor(cfg)
+	playProvider, playURL, playModel, err := llm.BackendFor(cfg, false)
 	if err != nil {
-		log.Fatalf("AI provider: %v", err)
+		log.Fatalf("AI provider (play): %v", err)
 	}
-	log.Printf("AI provider: %s at %s, model %s (DM_AI_PROVIDER)", provider, providerURL, providerModel)
+	log.Printf("AI provider (play): %s at %s, model %s (DM_AI_PROVIDER)", playProvider, playURL, playModel)
+	heavyProvider, heavyURL, heavyModel, err := llm.BackendFor(cfg, true)
+	if err != nil {
+		log.Fatalf("AI provider (authoring): %v", err)
+	}
+	if cfg.AIHeavyProvider != "" || cfg.AIHeavyModel != "" {
+		log.Printf("AI provider (authoring): %s at %s, model %s (DM_AI_HEAVY_*)", heavyProvider, heavyURL, heavyModel)
+	} else {
+		log.Printf("AI provider (authoring): same as play, model %s (DM_AI_HEAVY_PROVIDER is unset)", heavyModel)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	client, err := store.Dial(ctx, cfg.MongoURI)

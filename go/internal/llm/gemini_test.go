@@ -35,7 +35,7 @@ func TestGeminiUsesItsOwnEndpointModelAndKey(t *testing.T) {
 }
 
 func TestGeminiDefaultsToAIStudioEndpointAndModel(t *testing.T) {
-	backend, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderGemini})
+	backend, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderGemini}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestGeminiDefaultsToAIStudioEndpointAndModel(t *testing.T) {
 		t.Fatalf("the error text must name the setting that fixes a missing key, got %q", backend.keyEnv)
 	}
 
-	model, err := defaultModelFor(&config.Config{}, backend)
+	model, err := defaultModelFor(&config.Config{}, backend, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestGeminiDefaultsToAIStudioEndpointAndModel(t *testing.T) {
 func TestGeminiBaseMayAlreadyNameTheRoute(t *testing.T) {
 	cfg := &config.Config{AIProvider: config.ProviderGemini, GeminiURL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"}
 
-	backend, err := resolveChatBackend(cfg)
+	backend, err := resolveChatBackend(cfg, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

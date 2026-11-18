@@ -324,9 +324,23 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request, uid s
 	case config.ProviderLMStudio:
 		model = c.LMStudioModel
 	}
+	// The authoring tier is reported as it resolves: an unset provider means the heavy calls follow the play tier, and
+	// reporting the raw empty string would look like a misconfiguration to whoever reads this screen.
+	heavyProvider := c.AIProvider
+	if strings.TrimSpace(c.AIHeavyProvider) != "" {
+		heavyProvider = c.AIHeavyProvider
+	}
+	heavyModel := model
+	if strings.TrimSpace(c.AIHeavyModel) != "" {
+		heavyModel = c.AIHeavyModel
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"aiProvider":           c.AIProvider,
 		"model":                model,
+		"aiHeavyProvider":      heavyProvider,
+		"aiHeavyModel":         heavyModel,
+		"aiHeavyConfigured":    strings.TrimSpace(c.AIHeavyProvider) != "" || strings.TrimSpace(c.AIHeavyModel) != "",
+		"aiHeavyUrl":           strings.TrimSpace(c.AIHeavyURL),
 		"modelContextTokens":   c.ModelContextTok,
 		"mapServiceUrl":        c.VellarisURL,
 		"mapServiceConfigured": strings.TrimSpace(c.VellarisURL) != "",

@@ -152,7 +152,7 @@ func TestUnknownProviderIsRejectedByName(t *testing.T) {
 }
 
 func TestProviderDefaultsAreUnchanged(t *testing.T) {
-	openai, err := resolveChatBackend(&config.Config{})
+	openai, err := resolveChatBackend(&config.Config{}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestProviderDefaultsAreUnchanged(t *testing.T) {
 		t.Fatalf("OpenAI remains the default backend, got %+v", openai)
 	}
 
-	deepseek, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderDeepSeek})
+	deepseek, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderDeepSeek}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestProviderDefaultsAreUnchanged(t *testing.T) {
 		t.Fatalf("unexpected DeepSeek defaults: %+v", deepseek)
 	}
 
-	local, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderLMStudio})
+	local, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderLMStudio}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

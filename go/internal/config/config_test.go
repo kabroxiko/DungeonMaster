@@ -30,3 +30,30 @@ func TestNormalizeAIProvider(t *testing.T) {
 		}
 	}
 }
+
+// The heavy tier's "not configured" has to survive Load as an empty string: folding it onto OpenAI would send
+// authoring to the cloud on a local-only install.
+func TestNormalizeOptionalProviderKeepsEmptyEmpty(t *testing.T) {
+	cases := map[string]string{
+		"":             "",
+		"   ":          "",
+		"deepseek":     ProviderDeepSeek,
+		"  LM-Studio ": ProviderLMStudio,
+		"anthropic":    "anthropic",
+	}
+	for raw, want := range cases {
+		if got := normalizeOptionalProvider(raw); got != want {
+			t.Fatalf("normalizeOptionalProvider(%q) = %q, want %q", raw, got, want)
+		}
+	}
+	t.Setenv("DM_AI_HEAVY_PROVIDER", "")
+	if cfg := Load(); cfg.AIHeavyProvider != "" {
+		t.Fatalf("an unset heavy provider must stay empty, got %q", cfg.AIHeavyProvider)
+	}
+	t.Setenv("DM_AI_HEAVY_PROVIDER", "deepseek")
+	t.Setenv("DM_AI_HEAVY_MODEL", "deepseek-chat")
+	cfg := Load()
+	if cfg.AIHeavyProvider != ProviderDeepSeek || cfg.AIHeavyModel != "deepseek-chat" {
+		t.Fatalf("heavy tier not read from the environment: %q %q", cfg.AIHeavyProvider, cfg.AIHeavyModel)
+	}
+}

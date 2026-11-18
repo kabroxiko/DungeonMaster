@@ -43,6 +43,16 @@ func NormalizeAIProvider(raw string) string {
 	return v
 }
 
+// normalizeOptionalProvider folds a provider name the same way NormalizeAIProvider does, but keeps an empty value
+// empty: "no heavy provider configured" has to stay distinguishable from "OpenAI", because it means the heavy tier
+// falls back to the play tier.
+func normalizeOptionalProvider(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	return NormalizeAIProvider(raw)
+}
+
 // Config mirrors env.example in the repository root.
 type Config struct {
 	Port           string
@@ -54,10 +64,25 @@ type Config struct {
 	GoogleClientID string
 	NodeEnv        string
 	OpenAIModel    string
-	// AIProvider is the chat-completions backend every AI call uses (set DM_AI_PROVIDER: openai, deepseek, gemini or
+	// AIProvider is the chat-completions backend play turns use (set DM_AI_PROVIDER: openai, deepseek, gemini or
 	// lmstudio). One selector replaces a boolean per provider: flags allowed two providers to be enabled at once,
 	// which the server then had to refuse or guess between, while a single name cannot be ambiguous.
-	AIProvider     string
+	AIProvider string
+	// AIHeavyProvider is the provider the authoring calls use: campaign generation and its stages, character sheets
+	// and the opening adventure. Empty means "the same provider as play", so a one-provider setup behaves exactly as
+	// before. Setting it lets a table play on a small local model while the long, schema-bound documents are written
+	// by a stronger one, on the same host or a cloud provider.
+	AIHeavyProvider string
+	// AIHeavyModel overrides the model for authoring calls (set DM_AI_HEAVY_MODEL). Empty keeps the model the play
+	// tier uses, so only the provider has to change when the heavy tier is a cloud API.
+	AIHeavyModel string
+	// AIHeavyURL overrides the endpoint for authoring calls (set DM_AI_HEAVY_URL). A provider name does not identify a
+	// host: two LM Studio or Ollama boxes are both "lmstudio", so the tier that authors can live on a different
+	// machine than the one serving play turns. Empty keeps the endpoint the provider resolves to.
+	AIHeavyURL string
+	// AIHeavyAPIKey overrides the key for authoring calls (set DM_AI_HEAVY_API_KEY), for a second cloud account or a
+	// local endpoint behind a proxy that requires one. Empty keeps the provider's own key.
+	AIHeavyAPIKey  string
 	LMStudioURL    string
 	LMStudioModel  string
 	DeepSeekURL    string
@@ -174,7 +199,13 @@ func Load() *Config {
 		NodeEnv:        getenv("NODE_ENV", ""),
 		OpenAIModel:    getenv("DM_OPENAI_MODEL", "gpt-3.5-turbo"),
 		AIProvider:     NormalizeAIProvider(getenv("DM_AI_PROVIDER", ProviderOpenAI)),
-		LMStudioURL:    getenv("DM_LM_STUDIO_URL", "http://localhost:1234"),
+		// An empty heavy provider means "use the play tier", which NormalizeAIProvider cannot express: it folds ""
+		// onto OpenAI, and that would silently move authoring to the cloud on a local-only setup.
+		AIHeavyProvider: normalizeOptionalProvider(os.Getenv("DM_AI_HEAVY_PROVIDER")),
+		AIHeavyModel:    strings.TrimSpace(os.Getenv("DM_AI_HEAVY_MODEL")),
+		AIHeavyURL:      strings.TrimSpace(os.Getenv("DM_AI_HEAVY_URL")),
+		AIHeavyAPIKey:   strings.TrimSpace(os.Getenv("DM_AI_HEAVY_API_KEY")),
+		LMStudioURL:     getenv("DM_LM_STUDIO_URL", "http://localhost:1234"),
 		// Local LM Studio model id only — do not default to gpt-3.5-turbo (invalid on LM Studio). Set DM_LM_STUDIO_MODEL when DM_AI_PROVIDER=lmstudio.
 		LMStudioModel:            strings.TrimSpace(os.Getenv("DM_LM_STUDIO_MODEL")),
 		DeepSeekURL:              getenv("DM_DEEPSEEK_URL", "https://api.deepseek.com"),

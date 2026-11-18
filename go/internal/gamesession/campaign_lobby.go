@@ -243,7 +243,7 @@ func generateCampaignCreativeSeedStage(ctx context.Context, d *Deps, gameID, lan
 	// Budgets here cover hidden reasoning tokens as well as the document itself: a reasoning model spends roughly
 	// 300-800 of them per stage, and the reply is cut off (finish_reason "length") if the total is too small.
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens": 2000, "temperature": 0.95, "gameId": gameID,
+		"max_tokens": 2000, "temperature": 0.95, "gameId": gameID, "heavy": true,
 	})
 	if err != nil || aiMessage == "" {
 		return false, nil, "", "CAMPAIGN_STAGE_CREATIVE_SEED_EMPTY"
@@ -372,7 +372,7 @@ func generateCampaignStage(ctx context.Context, d *Deps, gameID, stage string, c
 		maxTok = 3000
 	}
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens": maxTok, "temperature": 0.8, "gameId": gameID,
+		"max_tokens": maxTok, "temperature": 0.8, "gameId": gameID, "heavy": true,
 	})
 	if err != nil || aiMessage == "" {
 		reason := errString(err)
@@ -520,7 +520,7 @@ func generateCampaignOpeningFrameStage(ctx context.Context, d *Deps, gameID, lan
 		map[string]interface{}{"role": "user", "content": userPrompt},
 	}
 	aiMessage, err := llm.GenerateResponse(ctx, d.Cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens": 3000, "temperature": 0.92, "gameId": gameID,
+		"max_tokens": 3000, "temperature": 0.92, "gameId": gameID, "heavy": true,
 	})
 	if err != nil || aiMessage == "" {
 		// Returning false silently is what made this stage impossible to diagnose: the reason reached neither the
@@ -829,7 +829,7 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}}, options.Update().SetUpsert(true))
 	}
 	aiCore, err := llm.GenerateResponse(ctx, d.Cfg, outbound, map[string]interface{}{
-		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID,
+		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID, "heavy": true,
 	})
 	if err != nil {
 		// The reason is what the lobby's lastStartError shows: this runs after the start already answered, so a

@@ -70,14 +70,17 @@ func debugLogRequestMessages(cfg *config.Config, messages []interface{}) {
 }
 
 // GenerateResponse performs chat-completions against OpenAI, DeepSeek, Google AI Studio (Gemini), or LM Studio.
+// opts["heavy"] marks an authoring call (campaign, character sheet, opening adventure), which is what sends it to the
+// heavy tier; play turns leave it unset and use the play provider.
 func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]interface{}, opts map[string]interface{}) (string, error) {
-	backend, err := resolveChatBackend(cfg)
+	heavy, _ := opts["heavy"].(bool)
+	backend, err := resolveChatBackend(cfg, heavy)
 	if err != nil {
 		return "", err
 	}
 	model := strings.TrimSpace(pickStr(opts, "model", ""))
 	if model == "" {
-		model, err = defaultModelFor(cfg, backend)
+		model, err = defaultModelFor(cfg, backend, heavy)
 		if err != nil {
 			return "", err
 		}
@@ -105,7 +108,7 @@ func GenerateResponse(ctx context.Context, cfg *config.Config, input map[string]
 
 	ask := func() (string, error) {
 		if backend.name == lmStudioBackendName {
-			return lmStudioChat(ctx, cfg, messages, model, maxTok, temp, opts)
+			return lmStudioChat(ctx, backend, messages, model, maxTok, temp, opts)
 		}
 		return openAICompatibleChat(ctx, backend, messages, model, maxTok, temp, opts)
 	}
@@ -159,40 +162,72 @@ func (b chatBackend) chatURL() string {
 	return chatCompletionsURL(b.baseURL)
 }
 
-// resolveChatBackend picks the provider named by DM_AI_PROVIDER. It is one name, so there is no combination to guess
-// between; an unknown name is an error rather than a silent fallback to a provider the operator did not choose.
-func resolveChatBackend(cfg *config.Config) (chatBackend, error) {
+// resolveChatBackend picks the provider for a call. Play turns use DM_AI_PROVIDER; authoring calls are heavy and use
+// DM_AI_HEAVY_PROVIDER when it is set, falling back to the play provider otherwise. The selector is one name per tier,
+// so there is no combination to guess between; an unknown name is an error rather than a silent fallback to a
+// provider the operator did not choose.
+func resolveChatBackend(cfg *config.Config, heavy bool) (chatBackend, error) {
 	if cfg == nil {
 		return chatBackend{}, fmt.Errorf("no configuration")
 	}
-	switch config.NormalizeAIProvider(cfg.AIProvider) {
+	provider := config.NormalizeAIProvider(cfg.AIProvider)
+	selector := "DM_AI_PROVIDER"
+	if heavy && strings.TrimSpace(cfg.AIHeavyProvider) != "" {
+		provider = config.NormalizeAIProvider(cfg.AIHeavyProvider)
+		selector = "DM_AI_HEAVY_PROVIDER"
+	}
+	var backend chatBackend
+	switch provider {
 	case config.ProviderLMStudio:
 		base := strings.TrimRight(cfg.LMStudioURL, "/")
 		if base == "" {
 			base = "http://localhost:1234"
 		}
-		return chatBackend{name: lmStudioBackendName, baseURL: base}, nil
+		backend = chatBackend{name: lmStudioBackendName, baseURL: base}
 	case config.ProviderDeepSeek:
 		base := strings.TrimRight(cfg.DeepSeekURL, "/")
 		if base == "" {
 			base = "https://api.deepseek.com"
 		}
-		return chatBackend{name: deepSeekBackendName, baseURL: base, apiKey: cfg.DeepSeekAPIKey, keyEnv: "DM_DEEPSEEK_API_KEY"}, nil
+		backend = chatBackend{name: deepSeekBackendName, baseURL: base, apiKey: cfg.DeepSeekAPIKey, keyEnv: "DM_DEEPSEEK_API_KEY"}
 	case config.ProviderGemini:
 		base := strings.TrimRight(cfg.GeminiURL, "/")
 		if base == "" {
 			base = DefaultGeminiBaseURL
 		}
-		return chatBackend{name: geminiBackendName, baseURL: base, endpoint: geminiChatURL(base), apiKey: cfg.GeminiAPIKey, keyEnv: "DM_GEMINI_API_KEY"}, nil
+		backend = chatBackend{name: geminiBackendName, baseURL: base, apiKey: cfg.GeminiAPIKey, keyEnv: "DM_GEMINI_API_KEY"}
 	case config.ProviderOpenAI:
-		return chatBackend{name: openAIBackendName, baseURL: "https://api.openai.com", apiKey: cfg.OpenAIAPIKey, keyEnv: "DM_OPENAI_API_KEY"}, nil
+		backend = chatBackend{name: openAIBackendName, baseURL: "https://api.openai.com", apiKey: cfg.OpenAIAPIKey, keyEnv: "DM_OPENAI_API_KEY"}
 	default:
-		return chatBackend{}, fmt.Errorf("unknown DM_AI_PROVIDER %q: use %s", cfg.AIProvider, strings.Join(config.AIProviderOptions, ", "))
+		return chatBackend{}, fmt.Errorf("unknown %s %q: use %s", selector, provider, strings.Join(config.AIProviderOptions, ", "))
 	}
+	// A provider name does not identify a host: two LM Studio or Ollama machines are both "lmstudio", so the authoring
+	// tier may have to point at its own endpoint (and key) instead of inheriting the play tier's.
+	if heavy {
+		if url := strings.TrimSpace(cfg.AIHeavyURL); url != "" {
+			backend.baseURL = strings.TrimRight(url, "/")
+		}
+		if key := strings.TrimSpace(cfg.AIHeavyAPIKey); key != "" {
+			backend.apiKey = key
+			backend.keyEnv = "DM_AI_HEAVY_API_KEY"
+		}
+	}
+	// Gemini's compatibility layer lives under /v1beta/openai, so its chat route is derived from the base last, after
+	// any override has replaced that base.
+	if backend.name == geminiBackendName {
+		backend.endpoint = geminiChatURL(backend.baseURL)
+	}
+	return backend, nil
 }
 
-// defaultModelFor returns the model a backend runs when a call does not name one.
-func defaultModelFor(cfg *config.Config, backend chatBackend) (string, error) {
+// defaultModelFor returns the model a backend runs when a call does not name one. Authoring calls take
+// DM_AI_HEAVY_MODEL first, so a tier can change model without changing provider.
+func defaultModelFor(cfg *config.Config, backend chatBackend, heavy bool) (string, error) {
+	if heavy {
+		if model := strings.TrimSpace(cfg.AIHeavyModel); model != "" {
+			return model, nil
+		}
+	}
 	switch backend.name {
 	case lmStudioBackendName:
 		model := strings.TrimSpace(cfg.LMStudioModel)
@@ -221,14 +256,14 @@ func defaultModelFor(cfg *config.Config, backend chatBackend) (string, error) {
 	}
 }
 
-// BackendFor reports the provider, endpoint and model this configuration resolves to. Startup logs it, and it makes a
-// misconfigured DM_AI_PROVIDER or missing model id fail at boot instead of on the first player action.
-func BackendFor(cfg *config.Config) (name, baseURL, model string, err error) {
-	backend, err := resolveChatBackend(cfg)
+// BackendFor reports the provider, endpoint and model a tier resolves to. Startup logs both tiers, and it makes a
+// misconfigured provider name or missing model id fail at boot instead of on the first player action.
+func BackendFor(cfg *config.Config, heavy bool) (name, baseURL, model string, err error) {
+	backend, err := resolveChatBackend(cfg, heavy)
 	if err != nil {
 		return "", "", "", err
 	}
-	model, err = defaultModelFor(cfg, backend)
+	model, err = defaultModelFor(cfg, backend, heavy)
 	if err != nil {
 		return backend.name, backend.baseURL, "", err
 	}
@@ -319,11 +354,9 @@ func truncatedReplyError(backendName string, maxTok int) error {
 	return fmt.Errorf("%s: reply hit max_tokens (%d) before finishing, so it was cut off; reasoning models spend part of that budget on hidden tokens, so raise max_tokens or use a model that does not reason", backendName, maxTok)
 }
 
-func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}) (string, error) {
-	base := strings.TrimRight(cfg.LMStudioURL, "/")
-	if base == "" {
-		base = "http://localhost:1234"
-	}
+// lmStudioChat talks to an OpenAI-compatible local host. It takes the resolved backend rather than the configuration,
+// because the endpoint is per tier: the authoring tier may name a different machine than the play tier.
+func lmStudioChat(ctx context.Context, backend chatBackend, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}) (string, error) {
 	body := map[string]interface{}{
 		"model":       model,
 		"messages":    messages,
@@ -338,7 +371,7 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 		}
 	}
 	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/chat/completions", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backend.baseURL+"/v1/chat/completions", bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}
@@ -350,7 +383,7 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return lmStudioNative(ctx, cfg, messages, model, temp)
+		return lmStudioNative(ctx, backend, messages, model, temp)
 	}
 	var data struct {
 		Choices []struct {
@@ -361,10 +394,10 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
-		return lmStudioNative(ctx, cfg, messages, model, temp)
+		return lmStudioNative(ctx, backend, messages, model, temp)
 	}
 	if len(data.Choices) == 0 {
-		return lmStudioNative(ctx, cfg, messages, model, temp)
+		return lmStudioNative(ctx, backend, messages, model, temp)
 	}
 	// The native fallback would re-run the whole generation, so a cut-off reply is reported, not retried.
 	if strings.EqualFold(data.Choices[0].FinishReason, "length") {
@@ -376,8 +409,7 @@ func lmStudioChat(ctx context.Context, cfg *config.Config, messages []interface{
 	return stripHarmonyChannels(coerceAssistantOutputToString(data.Choices[0].Message.Content)), nil
 }
 
-func lmStudioNative(ctx context.Context, cfg *config.Config, messages []interface{}, model string, temp float64) (string, error) {
-	base := strings.TrimRight(cfg.LMStudioURL, "/")
+func lmStudioNative(ctx context.Context, backend chatBackend, messages []interface{}, model string, temp float64) (string, error) {
 	prompt := messagesToPrompt(messages)
 	body := map[string]interface{}{
 		"model":       model,
@@ -385,11 +417,14 @@ func lmStudioNative(ctx context.Context, cfg *config.Config, messages []interfac
 		"temperature": temp,
 	}
 	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/v1/chat", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, backend.baseURL+"/api/v1/chat", bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if backend.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+backend.apiKey)
+	}
 	resp, err := LongHTTPClient().Do(req)
 	if err != nil {
 		return "", err

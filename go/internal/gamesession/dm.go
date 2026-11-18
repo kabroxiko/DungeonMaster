@@ -129,11 +129,13 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		budget = 200
 	}
 
+	// The opening adventure is authored once and read for the whole campaign; every later turn is a play turn.
 	raw, err := llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
 		"max_tokens":      budget,
 		"temperature":     0.8,
 		"gameId":          gameID,
 		"response_format": map[string]interface{}{"type": "json_object"},
+		"heavy":           mode == "initial",
 	})
 	if err != nil {
 		_ = markLlmErr(ctx, d.Coll, gameID, err.Error())
