@@ -14,6 +14,7 @@ import (
 
 	"github.com/cbroglie/mustache"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
@@ -564,9 +565,17 @@ func str(v interface{}) string {
 	return fmt.Sprint(v)
 }
 
+// toIfaceSlice reads a list out of either a decoded document or a request body. A BSON array decodes to primitive.A,
+// not to []interface{}, so asserting only the latter silently turned every stored list - the conversation above all -
+// into an empty one.
 func toIfaceSlice(v interface{}) []interface{} {
-	a, _ := v.([]interface{})
-	return a
+	switch a := v.(type) {
+	case []interface{}:
+		return a
+	case primitive.A:
+		return []interface{}(a)
+	}
+	return nil
 }
 
 func markLlmEntered(ctx context.Context, coll *mongo.Collection, gameID string) error {

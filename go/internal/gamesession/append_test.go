@@ -1,6 +1,10 @@
 package gamesession
 
-import "testing"
+import (
+	"testing"
+
+	"go.mongodb.org/mongo-driver/bson"
+)
 
 func appendTestMsg(role, content string) map[string]interface{} {
 	return map[string]interface{}{"role": role, "content": content}
@@ -30,5 +34,31 @@ func TestStripTrailingUserTailStillDropsTheUnansweredTail(t *testing.T) {
 	got, _ := stripTrailingUserTail(conv, append([]interface{}{}, conv...), "u1")
 	if len(got) != 3 {
 		t.Fatalf("expected the trailing unanswered user message to be dropped, got %d messages", len(got))
+	}
+}
+
+// A list read back from the database arrives as primitive.A, not []interface{}. When the helper only accepted the
+// latter, every stored conversation read as empty and the next player message replaced the whole transcript with
+// itself. This is the regression guard for that: a decoded array must survive the trip.
+func TestToIfaceSliceReadsDecodedBsonArrays(t *testing.T) {
+	raw, err := bson.Marshal(bson.M{"conversation": []interface{}{
+		bson.M{"role": "system", "content": "s"},
+		bson.M{"role": "user", "content": "abro la puerta"},
+		bson.M{"role": "assistant", "content": "se abre"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]interface{}
+	if err := bson.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	conv := toIfaceSlice(doc["conversation"])
+	if len(conv) != 3 {
+		t.Fatalf("a stored transcript read as %d messages, want 3", len(conv))
+	}
+	conv = append(conv, appendTestMsg("user", "entro"))
+	if len(conv) != 4 {
+		t.Fatalf("appending to a stored transcript produced %d messages, want 4", len(conv))
 	}
 }
