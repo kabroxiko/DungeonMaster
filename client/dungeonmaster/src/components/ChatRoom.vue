@@ -3100,20 +3100,6 @@ export default {
             },
 
             /** Snapshot for server-side persist (conversation must include the latest user line before the assistant reply). */
-            buildPersistPayload() {
-                return {
-                    gameId: this.$store.state.gameId,
-                    gameSetup: this.$store.state.gameSetup,
-                    conversation: this.conversation,
-                    summaryConversation: this.summaryConversation,
-                    summary: this.summary,
-                    totalTokenCount: this.totalTokenCount,
-                    userAndAssistantMessageCount: this.userAndAssistantMessageCount,
-                    systemMessageContentDM: this.systemMessageContentDM,
-                    encounterState: this.lastEncounterState,
-                    requestingUserId: this.myUserIdStr || undefined,
-                };
-            },
 
             /** Apply a /generate-shaped payload (or partyDm from append flush) to local chat state. */
             applyDmPayloadToConversation(responseData, userMessage) {
@@ -3211,7 +3197,6 @@ export default {
                             language: this.language,
                             gameId: this.$store.state.gameId,
                             requestingUserId: this.myUserIdStr || undefined,
-                            persist: this.buildPersistPayload(),
                         });
                         this.applyDmPayloadToConversation(response.data, userMessage);
                         this.$nextTick(() => this.syncFromServer());
@@ -3249,7 +3234,6 @@ export default {
                         language: this.language,
                         sessionSummary,
                         requestingUserId: this.myUserIdStr || undefined,
-                        persist: this.buildPersistPayload(),
                     });
                     if (response.data && Object.prototype.hasOwnProperty.call(response.data, 'encounterState')) {
                         this.lastEncounterState = response.data.encounterState || null;

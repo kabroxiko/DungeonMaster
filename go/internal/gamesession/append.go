@@ -115,10 +115,10 @@ func AppendPlayerUserMessageWithPartyRound(ctx context.Context, coll *mongo.Coll
 
 	extraTok := int(max64(0, float64(len(content))/4))
 	_, _ = coll.UpdateOne(ctx, bson.M{"gameId": gid}, bson.M{"$set": bson.M{
-		"conversation":                   persistNormalize(conv, gameSetup, userID),
-		"summaryConversation":            persistNormalize(sumConv, gameSetup, userID),
-		"totalTokenCount":                num(doc["totalTokenCount"]) + extraTok,
-		"gameSetup":                      gameSetup,
+		"conversation":        persistNormalize(conv, gameSetup, userID),
+		"summaryConversation": persistNormalize(sumConv, gameSetup, userID),
+		"totalTokenCount":     num(doc["totalTokenCount"]) + extraTok,
+		"gameSetup":           gameSetup,
 	}})
 
 	if hub != nil {
@@ -143,26 +143,12 @@ func AppendPlayerUserMessageWithPartyRound(ctx context.Context, coll *mongo.Coll
 	}
 	lang := party.GameSetupLanguage(fresh)
 	msgs := filterNoSystem(toIfaceSlice(fresh["conversation"]))
-	persistPayload := map[string]interface{}{
-		"gameId":                       gid,
-		"gameSetup":                    fresh["gameSetup"],
-		"conversation":                 fresh["conversation"],
-		"summaryConversation":          fresh["summaryConversation"],
-		"summary":                      fresh["summary"],
-		"totalTokenCount":              fresh["totalTokenCount"],
-		"userAndAssistantMessageCount": fresh["userAndAssistantMessageCount"],
-		"systemMessageContentDM":       fresh["systemMessageContentDM"],
-		"encounterState":               fresh["encounterState"],
-		"mode":                         fresh["mode"],
-		"requestingUserId":             uidStr,
-	}
 	genBody := map[string]interface{}{
-		"messages":          msgs,
-		"mode":              str(fresh["mode"]),
-		"language":          lang,
-		"gameId":            gid,
-		"persist":           persistPayload,
-		"requestingUserId":  uidStr,
+		"messages":         msgs,
+		"mode":             str(fresh["mode"]),
+		"language":         lang,
+		"gameId":           gid,
+		"requestingUserId": uidStr,
 	}
 	st, result := HandleDmGenerate(ctx, d, cfg, uidStr, genBody)
 	if st != 200 || result == nil {
@@ -293,6 +279,11 @@ func lastMsg(conv []interface{}) map[string]interface{} {
 
 func stripTrailingUserTail(conv, sumConv []interface{}, uidStr string) ([]interface{}, []interface{}) {
 	la := lastAssistantIndex(conv)
+	// A turn that never got a reply still happened: when there is no assistant message at all, the whole tail is the
+	// story so far, and dropping it would delete every player message up to the first DM answer.
+	if la < 0 {
+		return conv, sumConv
+	}
 	c := append([]interface{}{}, conv...)
 	s := append([]interface{}{}, sumConv...)
 	for len(c) > la+1 {
@@ -341,4 +332,3 @@ func toMap(v interface{}) map[string]interface{} {
 	m, _ := v.(map[string]interface{})
 	return m
 }
-

@@ -37,7 +37,9 @@ type HandleDmGenerateResult struct {
 	RawPreview     string                 `json:"rawPreview,omitempty"`
 }
 
-// HandleDmGenerate mirrors Express handleDmGenerate (core path: exploration + persist).
+// HandleDmGenerate answers a DM turn: it prompts the model with the messages the caller built and writes the reply back
+// into the stored game. Everything it persists comes from that document, never from the caller, so a client that reloaded
+// with a partial view cannot truncate the transcript by sending it back.
 func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID string, body map[string]interface{}) (status int, out *HandleDmGenerateResult) {
 	res := &HandleDmGenerateResult{}
 	messages := toIfaceSlice(body["messages"])
@@ -54,9 +56,12 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		language = "English"
 	}
 	gameID := str(body["gameId"])
+	// The stored document is the base of the turn, not the copy the browser sends. The transcript, the counters and the
+	// setup all belong to the server, and a tab that reloaded with a partial view used to write that partial view back
+	// over the stored history. The client now only contributes the action being asked about.
 	var persistPayload map[string]interface{}
-	if p, ok := body["persist"].(map[string]interface{}); ok {
-		persistPayload = p
+	if strings.TrimSpace(gameID) != "" {
+		persistPayload = storedTurnBase(ctx, d.Coll, gameID)
 	}
 	requestingUserID := str(body["requestingUserId"])
 	if requestingUserID == "" {

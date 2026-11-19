@@ -467,17 +467,6 @@ func runPartyStart(ctx context.Context, d *Deps, cfg *config.Config, hub *realti
 
 	var afterBoot map[string]interface{}
 	_ = d.Coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&afterBoot)
-	persistPayload := map[string]interface{}{
-		"gameId":                       gameID,
-		"gameSetup":                    afterBoot["gameSetup"],
-		"conversation":                 afterBoot["conversation"],
-		"summaryConversation":          afterBoot["summaryConversation"],
-		"summary":                      afterBoot["summary"],
-		"totalTokenCount":              afterBoot["totalTokenCount"],
-		"userAndAssistantMessageCount": afterBoot["userAndAssistantMessageCount"],
-		"systemMessageContentDM":       afterBoot["systemMessageContentDM"],
-		"requestingUserId":             userID,
-	}
 	conv := toIfaceSlice(afterBoot["conversation"])
 	nonSystem := filterNonSystem(conv)
 	genBody := map[string]interface{}{
@@ -485,7 +474,6 @@ func runPartyStart(ctx context.Context, d *Deps, cfg *config.Config, hub *realti
 		"mode":             "initial",
 		"language":         lang,
 		"gameId":           gameID,
-		"persist":          persistPayload,
 		"sessionSummary":   "",
 		"includeFullSkill": true,
 		"requestingUserId": userID,
