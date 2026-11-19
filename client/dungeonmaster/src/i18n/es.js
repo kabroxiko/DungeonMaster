@@ -11,7 +11,10 @@ export default {
         'El Maestro de Calabozos sigue generando una respuesta en el servidor. Tu último mensaje está guardado: puedes salir y volver, o recargar la página.',
     chat_waiting_dm_sync:
         'Esperando la respuesta del Maestro de Calabozos. Si tarda, recarga la página.',
-    chat_unlock_input: 'Desbloquear escritura (si el DM parece atascado)',
+    chat_retry_reply: 'Reintentar',
+    chat_retry_hint:
+        'Pídele al Maestro de Calabozos la respuesta a este turno. Cualquiera del grupo puede hacerlo.',
+    chat_retry_failed: 'No se pudo reintentar. Inténtalo de nuevo.',
     create_character: 'Crear personaje',
     new_game: 'Nuevo Juego',
     toolbar_aria: 'Cuenta y acciones de partida',

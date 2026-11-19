@@ -11,7 +11,10 @@ export default {
         'The Dungeon Master is still generating a reply on the server. Your last message is saved — you can leave this page and return, or refresh.',
     chat_waiting_dm_sync:
         'Waiting for the Dungeon Master’s reply. If it takes a while, refresh the page.',
-    chat_unlock_input: 'Unlock typing (if the DM seems stuck)',
+    chat_retry_reply: 'Retry',
+    chat_retry_hint:
+        'Ask the Dungeon Master for this turn\'s reply. Anyone in the party can do it.',
+    chat_retry_failed: 'The retry failed. Please try again.',
     create_character: 'Create character',
     new_game: 'New Game',
     toolbar_aria: 'Account and game actions',

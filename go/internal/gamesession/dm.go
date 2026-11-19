@@ -592,9 +592,14 @@ func markLlmStarted(ctx context.Context, coll *mongo.Collection, gameID string) 
 	if gameID == "" {
 		return nil
 	}
-	_, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-		"llmCallStartedAt": time.Now().UTC().Format(time.RFC3339Nano),
-	}}, upsert())
+	_, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{
+		"$set": bson.M{
+			"llmCallStartedAt": time.Now().UTC().Format(time.RFC3339Nano),
+		},
+		// A new attempt supersedes the reason the last one failed; leaving it would keep offering a retry for a turn
+		// that is already running.
+		"$unset": bson.M{"llmCallError": ""},
+	}, upsert())
 	return err
 }
 
@@ -602,10 +607,13 @@ func markLlmCompleted(ctx context.Context, coll *mongo.Collection, gameID, raw s
 	if gameID == "" {
 		return nil
 	}
-	_, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-		"rawModelOutput":     trunc(raw, 200000),
-		"llmCallCompletedAt": time.Now().UTC().Format(time.RFC3339Nano),
-	}}, upsert())
+	_, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{
+		"$set": bson.M{
+			"rawModelOutput":     trunc(raw, 200000),
+			"llmCallCompletedAt": time.Now().UTC().Format(time.RFC3339Nano),
+		},
+		"$unset": bson.M{"llmCallError": ""},
+	}, upsert())
 	return err
 }
 

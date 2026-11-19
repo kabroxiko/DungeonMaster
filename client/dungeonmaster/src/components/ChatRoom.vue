@@ -391,11 +391,13 @@
         <p v-if="partyRoundWaitingOthersForViewer && !errorMessage" class="chat-room__dm-wait" role="status">{{ $i18n.party_waiting_others }}</p>
         <p v-else-if="chatInputLocked && !errorMessage" class="chat-room__dm-wait" role="status">{{ chatWaitStatusText }}</p>
         <button
-            v-if="showUnlockChatInput"
+            v-if="showRetryDmReply"
             type="button"
             class="ui-button ui-button--ghost chat-room__unlock"
-            @click="unlockChatInput"
-        >{{ $i18n.chat_unlock_input }}</button>
+            :title="$i18n.chat_retry_hint"
+            :disabled="isSending"
+            @click="retryDmReply"
+        >{{ $i18n.chat_retry_reply }}</button>
         <form @submit.prevent="submitMessage" class="chat-input-form">
             <input class="chat-input" type="text" v-model="newMessage"
               :placeholder="$i18n.chat_placeholder"
@@ -783,6 +785,8 @@ export default {
                 pendingReplyPollSig: null,
                 serverLlmStartedAt: null,
                 serverLlmCompletedAt: null,
+                /** Reason the server recorded for the last DM call, cleared by the next successful one. */
+                serverLlmError: null,
                 pendingAssistantUiHold: false,
                 keepaliveAppendPayload: null,
                 isInitialOpenBusy: false,
@@ -1052,18 +1056,18 @@ export default {
                 }
                 return false;
             },
-            showUnlockChatInput() {
+            /**
+             * The table is waiting on a reply that is not coming. The server recording a failure for the last call is the
+             * clearest signal - the turn is dead however recent its start stamp is - and anyone in the party may ask for
+             * the reply again. Otherwise the offer appears once nothing is actually in flight, which is the state a
+             * restart or a dropped stream leaves behind.
+             */
+            showRetryDmReply() {
+                if (this.isSending || this.isInitialOpenBusy || this.partyRoundOpenForMyAction) return false;
+                if (!this.conversationEndsAwaitingAssistant) return false;
+                if (this.serverLlmError) return true;
                 const dmBlocks = this.dmGenerationLikelyInFlight && !this.partyRoundCollectingActions;
-                return (
-                    this.conversationEndsAwaitingAssistant &&
-                    !this.errorMessage &&
-                    this.pendingAssistantUiHold &&
-                    !dmBlocks &&
-                    !this.isSending &&
-                    !this.isInitialOpenBusy &&
-                    !this.partyRoundOpenForMyAction &&
-                    this.chatInputLocked
-                );
+                return !dmBlocks && this.pendingAssistantUiHold && this.chatInputLocked && !this.errorMessage;
             },
             chatWaitStatusText() {
                 if (this.dmGenerationLikelyInFlight && !this.partyRoundCollectingActions) {
@@ -2168,8 +2172,35 @@ export default {
                 this.pendingReplyPollSig = null;
             },
 
-            unlockChatInput() {
-                this.pendingAssistantUiHold = false;
+            /**
+             * Ask the server for the reply to the turn the table is waiting on. It is the same call a normal turn makes,
+             * minus a new player message: the server appends the answer to the stored transcript, so any member can
+             * press it and the result is the same for everyone.
+             */
+            async retryDmReply() {
+                if (this.isSending || !this.conversationEndsAwaitingAssistant) return;
+                const gid = this.$store.state.gameId;
+                if (!gid) return;
+                this.isSending = true;
+                this.errorMessage = null;
+                try {
+                    const messages = this.conversation.slice(-this.ContextLength * 2);
+                    await axios.post('/api/game-session/generate', {
+                        messages,
+                        language: this.language,
+                        gameId: gid,
+                        requestingUserId: this.myUserIdStr || undefined,
+                    });
+                    this.pendingAssistantUiHold = false;
+                    this.partyRoundWaitingOthers = false;
+                    await this.syncFromServer();
+                } catch (error) {
+                    const apiErr = error.response?.data?.error;
+                    this.errorMessage = apiErr || this.$i18n.chat_retry_failed;
+                    this.pendingAssistantUiHold = false;
+                } finally {
+                    this.isSending = false;
+                }
             },
 
             flushKeepaliveAppend() {
@@ -3366,6 +3397,10 @@ export default {
                         gameState.llmCallStartedAt != null ? String(gameState.llmCallStartedAt) : null;
                     this.serverLlmCompletedAt =
                         gameState.llmCallCompletedAt != null ? String(gameState.llmCallCompletedAt) : null;
+                    this.serverLlmError =
+                        typeof gameState.llmCallError === 'string' && gameState.llmCallError.trim()
+                            ? gameState.llmCallError.trim()
+                            : null;
                     this.conversation = Array.isArray(gameState.conversation) ? gameState.conversation : [];
                     this.summaryConversation = gameState.summaryConversation;
                     this.summary = gameState.summary;
