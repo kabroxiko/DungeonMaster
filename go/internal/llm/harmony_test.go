@@ -45,7 +45,7 @@ func TestEmptyReplyIsAskedOnceMore(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderLMStudio, LMStudioURL: srv.URL, LMStudioModel: "local/model"}
+	cfg := &config.Config{AILightProvider: config.ProviderLMStudio, AILightURL: srv.URL, AILightModel: "local/model"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, map[string]interface{}{"max_tokens": 3000})
@@ -64,7 +64,7 @@ func TestEmptyReplyTwiceIsAnActionableError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderLMStudio, LMStudioURL: srv.URL, LMStudioModel: "local/model"}
+	cfg := &config.Config{AILightProvider: config.ProviderLMStudio, AILightURL: srv.URL, AILightModel: "local/model"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, map[string]interface{}{"max_tokens": 3000})

@@ -66,35 +66,40 @@ For proper functioning of the application, you must set up the following environ
   1. Create an API key at [platform.deepseek.com](https://platform.deepseek.com/).
   2. In your `.env` file:
      ```bash
-     DM_AI_PROVIDER=deepseek
+     DM_AI_LIGHT_PROVIDER=deepseek
      DM_DEEPSEEK_API_KEY=sk-...
-     # optional, these are the defaults:
-     DM_DEEPSEEK_MODEL=deepseek-chat
-     DM_DEEPSEEK_URL=https://api.deepseek.com
+     # optional, this is the default:
+     DM_AI_LIGHT_MODEL=deepseek-chat
      ```
-  3. Restart the server: `.env` is read once at startup, and the log line `AI provider: deepseek at …` confirms which backend this process uses.
+     Do not set `DM_AI_LIGHT_URL` for DeepSeek: its endpoint is fixed at `https://api.deepseek.com`, and a URL
+     configured for it stops the server at boot.
+  3. Restart the server: `.env` is read once at startup, and the log line `AI provider (light): deepseek at …` confirms which backend this process uses.
 - **Notes**: use a plain chat model (`deepseek-chat`). Reasoning models (`deepseek-reasoner`, `deepseek-flash`) spend the output budget on hidden reasoning tokens — a 550-token stage can come back with ~130 tokens of actual reply, truncated mid-document, which then fails to parse. `DM_MODEL_CONTEXT_TOKENS` defaults to 16384; raise it (e.g. `65536`) to use more of DeepSeek's window.
 
 #### Google Gemini (Google AI Studio)
 
-- **Purpose**: Same role as OpenAI — Gemini's OpenAI-compatible endpoint takes the same chat-completions request, so only the endpoint, key and model change. This is the **Google AI Studio API key** product on `generativelanguage.googleapis.com`; Vertex AI (a GCP project plus service account) is a different surface and is not what `DM_AI_PROVIDER=gemini` selects.
+- **Purpose**: Same role as OpenAI — Gemini's OpenAI-compatible endpoint takes the same chat-completions request, so only the endpoint, key and model change. This is the **Google AI Studio API key** product on `generativelanguage.googleapis.com`; Vertex AI (a GCP project plus service account) is a different surface and is not what `DM_AI_LIGHT_PROVIDER=gemini` selects.
 - **Setup**:
   1. Create an API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
   2. In your `.env` file:
      ```bash
-     DM_AI_PROVIDER=gemini
+     DM_AI_LIGHT_PROVIDER=gemini
      DM_GEMINI_API_KEY=AIza...
-     # optional, these are the defaults:
-     DM_GEMINI_MODEL=gemini-2.5-flash
-     DM_GEMINI_URL=https://generativelanguage.googleapis.com/v1beta/openai
+     # optional, this is the default:
+     DM_AI_LIGHT_MODEL=gemini-2.5-flash
      ```
-  3. Restart the server: `.env` is read once at startup, and the log line `AI provider: gemini at …` confirms which backend this process uses.
-- **Notes**: `DM_GEMINI_URL` is the whole compatibility base — Gemini serves it under `/v1beta/openai`, not `/v1`, so the server appends only `/chat/completions` to it. Gemini 2.5 Flash reasons before answering and those hidden tokens are charged to `max_tokens`, so a short reply budget can come back truncated mid-document and fail to parse; either raise the budget or choose a model without thinking (`DM_GEMINI_MODEL=gemini-2.0-flash`).
+     Gemini's endpoint is fixed at `https://generativelanguage.googleapis.com/v1beta/openai`; setting a URL for it stops
+     the server at boot.
+  3. Restart the server: `.env` is read once at startup, and the log line `AI provider (light): gemini at …` confirms which backend this process uses.
+- **Notes**: the compatibility base — Gemini serves it under `/v1beta/openai`, not `/v1`, so the server appends only `/chat/completions` to it. Gemini 2.5 Flash reasons before answering and those hidden tokens are charged to `max_tokens`, so a short reply budget can come back truncated mid-document and fail to parse; either raise the budget or choose a model without thinking (`DM_AI_LIGHT_MODEL=gemini-2.0-flash`).
 
 #### Choosing the AI provider
 
-- **Purpose**: one selector, `DM_AI_PROVIDER`, instead of a boolean per provider.
+- **Purpose**: one selector per role, `DM_AI_LIGHT_PROVIDER` and `DM_AI_HEAVY_PROVIDER`, instead of a boolean per provider.
 - **Values**: `openai` (default when unset), `deepseek`, `gemini`, `lmstudio`. An unknown value stops the server at boot with the list of accepted names, rather than quietly using a different provider.
+- **Roles**: `DM_AI_LIGHT_*` answers play turns; `DM_AI_HEAVY_*` writes the campaign, its stages, the character sheet and the opening adventure. A role is a provider, a model and a key; only `lmstudio` also takes a URL, because it is the one provider whose address is not part of its name. The heavy role inherits the light tier's host unless it names another provider.
+- **Endpoints belong to the provider**: `openai`, `deepseek` and `gemini` have one address each, so a URL set for them is a boot error rather than a silent redirect — the mismatch that makes "deepseek" answer from the local box.
+- **Keys belong to an account**: a role that names none falls back to the provider's key (`DM_DEEPSEEK_API_KEY`, `DM_GEMINI_API_KEY`, `DM_OPENAI_API_KEY`).
 - **Why not flags**: `DM_USE_LM_STUDIO` and `DM_USE_DEEPSEEK` could both be on at once, and the server then had to refuse or guess. A single name cannot be ambiguous, and the startup log states the provider, its endpoint and the model.
 
 #### Google Sign-In and session JWT (required for play)
@@ -207,6 +212,7 @@ Only the web app port is published; Mongo stays on the compose network.
 ### Debugging LLM calls
 
 - **Process logs**: set `DM_DEBUG_LLM=true` in `.env` and rebuild/restart `gmai-server`. Each call logs a short `llm-debug call …` line, then each request message on its own `llm-debug request msg[i]| …` lines (full body, newline-split, long lines chunked by runes—no `%q` ellipsis), then `llm-debug ok …` and the full assistant output on `llm-debug out| …` lines. Disable in production; prompts may contain user text and volume is high.
+- **Where those lines go**: with `DM_SPAWN_VUE_DEV=true` the Vue dev server shares the terminal and floods it on every rebuild, so the server also writes `tmp/gmai-server.log` (or `DM_LOG_FILE`). `tail -f tmp/gmai-server.log` is the reliable view. The file is truncated on each run.
 - **Persisted payloads**: `GameState` stores `rawModelRequest`, `rawModelOutput`, and timing/error fields (`llmCallStartedAt`, `llmCallCompletedAt`, `llmCallError`, …) for many flows. With a session JWT, `GET /api/game-state/debug/:gameId/prompts` returns those fields plus `campaignSpec` / `gameSetup` for inspection.
 
 ### Grounding the campaign in a generated world (Vellaris)

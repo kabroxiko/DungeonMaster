@@ -49,7 +49,8 @@ func generate(t *testing.T, cfg *config.Config, opts map[string]interface{}) (st
 
 func TestDeepSeekUsesItsOwnEndpointModelAndKey(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "sk-deepseek", DeepSeekModel: "deepseek-reasoner"}
+	pointProviderAt(t, config.ProviderDeepSeek, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: "sk-deepseek", AILightModel: "deepseek-reasoner"}
 
 	out, err := generate(t, cfg, nil)
 	if err != nil {
@@ -71,7 +72,8 @@ func TestDeepSeekUsesItsOwnEndpointModelAndKey(t *testing.T) {
 
 func TestDeepSeekDefaultsToChatModel(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	pointProviderAt(t, config.ProviderDeepSeek, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: "k"}
 
 	if _, err := generate(t, cfg, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -81,21 +83,24 @@ func TestDeepSeekDefaultsToChatModel(t *testing.T) {
 	}
 }
 
-func TestDeepSeekToleratesABaseURLThatAlreadyEndsInV1(t *testing.T) {
-	srv := newChatServer(t)
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL + "/v1", DeepSeekAPIKey: "k"}
+// A hosted provider has one endpoint, so a URL configured for it is a mistake that must be named at boot rather than
+// accepted: that variable is how "deepseek" ends up answering from the local LM Studio box set up a minute earlier.
+func TestDeepSeekRefusesAConfiguredURL(t *testing.T) {
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, AILightURL: "http://192.168.0.60:1234", DeepSeekAPIKey: "k"}
 
-	if _, err := generate(t, cfg, nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := generate(t, cfg, nil)
+	if err == nil {
+		t.Fatal("expected an error for a URL configured on a hosted provider")
 	}
-	if srv.path != "/v1/chat/completions" {
-		t.Fatalf("a /v1 base URL must not be doubled, got %q", srv.path)
+	if !strings.Contains(err.Error(), "DM_AI_LIGHT_URL") || !strings.Contains(err.Error(), "https://api.deepseek.com") {
+		t.Fatalf("the error should name the variable and the provider's real endpoint, got %v", err)
 	}
 }
 
 func TestDeepSeekKeepsJSONModeForTheDMEnvelope(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	pointProviderAt(t, config.ProviderDeepSeek, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: "k"}
 
 	// dm.go asks for json_object; DeepSeek supports it, so dropping it would let the model wrap its reply in prose.
 	opts := map[string]interface{}{"response_format": map[string]interface{}{"type": "json_object"}}
@@ -109,7 +114,7 @@ func TestDeepSeekKeepsJSONModeForTheDMEnvelope(t *testing.T) {
 }
 
 func TestDeepSeekReportsItsOwnMissingKey(t *testing.T) {
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: "http://127.0.0.1:1", DeepSeekAPIKey: ""}
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: ""}
 
 	_, err := generate(t, cfg, nil)
 	if err == nil {
@@ -127,7 +132,8 @@ func TestDeepSeekSurfacesProviderErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "bad"}
+	pointProviderAt(t, config.ProviderDeepSeek, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: "bad"}
 	_, err := generate(t, cfg, nil)
 	if err == nil {
 		t.Fatal("expected an error for a rejected key")
@@ -140,13 +146,13 @@ func TestDeepSeekSurfacesProviderErrors(t *testing.T) {
 // One selector cannot enable two providers at once, so the only configuration error left to report is a name the
 // server does not serve. It must fail loudly rather than fall back to a provider nobody asked for.
 func TestUnknownProviderIsRejectedByName(t *testing.T) {
-	cfg := &config.Config{AIProvider: "anthropic"}
+	cfg := &config.Config{AILightProvider: "anthropic"}
 
 	_, err := generate(t, cfg, nil)
 	if err == nil {
 		t.Fatal("expected an error for a provider the server does not serve")
 	}
-	if !strings.Contains(err.Error(), "DM_AI_PROVIDER") || !strings.Contains(err.Error(), "deepseek") || !strings.Contains(err.Error(), "gemini") {
+	if !strings.Contains(err.Error(), "DM_AI_LIGHT_PROVIDER") || !strings.Contains(err.Error(), "deepseek") || !strings.Contains(err.Error(), "gemini") {
 		t.Fatalf("the error should name the setting and the accepted values, got %v", err)
 	}
 }
@@ -160,7 +166,7 @@ func TestProviderDefaultsAreUnchanged(t *testing.T) {
 		t.Fatalf("OpenAI remains the default backend, got %+v", openai)
 	}
 
-	deepseek, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderDeepSeek}, false)
+	deepseek, err := resolveChatBackend(&config.Config{AILightProvider: config.ProviderDeepSeek}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -168,11 +174,16 @@ func TestProviderDefaultsAreUnchanged(t *testing.T) {
 		t.Fatalf("unexpected DeepSeek defaults: %+v", deepseek)
 	}
 
-	local, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderLMStudio}, false)
+	// lmstudio is the only role that takes an address, and it needs one: guessing localhost is how a request ends up
+	// knocking on the wrong machine with no trace of why.
+	if _, err := resolveChatBackend(&config.Config{AILightProvider: config.ProviderLMStudio, AILightModel: "local/model"}, false); err == nil {
+		t.Fatal("lmstudio without a URL must be reported at resolution time")
+	}
+	local, err := resolveChatBackend(&config.Config{AILightProvider: config.ProviderLMStudio, AILightURL: "http://127.0.0.1:11434", AILightModel: "local/model"}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if local.baseURL != "http://localhost:1234" {
-		t.Fatalf("LM Studio default URL changed: %+v", local)
+	if local.baseURL != "http://127.0.0.1:11434" {
+		t.Fatalf("the configured endpoint was not kept: %+v", local)
 	}
 }

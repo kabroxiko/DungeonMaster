@@ -2173,6 +2173,19 @@ export default {
             },
 
             /**
+             * The server's DM failures carry a detail with the backend's own reason (a refusal, a cut budget, an
+             * unreachable host). Showing only "LLM call failed" leaves the table with nothing to act on.
+             */
+            dmErrorText(error) {
+                const data = error?.response?.data;
+                if (!data) return '';
+                const apiErr = typeof data.error === 'string' ? data.error : '';
+                const detail = typeof data.detail === 'string' ? data.detail.trim() : '';
+                if (apiErr && detail) return `${apiErr}: ${detail}`;
+                return apiErr || detail;
+            },
+
+            /**
              * Ask the server for the reply to the turn the table is waiting on. It is the same call a normal turn makes,
              * minus a new player message: the server appends the answer to the stored transcript, so any member can
              * press it and the result is the same for everyone.
@@ -2195,8 +2208,7 @@ export default {
                     this.partyRoundWaitingOthers = false;
                     await this.syncFromServer();
                 } catch (error) {
-                    const apiErr = error.response?.data?.error;
-                    this.errorMessage = apiErr || this.$i18n.chat_retry_failed;
+                    this.errorMessage = this.dmErrorText(error) || this.$i18n.chat_retry_failed;
                     this.pendingAssistantUiHold = false;
                 } finally {
                     this.isSending = false;
@@ -3236,8 +3248,8 @@ export default {
                     }
                 } catch (error) {
                     console.error('Error generating AI message:', error);
-                    const apiErr = error.response?.data?.error;
-                    this.errorMessage = apiErr || error.message || 'Failed to send message. Please try again.';
+                    this.errorMessage =
+                        this.dmErrorText(error) || error.message || 'Failed to send message. Please try again.';
                     if (this.gameSessionBroadcastActive) {
                         this.$nextTick(() => this.syncFromServer());
                     } else {

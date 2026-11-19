@@ -20,11 +20,11 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/deckofdmthings/gmai/internal/auth"
-	"github.com/deckofdmthings/gmai/internal/config"
 	"github.com/deckofdmthings/gmai/internal/draftparty"
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
 	"github.com/deckofdmthings/gmai/internal/gamesession"
 	"github.com/deckofdmthings/gmai/internal/ironarachne"
+	"github.com/deckofdmthings/gmai/internal/llm"
 	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/persist"
 )
@@ -315,32 +315,20 @@ func (s *Server) handleAdminConfig(w http.ResponseWriter, r *http.Request, uid s
 		return
 	}
 	c := s.Cfg
-	model := c.OpenAIModel
-	switch c.AIProvider {
-	case config.ProviderDeepSeek:
-		model = c.DeepSeekModel
-	case config.ProviderGemini:
-		model = c.GeminiModel
-	case config.ProviderLMStudio:
-		model = c.LMStudioModel
-	}
-	// The authoring tier is reported as it resolves: an unset provider means the heavy calls follow the play tier, and
-	// reporting the raw empty string would look like a misconfiguration to whoever reads this screen.
-	heavyProvider := c.AIProvider
-	if strings.TrimSpace(c.AIHeavyProvider) != "" {
-		heavyProvider = c.AIHeavyProvider
-	}
-	heavyModel := model
-	if strings.TrimSpace(c.AIHeavyModel) != "" {
-		heavyModel = c.AIHeavyModel
-	}
+	// Both roles are reported as they resolve: an unset heavy provider means authoring follows the light tier, and
+	// showing the raw empty strings would look like a misconfiguration to whoever reads this screen.
+	lightProvider, lightURL, lightModel, lightErr := llm.BackendFor(c, false)
+	heavyProvider, heavyURL, heavyModel, heavyErr := llm.BackendFor(c, true)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"aiProvider":           c.AIProvider,
-		"model":                model,
+		"aiLightProvider":      lightProvider,
+		"aiLightModel":         lightModel,
+		"aiLightUrl":           lightURL,
+		"aiLightError":         errText(lightErr),
 		"aiHeavyProvider":      heavyProvider,
 		"aiHeavyModel":         heavyModel,
-		"aiHeavyConfigured":    strings.TrimSpace(c.AIHeavyProvider) != "" || strings.TrimSpace(c.AIHeavyModel) != "",
-		"aiHeavyUrl":           strings.TrimSpace(c.AIHeavyURL),
+		"aiHeavyUrl":           heavyURL,
+		"aiHeavyError":         errText(heavyErr),
+		"aiHeavyConfigured":    strings.TrimSpace(c.AIHeavyProvider) != "" || strings.TrimSpace(c.AIHeavyModel) != "" || strings.TrimSpace(c.AIHeavyURL) != "",
 		"modelContextTokens":   c.ModelContextTok,
 		"mapServiceUrl":        c.VellarisURL,
 		"mapServiceConfigured": strings.TrimSpace(c.VellarisURL) != "",
@@ -744,6 +732,9 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request, uid stri
 		if out.Code != "" {
 			payload["code"] = out.Code
 		}
+		if out.Detail != "" {
+			payload["detail"] = out.Detail
+		}
 		if out.RawPreview != "" {
 			payload["rawPreview"] = out.RawPreview
 		}
@@ -1065,4 +1056,13 @@ func (s *Server) handleMeasureTravel(w http.ResponseWriter, r *http.Request, uid
 	}
 	st, out := gamesession.HandleVellarisRoute(r.Context(), s.GS, uid, body)
 	writeJSON(w, st, localizeIfCoded(r, out))
+}
+
+// errText renders a resolution error for the configuration screen; a nil error is reported as an empty string so the
+// client can test it directly.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

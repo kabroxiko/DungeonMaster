@@ -35,7 +35,11 @@ type HandleDmGenerateResult struct {
 	Coinage        map[string]interface{} `json:"coinage,omitempty"`
 	Error          string                 `json:"error,omitempty"`
 	Code           string                 `json:"code,omitempty"`
-	RawPreview     string                 `json:"rawPreview,omitempty"`
+	// Detail is the provider's own reason. Without it the reply is only "LLM call failed", which says nothing to the
+	// operator and nothing to the table: every backend failure - a refusal, a cut budget, an unreachable host - looked
+	// identical.
+	Detail     string `json:"detail,omitempty"`
+	RawPreview string `json:"rawPreview,omitempty"`
 }
 
 // HandleDmGenerate answers a DM turn: it prompts the model with the messages the caller built and writes the reply back
@@ -123,7 +127,9 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	_ = markLlmStarted(ctx, d.Coll, gameID)
 
 	tok := estimateTokens(msgs)
-	budget := 550
+	// A reasoning model spends part of this budget on the analysis it never shows, then writes the visible turn. 550
+	// left gpt-oss-20b ending play turns with nothing but thinking, so the budget covers the analysis and the turn.
+	budget := 1200
 	if mode == "initial" {
 		budget = 2200
 	}
@@ -136,31 +142,39 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	}
 
 	// The opening adventure is authored once and read for the whole campaign; every later turn is a play turn.
-	raw, err := llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": msgs}, map[string]interface{}{
-		"max_tokens":      budget,
-		"temperature":     0.8,
-		"gameId":          gameID,
-		"response_format": map[string]interface{}{"type": "json_object"},
-		"heavy":           mode == "initial",
-	})
+	heavy := mode == "initial"
+	ask := func(messages []interface{}) (string, error) {
+		opts := map[string]interface{}{
+			"max_tokens":      budget,
+			"temperature":     0.8,
+			"gameId":          gameID,
+			"response_format": map[string]interface{}{"type": "json_object"},
+			"heavy":           heavy,
+		}
+		// A play turn is a short narrative reply, not a problem to solve: a reasoning model that thinks about it for
+		// hundreds of hidden tokens makes the table wait half a minute, and can end the turn with nothing to read.
+		if !heavy {
+			opts["reasoning_effort"] = "low"
+		}
+		return llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": messages}, opts)
+	}
+	// A prose reply gets one corrective attempt before the turn is failed: a refusal is not an answer the table can
+	// use, and most of them come back as a real turn once the format is restated.
+	raw, env, err := envelopeWithCorrection(ask, msgs)
 	if err != nil {
+		// The reason is logged and returned: "see server logs" was a promise nothing kept, because the only place it
+		// reached was the game document.
+		log.Printf("dm generate (gameId=%s): %v", gameID, err)
 		_ = markLlmErr(ctx, d.Coll, gameID, err.Error())
 		_ = markLlmDone(ctx, d.Coll, gameID)
-		return 500, &HandleDmGenerateResult{Error: "LLM call failed (see server logs)."}
+		return 500, &HandleDmGenerateResult{Error: "LLM call failed", Detail: err.Error()}
 	}
-	if strings.TrimSpace(raw) == "" {
-		_ = markLlmDone(ctx, d.Coll, gameID)
-		return 500, &HandleDmGenerateResult{Error: "AI response was empty or failed (see server logs)."}
-	}
-
-	env := parseDmEnvelope(raw)
 	if env == nil {
 		_ = markLlmDone(ctx, d.Coll, gameID)
+		if strings.TrimSpace(raw) == "" {
+			return 500, &HandleDmGenerateResult{Error: "AI response was empty or failed (see server logs)."}
+		}
 		return 502, &HandleDmGenerateResult{Error: "DM reply was not valid envelope JSON", RawPreview: trunc(raw, 1200)}
-	}
-	if strings.TrimSpace(env.Narration) == "" {
-		_ = markLlmDone(ctx, d.Coll, gameID)
-		return 502, &HandleDmGenerateResult{Error: "The model returned empty narration.", RawPreview: trunc(raw, 1500)}
 	}
 
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)

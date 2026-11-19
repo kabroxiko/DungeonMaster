@@ -2,7 +2,7 @@ package config
 
 import "testing"
 
-// DM_AI_PROVIDER is one name, so the accepted spellings have to fold onto it and anything else must survive unchanged
+// The provider is one name per role, so the accepted spellings have to fold onto it and anything else must survive unchanged
 // so the backend resolver can reject it by name.
 func TestNormalizeAIProvider(t *testing.T) {
 	cases := map[string]string{

@@ -10,7 +10,7 @@ import (
 // A one-provider setup must keep behaving exactly as before: the authoring tier follows the play tier when
 // DM_AI_HEAVY_PROVIDER is unset.
 func TestHeavyTierFallsBackToThePlayTier(t *testing.T) {
-	cfg := &config.Config{AIProvider: config.ProviderLMStudio, LMStudioURL: "http://192.168.0.111:11434", LMStudioModel: "llama3.1:8b"}
+	cfg := &config.Config{AILightProvider: config.ProviderLMStudio, AILightURL: "http://192.168.0.111:11434", AILightModel: "llama3.1:8b"}
 
 	backend, err := resolveChatBackend(cfg, true)
 	if err != nil {
@@ -19,24 +19,19 @@ func TestHeavyTierFallsBackToThePlayTier(t *testing.T) {
 	if backend.name != lmStudioBackendName || backend.baseURL != "http://192.168.0.111:11434" {
 		t.Fatalf("authoring should follow the play provider, got %+v", backend)
 	}
-	model, err := defaultModelFor(cfg, backend, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if model != "llama3.1:8b" {
-		t.Fatalf("authoring should inherit the play model, got %q", model)
+	if backend.model != "llama3.1:8b" {
+		t.Fatalf("authoring should inherit the play model, got %q", backend.model)
 	}
 }
 
 // The whole point of the tier: play turns on a local model, the long documents on a cloud one, from one process.
 func TestHeavyProviderAndModelOverrideOnlyTheAuthoringTier(t *testing.T) {
 	cfg := &config.Config{
-		AIProvider:      config.ProviderLMStudio,
-		LMStudioURL:     "http://192.168.0.111:11434",
-		LMStudioModel:   "llama3.1:8b",
+		AILightProvider: config.ProviderLMStudio,
+		AILightURL:      "http://192.168.0.111:11434",
+		AILightModel:    "llama3.1:8b",
 		AIHeavyProvider: config.ProviderDeepSeek,
 		AIHeavyModel:    "deepseek-chat",
-		DeepSeekURL:     "https://api.deepseek.com",
 		DeepSeekAPIKey:  "sk-deepseek",
 	}
 
@@ -59,7 +54,7 @@ func TestHeavyProviderAndModelOverrideOnlyTheAuthoringTier(t *testing.T) {
 
 // Only the model has to change to author on a bigger model of the same provider.
 func TestHeavyModelAloneKeepsThePlayProvider(t *testing.T) {
-	cfg := &config.Config{AIProvider: config.ProviderLMStudio, LMStudioURL: "http://127.0.0.1:11434", LMStudioModel: "llama3.1:8b", AIHeavyModel: "gpt-oss:latest"}
+	cfg := &config.Config{AILightProvider: config.ProviderLMStudio, AILightURL: "http://127.0.0.1:11434", AILightModel: "llama3.1:8b", AIHeavyModel: "gpt-oss:latest"}
 
 	backend, err := resolveChatBackend(cfg, true)
 	if err != nil {
@@ -68,18 +63,14 @@ func TestHeavyModelAloneKeepsThePlayProvider(t *testing.T) {
 	if backend.name != lmStudioBackendName {
 		t.Fatalf("expected the play provider, got %+v", backend)
 	}
-	model, err := defaultModelFor(cfg, backend, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if model != "gpt-oss:latest" {
-		t.Fatalf("expected the authoring model override, got %q", model)
+	if backend.model != "gpt-oss:latest" {
+		t.Fatalf("expected the authoring model override, got %q", backend.model)
 	}
 }
 
-// A typo has to name the setting that holds it, or the operator fixes DM_AI_PROVIDER and stays broken.
+// A typo has to name the setting that holds it, or the operator fixes the light provider and stays broken.
 func TestUnknownHeavyProviderNamesItsOwnSetting(t *testing.T) {
-	cfg := &config.Config{AIProvider: config.ProviderLMStudio, AIHeavyProvider: "anthropic"}
+	cfg := &config.Config{AILightProvider: config.ProviderLMStudio, AIHeavyProvider: "anthropic"}
 
 	_, err := resolveChatBackend(cfg, true)
 	if err == nil {
@@ -94,13 +85,13 @@ func TestUnknownHeavyProviderNamesItsOwnSetting(t *testing.T) {
 func TestHeavyRequestIsSentToTheAuthoringBackend(t *testing.T) {
 	playServer := newChatServer(t)
 	heavyServer := newChatServer(t)
+	pointProviderAt(t, config.ProviderDeepSeek, heavyServer.URL)
 	cfg := &config.Config{
-		AIProvider:      config.ProviderLMStudio,
-		LMStudioURL:     playServer.URL,
-		LMStudioModel:   "llama3.1:8b",
+		AILightProvider: config.ProviderLMStudio,
+		AILightURL:      playServer.URL,
+		AILightModel:    "llama3.1:8b",
 		AIHeavyProvider: config.ProviderDeepSeek,
 		AIHeavyModel:    "deepseek-chat",
-		DeepSeekURL:     heavyServer.URL,
 		DeepSeekAPIKey:  "sk-deepseek",
 	}
 
@@ -130,11 +121,11 @@ func TestHeavyTierCanLiveOnAnotherLocalHost(t *testing.T) {
 	playServer := newChatServer(t)
 	heavyServer := newChatServer(t)
 	cfg := &config.Config{
-		AIProvider:    config.ProviderLMStudio,
-		LMStudioURL:   playServer.URL,
-		LMStudioModel: "llama3.1:8b",
-		AIHeavyURL:    heavyServer.URL,
-		AIHeavyModel:  "gpt-oss:latest",
+		AILightProvider: config.ProviderLMStudio,
+		AILightURL:      playServer.URL,
+		AILightModel:    "llama3.1:8b",
+		AIHeavyURL:      heavyServer.URL,
+		AIHeavyModel:    "gpt-oss:latest",
 	}
 
 	if _, err := generate(t, cfg, map[string]interface{}{"heavy": true}); err != nil {
@@ -165,12 +156,12 @@ func TestHeavyTierCanLiveOnAnotherLocalHost(t *testing.T) {
 func TestHeavyTierCanUseItsOwnKey(t *testing.T) {
 	playServer := newChatServer(t)
 	heavyServer := newChatServer(t)
+	pointProviderAt(t, config.ProviderDeepSeek, heavyServer.URL)
 	cfg := &config.Config{
-		AIProvider:      config.ProviderLMStudio,
-		LMStudioURL:     playServer.URL,
-		LMStudioModel:   "llama3.1:8b",
+		AILightProvider: config.ProviderLMStudio,
+		AILightURL:      playServer.URL,
+		AILightModel:    "llama3.1:8b",
 		AIHeavyProvider: config.ProviderDeepSeek,
-		AIHeavyURL:      heavyServer.URL,
 		AIHeavyModel:    "deepseek-chat",
 		AIHeavyAPIKey:   "sk-authoring",
 		DeepSeekAPIKey:  "sk-play",
@@ -184,20 +175,23 @@ func TestHeavyTierCanUseItsOwnKey(t *testing.T) {
 	}
 }
 
-// Gemini derives its chat route from its base, so an overridden base must move the route too.
-func TestHeavyGeminiURLRebuildsItsChatRoute(t *testing.T) {
+// Gemini's route is derived from its own base: the heavy role reaches the same endpoint without naming one, and the
+// route under /v1beta/openai is built from the provider, not from a variable.
+func TestHeavyGeminiSharesTheProvidersEndpoint(t *testing.T) {
 	cfg := &config.Config{
-		AIProvider:      config.ProviderGemini,
+		AILightProvider: config.ProviderGemini,
 		GeminiAPIKey:    "AIza-play",
 		AIHeavyProvider: config.ProviderGemini,
-		AIHeavyURL:      "https://gemini-proxy.internal/v1beta/openai",
 	}
 
 	backend, err := resolveChatBackend(cfg, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if backend.chatURL() != "https://gemini-proxy.internal/v1beta/openai/chat/completions" {
-		t.Fatalf("heavy chat route not rebuilt from the override: %q", backend.chatURL())
+	if backend.chatURL() != providerEndpoints.gemini+"/chat/completions" {
+		t.Fatalf("heavy chat route not built from the provider: %q", backend.chatURL())
+	}
+	if backend.apiKey != "AIza-play" {
+		t.Fatalf("the heavy tier should fall back to the provider key, got %q", backend.apiKey)
 	}
 }

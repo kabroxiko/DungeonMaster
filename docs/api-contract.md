@@ -205,4 +205,4 @@ campaign content: `campaignspec.mapMarkerKeys` keeps it out of the readiness che
 
 ## Environment (see [`env.example`](../env.example))
 
-- `DM_MONGODB_URI`, `DM_JWT_SECRET`, `DM_FRONTEND_URL`, `DM_PUBLIC_URL`, `DM_GOOGLE_CLIENT_ID`, `DM_AI_PROVIDER` (`openai` | `deepseek` | `gemini` | `lmstudio`), `DM_OPENAI_MODEL`, `DM_GEMINI_MODEL`, `DM_LM_STUDIO_URL`, `PORT`, `DM_BIND_HOST`, `DM_TRUST_PROXY`, etc.
+- `DM_MONGODB_URI`, `DM_JWT_SECRET`, `DM_FRONTEND_URL`, `DM_PUBLIC_URL`, `DM_GOOGLE_CLIENT_ID`, `DM_AI_LIGHT_PROVIDER` / `DM_AI_HEAVY_PROVIDER` (`openai` | `deepseek` | `gemini` | `lmstudio`), `DM_AI_LIGHT_URL` / `DM_AI_LIGHT_MODEL` / `DM_AI_LIGHT_API_KEY` and the `DM_AI_HEAVY_*` equivalents, the per-provider keys, `PORT`, `DM_BIND_HOST`, `DM_TRUST_PROXY`, etc.

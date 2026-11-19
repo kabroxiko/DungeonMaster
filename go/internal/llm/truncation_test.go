@@ -18,7 +18,8 @@ func TestTruncatedReplyIsReportedInsteadOfReturned(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	pointProviderAt(t, config.ProviderDeepSeek, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: "k"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, map[string]interface{}{"max_tokens": 900})
@@ -41,7 +42,8 @@ func TestCompleteReplyStillReturns(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderDeepSeek, DeepSeekURL: srv.URL, DeepSeekAPIKey: "k"}
+	pointProviderAt(t, config.ProviderDeepSeek, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderDeepSeek, DeepSeekAPIKey: "k"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, nil)
@@ -58,7 +60,7 @@ func TestLMStudioTruncatedReplyIsReportedInsteadOfReturned(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderLMStudio, LMStudioURL: srv.URL, LMStudioModel: "local/model"}
+	cfg := &config.Config{AILightProvider: config.ProviderLMStudio, AILightURL: srv.URL, AILightModel: "local/model"}
 	out, err := GenerateResponse(context.Background(), cfg, map[string]interface{}{
 		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "go"}},
 	}, map[string]interface{}{"max_tokens": 700})

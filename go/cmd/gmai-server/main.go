@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -66,17 +68,80 @@ func startVueDevServer(root string) *exec.Cmd {
 		log.Printf("Vue dev: skip — not found: %s", clientDir)
 		return nil
 	}
+	// A dev server left behind by an earlier run keeps the port. The new one then silently moves to the next free
+	// port while the browser keeps talking to the orphan, which still proxies /api to this process — the app looks
+	// alive and no frontend change since that run ever reaches the browser. Refuse and name the port instead.
+	port := frontendPort()
+	if portTaken(port) {
+		log.Printf("Vue dev: NOT started — port %s is already in use, probably a dev server left by an earlier run "+
+			"(lsof -nP -iTCP:%s -sTCP:LISTEN). Stop it, or set DM_FRONTEND_PORT to a free port.", port, port)
+		return nil
+	}
 	cmd := exec.Command("npm", "run", "serve")
 	cmd.Dir = clientDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
+	// Own process group: `npm run serve` is a shell that execs `vue-cli-service serve` in turn, so killing npm alone
+	// leaves the node grandchild listening on the port - the dev server that outlives `npm start`.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		log.Printf("warning: Vue dev server (npm run serve) failed to start: %v", err)
 		return nil
 	}
-	log.Printf("Vue dev server started (child of gmai-server) pid=%d dir=%s", cmd.Process.Pid, clientDir)
+	log.Printf("Vue dev server started (child of gmai-server) pid=%d dir=%s port=%s", cmd.Process.Pid, clientDir, port)
 	return cmd
+}
+
+// frontendPort is the port vue.config.js binds for the dev server (DM_FRONTEND_PORT, 8080 by default).
+func frontendPort() string {
+	if p := strings.TrimSpace(os.Getenv("DM_FRONTEND_PORT")); p != "" {
+		return p
+	}
+	return "8080"
+}
+
+// portTaken reports whether something already listens on the loopback address of that port.
+func portTaken(port string) bool {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", port))
+	if err != nil {
+		return true
+	}
+	_ = ln.Close()
+	return false
+}
+
+// setupLogging mirrors the process log to a file and says where it went. In development the Vue dev server shares this
+// process's terminal and floods it on every rebuild, so the backend's own lines - including the DM_DEBUG_LLM dumps -
+// are easy to lose. Returns a function that closes the file.
+func setupLogging(cfg *config.Config) func() {
+	path := cfg.LogFile
+	if path == "" && config.TruthyEnv("DM_SPAWN_VUE_DEV") {
+		path = filepath.Join("tmp", "gmai-server.log")
+	}
+	if path == "" {
+		return func() {}
+	}
+	// `npm start` runs the module with `-C go`, so the process cwd is go/: resolve a relative DM_LOG_FILE against the
+	// repository root, which is where a developer expects to find it.
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repoRoot(), path)
+	}
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Printf("warning: cannot create log directory %s: %v", dir, err)
+			return func() {}
+		}
+	}
+	// Truncated per run: this is the log of the process that is running now, not an append-only history.
+	f, err := os.Create(path)
+	if err != nil {
+		log.Printf("warning: cannot write log file %s: %v", path, err)
+		return func() {}
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	log.Printf("logging to %s", path)
+	return func() { _ = f.Close() }
 }
 
 // loadDotEnv loads the same variables as the former Node app (dotenv).
@@ -100,6 +165,8 @@ func loadDotEnv() {
 func main() {
 	loadDotEnv()
 	cfg := config.Load()
+	closeLog := setupLogging(cfg)
+	defer closeLog()
 	if cfg.MongoURI == "" {
 		log.Fatal("DM_MONGODB_URI is required (set in the environment or copy env.example to .env in the repository root)")
 	}
@@ -107,17 +174,17 @@ func main() {
 	// provider should not look like a broken model on a player's first request.
 	playProvider, playURL, playModel, err := llm.BackendFor(cfg, false)
 	if err != nil {
-		log.Fatalf("AI provider (play): %v", err)
+		log.Fatalf("AI provider (light): %v", err)
 	}
-	log.Printf("AI provider (play): %s at %s, model %s (DM_AI_PROVIDER)", playProvider, playURL, playModel)
+	log.Printf("AI provider (light): %s at %s, model %s (DM_AI_LIGHT_*)", playProvider, playURL, playModel)
 	heavyProvider, heavyURL, heavyModel, err := llm.BackendFor(cfg, true)
 	if err != nil {
-		log.Fatalf("AI provider (authoring): %v", err)
+		log.Fatalf("AI provider (heavy): %v", err)
 	}
 	if cfg.AIHeavyProvider != "" || cfg.AIHeavyModel != "" {
-		log.Printf("AI provider (authoring): %s at %s, model %s (DM_AI_HEAVY_*)", heavyProvider, heavyURL, heavyModel)
+		log.Printf("AI provider (heavy): %s at %s, model %s (DM_AI_HEAVY_*)", heavyProvider, heavyURL, heavyModel)
 	} else {
-		log.Printf("AI provider (authoring): same as play, model %s (DM_AI_HEAVY_PROVIDER is unset)", heavyModel)
+		log.Printf("AI provider (heavy): same as light, model %s (DM_AI_HEAVY_PROVIDER is unset)", heavyModel)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -155,39 +222,61 @@ func main() {
 		gamesession.RecoverInterruptedStarts(rctx, deps, hub)
 	}()
 
-	var vueDev *exec.Cmd
-	if config.TruthyEnv("DM_SPAWN_VUE_DEV") {
-		vueDev = startVueDevServer(repoRoot())
-	}
-
 	addr := cfg.BindHost
 	if addr == "" {
 		addr = "0.0.0.0"
 	}
-	ln := fmt.Sprintf("%s:%s", addr, cfg.Port)
+	// Bind before anything else is started. A second instance used to spawn the Vue dev server first and then die on the
+	// port, leaving a frontend serving on 8080 with no API behind it - the "app still running in the background" that a
+	// stopped npm start left behind.
+	ln, err := net.Listen("tcp", net.JoinHostPort(addr, cfg.Port))
+	if err != nil {
+		log.Fatalf("listen on %s:%s: %v (another gmai-server may already be running)", addr, cfg.Port, err)
+	}
 	httpSrv := &http.Server{
-		Addr:              ln,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 30 * time.Second,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
 		IdleTimeout:       120 * time.Second,
 	}
+
+	var vueDev *exec.Cmd
+	if config.TruthyEnv("DM_SPAWN_VUE_DEV") {
+		vueDev = startVueDevServer(repoRoot())
+	}
+	// The dev server is this process's child: it goes when this process goes, however this process ends.
+	var stopVueOnce sync.Once
+	stopVueDev := func() {
+		stopVueOnce.Do(func() {
+			if vueDev != nil && vueDev.Process != nil {
+				log.Printf("stopping Vue dev server (pid %d)", vueDev.Process.Pid)
+				// The negative pid signals the whole group, so npm's children (sh, node) go with it.
+				if err := syscall.Kill(-vueDev.Process.Pid, syscall.SIGTERM); err != nil {
+					_ = vueDev.Process.Kill()
+				}
+			}
+		})
+	}
+	defer stopVueDev()
+
+	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("gmai-server listening on http://%s", ln)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %v", err)
+		log.Printf("gmai-server listening on http://%s", ln.Addr())
+		if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			serveErr <- err
 		}
 	}()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	select {
+	case <-sig:
+	case err := <-serveErr:
+		log.Printf("listen: %v", err)
+	}
 	// Shutdown waits for active handlers: SSE streams, WebSockets, and in-flight /api calls (e.g. LLM) up to the grace cap.
 	// Closing WS first avoids waiting on those handlers; SSE closes when the server closes the connection.
-	if vueDev != nil && vueDev.Process != nil {
-		log.Printf("stopping Vue dev server (pid %d)", vueDev.Process.Pid)
-		_ = vueDev.Process.Kill()
-	}
+	stopVueDev()
 	hub.CloseWebSockets()
 	shGrace := time.Duration(cfg.HTTPShutdownGraceSeconds) * time.Second
 	shCtx, shCancel := context.WithTimeout(context.Background(), shGrace)

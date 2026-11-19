@@ -14,7 +14,8 @@ import (
 // call would 404.
 func TestGeminiUsesItsOwnEndpointModelAndKey(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{AIProvider: config.ProviderGemini, GeminiURL: srv.URL, GeminiAPIKey: "AIza-key", GeminiModel: "gemini-2.5-pro"}
+	pointProviderAt(t, config.ProviderGemini, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderGemini, GeminiAPIKey: "AIza-key", AILightModel: "gemini-2.5-pro"}
 
 	out, err := generate(t, cfg, nil)
 	if err != nil {
@@ -35,7 +36,7 @@ func TestGeminiUsesItsOwnEndpointModelAndKey(t *testing.T) {
 }
 
 func TestGeminiDefaultsToAIStudioEndpointAndModel(t *testing.T) {
-	backend, err := resolveChatBackend(&config.Config{AIProvider: config.ProviderGemini}, false)
+	backend, err := resolveChatBackend(&config.Config{AILightProvider: config.ProviderGemini}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,30 +50,26 @@ func TestGeminiDefaultsToAIStudioEndpointAndModel(t *testing.T) {
 		t.Fatalf("the error text must name the setting that fixes a missing key, got %q", backend.keyEnv)
 	}
 
-	model, err := defaultModelFor(&config.Config{}, backend, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if model != "gemini-2.5-flash" {
-		t.Fatalf("expected a plain chat model by default, got %q", model)
+	if backend.model != "gemini-2.5-flash" {
+		t.Fatalf("expected a plain chat model by default, got %q", backend.model)
 	}
 }
 
-// The operator may paste the whole URL from the docs, including the route. Appending it again would 404.
-func TestGeminiBaseMayAlreadyNameTheRoute(t *testing.T) {
-	cfg := &config.Config{AIProvider: config.ProviderGemini, GeminiURL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"}
+// Gemini's endpoint is fixed, so a URL configured for it is refused instead of silently overriding where requests go.
+func TestGeminiRefusesAConfiguredURL(t *testing.T) {
+	cfg := &config.Config{AILightProvider: config.ProviderGemini, AILightURL: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"}
 
-	backend, err := resolveChatBackend(cfg, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := resolveChatBackend(cfg, false)
+	if err == nil {
+		t.Fatal("expected an error for a URL configured on a hosted provider")
 	}
-	if got := strings.Count(backend.chatURL(), "/chat/completions"); got != 1 {
-		t.Fatalf("expected the route exactly once, got %q", backend.chatURL())
+	if !strings.Contains(err.Error(), "DM_AI_LIGHT_URL") {
+		t.Fatalf("the error should name the variable, got %v", err)
 	}
 }
 
 func TestGeminiReportsItsOwnMissingKey(t *testing.T) {
-	cfg := &config.Config{AIProvider: config.ProviderGemini, GeminiURL: "http://127.0.0.1:1", GeminiAPIKey: ""}
+	cfg := &config.Config{AILightProvider: config.ProviderGemini, GeminiAPIKey: ""}
 
 	_, err := generate(t, cfg, nil)
 	if err == nil {
@@ -90,7 +87,8 @@ func TestGeminiSurfacesProviderErrors(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := &config.Config{AIProvider: config.ProviderGemini, GeminiURL: srv.URL, GeminiAPIKey: "bad"}
+	pointProviderAt(t, config.ProviderGemini, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderGemini, GeminiAPIKey: "bad"}
 	_, err := generate(t, cfg, nil)
 	if err == nil {
 		t.Fatal("expected an error for a rejected key")
@@ -104,7 +102,8 @@ func TestGeminiSurfacesProviderErrors(t *testing.T) {
 // envelope in prose that the parser rejects.
 func TestGeminiKeepsJSONModeForTheDMEnvelope(t *testing.T) {
 	srv := newChatServer(t)
-	cfg := &config.Config{AIProvider: config.ProviderGemini, GeminiURL: srv.URL, GeminiAPIKey: "k"}
+	pointProviderAt(t, config.ProviderGemini, srv.URL)
+	cfg := &config.Config{AILightProvider: config.ProviderGemini, GeminiAPIKey: "k"}
 
 	opts := map[string]interface{}{"response_format": map[string]interface{}{"type": "json_object"}}
 	if _, err := generate(t, cfg, opts); err != nil {

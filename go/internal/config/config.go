@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// Chat-completions providers an AI call can be sent to. The provider is chosen once, by name, in DM_AI_PROVIDER.
+// Chat-completions providers an AI call can be sent to. Each role chooses one by name: DM_AI_LIGHT_PROVIDER for play
+// turns, DM_AI_HEAVY_PROVIDER for the authoring documents.
 const (
-	// ProviderOpenAI is the hosted OpenAI API and the default when DM_AI_PROVIDER is unset.
+	// ProviderOpenAI is the hosted OpenAI API and the default when DM_AI_LIGHT_PROVIDER is unset.
 	ProviderOpenAI = "openai"
 	// ProviderDeepSeek is DeepSeek's hosted, OpenAI-compatible API.
 	ProviderDeepSeek = "deepseek"
@@ -20,7 +21,7 @@ const (
 	ProviderLMStudio = "lmstudio"
 )
 
-// AIProviderOptions lists the accepted DM_AI_PROVIDER values, for error messages and docs.
+// AIProviderOptions lists the accepted provider names, for error messages and docs.
 var AIProviderOptions = []string{ProviderOpenAI, ProviderDeepSeek, ProviderGemini, ProviderLMStudio}
 
 // NormalizeAIProvider lowercases and trims a provider name and folds the spellings of LM Studio (lm-studio,
@@ -63,37 +64,33 @@ type Config struct {
 	PublicURL      string
 	GoogleClientID string
 	NodeEnv        string
-	OpenAIModel    string
-	// AIProvider is the chat-completions backend play turns use (set DM_AI_PROVIDER: openai, deepseek, gemini or
-	// lmstudio). One selector replaces a boolean per provider: flags allowed two providers to be enabled at once,
-	// which the server then had to refuse or guess between, while a single name cannot be ambiguous.
-	AIProvider string
-	// AIHeavyProvider is the provider the authoring calls use: campaign generation and its stages, character sheets
-	// and the opening adventure. Empty means "the same provider as play", so a one-provider setup behaves exactly as
-	// before. Setting it lets a table play on a small local model while the long, schema-bound documents are written
-	// by a stronger one, on the same host or a cloud provider.
+	// The chat-completions endpoints are chosen by role, not by provider: DM_AI_LIGHT_* is the model that answers play
+	// turns, DM_AI_HEAVY_* the one that writes the long schema-bound documents (campaign, its stages, character sheets,
+	// the opening adventure). Each role carries its own provider, endpoint, model and key, so the local model a table
+	// plays on and the cloud model that authors can be configured without a shared "default" that is really neither.
+	//
+	// AILightProvider names the backend play turns use (DM_AI_LIGHT_PROVIDER: openai, deepseek, gemini or lmstudio). An
+	// unknown name stops the server at boot instead of silently using another provider. AILightModel overrides the
+	// model that provider runs; AILightURL is read only for lmstudio, and is required there, because it is the one
+	// provider whose address is not part of its name.
+	AILightProvider string
+	AILightURL      string
+	AILightModel    string
+	// AILightAPIKey overrides the provider's own key (DM_AI_LIGHT_API_KEY), for a second account or a local endpoint
+	// behind a proxy that requires one.
+	AILightAPIKey string
+	// AIHeavyProvider is the provider the authoring calls use. Empty means the authoring calls run on the light tier,
+	// which is the single-provider setup: play local, author on the same local model.
 	AIHeavyProvider string
-	// AIHeavyModel overrides the model for authoring calls (set DM_AI_HEAVY_MODEL). Empty keeps the model the play
-	// tier uses, so only the provider has to change when the heavy tier is a cloud API.
-	AIHeavyModel string
-	// AIHeavyURL overrides the endpoint for authoring calls (set DM_AI_HEAVY_URL). A provider name does not identify a
-	// host: two LM Studio or Ollama boxes are both "lmstudio", so the tier that authors can live on a different
-	// machine than the one serving play turns. Empty keeps the endpoint the provider resolves to.
-	AIHeavyURL string
-	// AIHeavyAPIKey overrides the key for authoring calls (set DM_AI_HEAVY_API_KEY), for a second cloud account or a
-	// local endpoint behind a proxy that requires one. Empty keeps the provider's own key.
-	AIHeavyAPIKey  string
-	LMStudioURL    string
-	LMStudioModel  string
-	DeepSeekURL    string
-	DeepSeekModel  string
-	DeepSeekAPIKey string
-	// GeminiURL is the base of Gemini's OpenAI-compatible surface (set DM_GEMINI_URL). It already carries the
-	// /v1beta/openai segment, because Gemini does not put its compatibility layer under /v1 like OpenAI and DeepSeek.
-	GeminiURL string
-	// GeminiModel is the Gemini model id (set DM_GEMINI_MODEL). Empty means the server's default Gemini model.
-	GeminiModel string
-	// GeminiAPIKey is the API key from Google AI Studio (set DM_GEMINI_API_KEY).
+	// AIHeavyModel and AIHeavyAPIKey override the heavy tier's model and key. AIHeavyURL follows the same rule as the
+	// light one: it is read only when the resolved provider is lmstudio. With no heavy provider, these override the
+	// light tier's values instead, so a better model on the same host needs one variable.
+	AIHeavyURL    string
+	AIHeavyModel  string
+	AIHeavyAPIKey string
+	// The per-provider keys stay, because a key belongs to an account and not to a role: a tier that names no key of
+	// its own uses the key of the provider it resolves to.
+	DeepSeekAPIKey  string
 	GeminiAPIKey    string
 	TrustProxy      string
 	ModelContextTok int
@@ -118,6 +115,9 @@ type Config struct {
 	AdminEmails []string
 	// HTTPShutdownGraceSeconds caps how long graceful shutdown waits for active HTTP requests (SSE, LLM, etc.).
 	HTTPShutdownGraceSeconds int
+	// LogFile mirrors the process log to a file (set DM_LOG_FILE). Empty means no file, except in development, where
+	// the server writes tmp/gmai-server.log so the backend's lines survive a terminal shared with the Vue dev server.
+	LogFile string
 }
 
 // IsAdminEmail reports whether the address is configured as an administrator's. Google may spell an address with
@@ -189,30 +189,25 @@ func TruthyEnv(key string) bool {
 // Load reads process environment.
 func Load() *Config {
 	c := &Config{
-		Port:           getenv("PORT", "5001"),
-		BindHost:       strings.TrimSpace(os.Getenv("DM_BIND_HOST")),
-		MongoURI:       getenv("DM_MONGODB_URI", ""),
-		JWTSecret:      getenv("DM_JWT_SECRET", ""),
-		FrontendURL:    strings.TrimRight(getenv("DM_FRONTEND_URL", "http://localhost:8080"), "/"),
-		PublicURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("DM_PUBLIC_URL")), "/"),
-		GoogleClientID: strings.TrimSpace(os.Getenv("DM_GOOGLE_CLIENT_ID")),
-		NodeEnv:        getenv("NODE_ENV", ""),
-		OpenAIModel:    getenv("DM_OPENAI_MODEL", "gpt-3.5-turbo"),
-		AIProvider:     NormalizeAIProvider(getenv("DM_AI_PROVIDER", ProviderOpenAI)),
-		// An empty heavy provider means "use the play tier", which NormalizeAIProvider cannot express: it folds ""
-		// onto OpenAI, and that would silently move authoring to the cloud on a local-only setup.
-		AIHeavyProvider: normalizeOptionalProvider(os.Getenv("DM_AI_HEAVY_PROVIDER")),
-		AIHeavyModel:    strings.TrimSpace(os.Getenv("DM_AI_HEAVY_MODEL")),
-		AIHeavyURL:      strings.TrimSpace(os.Getenv("DM_AI_HEAVY_URL")),
-		AIHeavyAPIKey:   strings.TrimSpace(os.Getenv("DM_AI_HEAVY_API_KEY")),
-		LMStudioURL:     getenv("DM_LM_STUDIO_URL", "http://localhost:1234"),
-		// Local LM Studio model id only — do not default to gpt-3.5-turbo (invalid on LM Studio). Set DM_LM_STUDIO_MODEL when DM_AI_PROVIDER=lmstudio.
-		LMStudioModel:            strings.TrimSpace(os.Getenv("DM_LM_STUDIO_MODEL")),
-		DeepSeekURL:              getenv("DM_DEEPSEEK_URL", "https://api.deepseek.com"),
-		DeepSeekModel:            strings.TrimSpace(os.Getenv("DM_DEEPSEEK_MODEL")),
+		Port:            getenv("PORT", "5001"),
+		BindHost:        strings.TrimSpace(os.Getenv("DM_BIND_HOST")),
+		MongoURI:        getenv("DM_MONGODB_URI", ""),
+		JWTSecret:       getenv("DM_JWT_SECRET", ""),
+		FrontendURL:     strings.TrimRight(getenv("DM_FRONTEND_URL", "http://localhost:8080"), "/"),
+		PublicURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("DM_PUBLIC_URL")), "/"),
+		GoogleClientID:  strings.TrimSpace(os.Getenv("DM_GOOGLE_CLIENT_ID")),
+		NodeEnv:         getenv("NODE_ENV", ""),
+		AILightProvider: NormalizeAIProvider(os.Getenv("DM_AI_LIGHT_PROVIDER")),
+		AILightURL:      strings.TrimSpace(os.Getenv("DM_AI_LIGHT_URL")),
+		AILightModel:    strings.TrimSpace(os.Getenv("DM_AI_LIGHT_MODEL")),
+		AILightAPIKey:   strings.TrimSpace(os.Getenv("DM_AI_LIGHT_API_KEY")),
+		// An empty heavy provider means "author on the light tier", which NormalizeAIProvider cannot express: it folds
+		// "" onto OpenAI, and that would silently move authoring to the cloud on a local-only setup.
+		AIHeavyProvider:          normalizeOptionalProvider(os.Getenv("DM_AI_HEAVY_PROVIDER")),
+		AIHeavyURL:               strings.TrimSpace(os.Getenv("DM_AI_HEAVY_URL")),
+		AIHeavyModel:             strings.TrimSpace(os.Getenv("DM_AI_HEAVY_MODEL")),
+		AIHeavyAPIKey:            strings.TrimSpace(os.Getenv("DM_AI_HEAVY_API_KEY")),
 		DeepSeekAPIKey:           strings.TrimSpace(os.Getenv("DM_DEEPSEEK_API_KEY")),
-		GeminiURL:                getenv("DM_GEMINI_URL", "https://generativelanguage.googleapis.com/v1beta/openai"),
-		GeminiModel:              strings.TrimSpace(os.Getenv("DM_GEMINI_MODEL")),
 		GeminiAPIKey:             strings.TrimSpace(os.Getenv("DM_GEMINI_API_KEY")),
 		TrustProxy:               strings.TrimSpace(os.Getenv("DM_TRUST_PROXY")),
 		ModelContextTok:          getenvInt("DM_MODEL_CONTEXT_TOKENS", 16384),
@@ -224,6 +219,7 @@ func Load() *Config {
 		DebugCharacterFlow:       TruthyEnv("DM_DEBUG_CHARACTER_FLOW"),
 		AdminEmails:              parseEmailList(getenv("DM_ADMIN_EMAILS", "")),
 		HTTPShutdownGraceSeconds: getenvInt("DM_HTTP_SHUTDOWN_GRACE_SECONDS", 5),
+		LogFile:                  strings.TrimSpace(os.Getenv("DM_LOG_FILE")),
 	}
 	if c.HTTPShutdownGraceSeconds < 1 {
 		c.HTTPShutdownGraceSeconds = 1
