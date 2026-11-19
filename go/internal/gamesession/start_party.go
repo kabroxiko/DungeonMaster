@@ -204,6 +204,10 @@ func RecoverInterruptedStarts(ctx context.Context, d *Deps, hub *realtime.Hub) {
 	if d == nil || d.Coll == nil {
 		return
 	}
+	bootTime := time.Now().UTC()
+	// Deferred so it still runs when a later sweep gives up early: an orphaned DM turn is what leaves a whole table
+	// with its chat locked, and it must not depend on the other sweeps succeeding.
+	defer recoverInterruptedTurns(ctx, d.Coll, hub, bootTime)
 	starts, err := d.Coll.Find(ctx, bson.M{"gameSetup.party.phase": "starting"},
 		options.Find().SetProjection(bson.M{"gameId": 1}).SetLimit(500))
 	if err != nil {
