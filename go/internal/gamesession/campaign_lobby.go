@@ -757,46 +757,54 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 	worldContext := renderCampaignWorldContext(world.World)
 	worldData := campaignWorldTemplateData(world.World)
 
-	seedRaceMs := resolveCreativeSeedRaceTimeout()
-	seedCtx, cancelSeed := context.WithTimeout(ctx, seedRaceMs)
-	ch := make(chan struct {
-		ok   bool
-		seed map[string]interface{}
-		raw  string
-		code string
-	}, 1)
-	go func() {
-		ok, seed, raw, code := generateCampaignCreativeSeedStage(seedCtx, d, gameID, language, dir)
-		ch <- struct {
-			ok   bool
-			seed map[string]interface{}
-			raw  string
-			code string
-		}{ok, seed, raw, code}
-	}()
+	// A start that failed halfway keeps what it already wrote: the creative seed, the campaign core and every stage that
+	// finished are in the document. A retry resumes from there instead of asking the model for the whole adventure
+	// again, which is the difference between one slow step and losing the work of five.
+	spec := storedCampaignSpec(ctx, d, gameID)
 	var seedDraw struct {
 		ok   bool
 		seed map[string]interface{}
 		raw  string
 		code string
 	}
-	select {
-	case <-seedCtx.Done():
-		cancelSeed()
-		seedDraw = struct {
+	if storedSeed, ok := storedCreativeSeed(spec); ok {
+		// The seed is the premise of everything after it, so it is the one step a retry must not redo: a second seed
+		// would describe a different adventure from the stages already stored.
+		log.Printf("campaign resume: game %s keeps the stored creative seed", gameID)
+		seedDraw.ok, seedDraw.seed = true, storedSeed
+	} else {
+		seedRaceMs := resolveCreativeSeedRaceTimeout()
+		seedCtx, cancelSeed := context.WithTimeout(ctx, seedRaceMs)
+		ch := make(chan struct {
 			ok   bool
 			seed map[string]interface{}
 			raw  string
 			code string
-		}{false, nil, "", "CAMPAIGN_STAGE_CREATIVE_SEED_TIMEOUT"}
-	case v := <-ch:
-		cancelSeed()
-		seedDraw = v
+		}, 1)
+		go func() {
+			ok, seed, raw, code := generateCampaignCreativeSeedStage(seedCtx, d, gameID, language, dir)
+			ch <- struct {
+				ok   bool
+				seed map[string]interface{}
+				raw  string
+				code string
+			}{ok, seed, raw, code}
+		}()
+		select {
+		case <-seedCtx.Done():
+			cancelSeed()
+			seedDraw.code = "CAMPAIGN_STAGE_CREATIVE_SEED_TIMEOUT"
+		case v := <-ch:
+			cancelSeed()
+			seedDraw = v
+		}
 	}
 	if !seedDraw.ok {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed generating campaign creative-seed stage", Code: firstNonEmpty(seedDraw.code, "CAMPAIGN_STAGE_CREATIVE_SEED")}
 	}
-	if err := persistCreativeSeedToGameState(ctx, d.Coll, gameID, seedDraw.seed, seedDraw.raw); err != nil {
+	if _, resumed := storedCreativeSeed(spec); resumed {
+		// Already in the document, and rewriting it would only touch rawModelOutput with an empty string.
+	} else if err := persistCreativeSeedToGameState(ctx, d.Coll, gameID, seedDraw.seed, seedDraw.raw); err != nil {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed persisting campaign creative-seed stage", Code: "CAMPAIGN_STAGE_CREATIVE_SEED_PERSIST"}
 	}
 	creativeJSON := "{}"
@@ -807,49 +815,65 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}
 		creativeJSON = s
 	}
-	coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, dir.ToneAndStyle, creativeJSON, worldContext, worldData)
-	consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
-	userPromptRendered, err := mustache.Render(userTemplate, map[string]interface{}{
-		"sessionSummary":   "",
-		"language":         language,
-		"hostPremise":      premise,
-		"creativeSeedJson": creativeJSON,
-	})
-	if err != nil {
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed rendering campaign generator prompt", Code: "CAMPAIGN_RENDER_FAILED"}
+	// The core is the campaign proper. A retry that already has one keeps it: every stage below was written on
+	// top of this text, and a different core would leave the stored stages describing another adventure.
+	var parsed map[string]interface{}
+	if storedCore, ok := storedCampaignCore(spec); ok {
+		log.Printf("campaign resume: game %s keeps the stored campaign core", gameID)
+		parsed = storedCore
+	} else {
+		coreSys := promptmgr.BuildCampaignCoreSystemMsgs(language, dir.ToneAndStyle, creativeJSON, worldContext, worldData)
+		consolidated := promptmgr.ConsolidateSystemMessages(coreSys)
+		userPromptRendered, err := mustache.Render(userTemplate, map[string]interface{}{
+			"sessionSummary":   "",
+			"language":         language,
+			"hostPremise":      premise,
+			"creativeSeedJson": creativeJSON,
+		})
+		if err != nil {
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed rendering campaign generator prompt", Code: "CAMPAIGN_RENDER_FAILED"}
+		}
+		msgs := []interface{}{
+			map[string]interface{}{"role": "system", "content": consolidated},
+			map[string]interface{}{"role": "user", "content": userPromptRendered},
+		}
+		outbound := map[string]interface{}{"messages": msgs}
+		if b, err := json.Marshal(outbound); err == nil {
+			_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
+				"rawModelRequest": trunc200k(string(b)),
+			}}, options.Update().SetUpsert(true))
+		}
+		aiCore, err := llm.GenerateResponse(ctx, d.Cfg, outbound, map[string]interface{}{
+			"max_tokens": 3000, "temperature": 0.8, "gameId": gameID, "heavy": true,
+		})
+		if err != nil {
+			// The reason is what the lobby's lastStartError shows: this runs after the start already answered, so a
+			// separate detail field would never reach the table.
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Campaign generation failed: " + err.Error(), Code: "CAMPAIGN_CORE_EMPTY", Detail: errString(err)}
+		}
+		if strings.TrimSpace(aiCore) == "" {
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Campaign generation failed: the model returned no text", Code: "CAMPAIGN_CORE_EMPTY"}
+		}
+		parsed, ok := llm.ParseModelStructuredObject(aiCore)
+		if !ok || parsed == nil {
+			_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
+				"rawModelOutput": trunc200k(aiCore),
+			}}, options.Update().SetUpsert(true))
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed to parse campaign core (YAML)", Code: "CAMPAIGN_CORE_PARSE", Raw: trunc200k(aiCore)[:min(4000, len(trunc200k(aiCore)))]}
+		}
+		ensureCampaignCoreTitle(parsed)
+		applyHostToneAndStyle(parsed, dir.ToneAndStyle)
+		// Written before the stages run, so a stage that fails does not throw away the campaign it was written on.
+		if err := persistCampaignCore(ctx, d.Coll, gameID, parsed); err != nil {
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed persisting campaign core", Code: "CAMPAIGN_CORE_PERSIST"}
+		}
 	}
-	msgs := []interface{}{
-		map[string]interface{}{"role": "system", "content": consolidated},
-		map[string]interface{}{"role": "user", "content": userPromptRendered},
-	}
-	outbound := map[string]interface{}{"messages": msgs}
-	if b, err := json.Marshal(outbound); err == nil {
-		_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-			"rawModelRequest": trunc200k(string(b)),
-		}}, options.Update().SetUpsert(true))
-	}
-	aiCore, err := llm.GenerateResponse(ctx, d.Cfg, outbound, map[string]interface{}{
-		"max_tokens": 3000, "temperature": 0.8, "gameId": gameID, "heavy": true,
-	})
-	if err != nil {
-		// The reason is what the lobby's lastStartError shows: this runs after the start already answered, so a
-		// separate detail field would never reach the table.
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Campaign generation failed: " + err.Error(), Code: "CAMPAIGN_CORE_EMPTY", Detail: errString(err)}
-	}
-	if strings.TrimSpace(aiCore) == "" {
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Campaign generation failed: the model returned no text", Code: "CAMPAIGN_CORE_EMPTY"}
-	}
-	parsed, ok := llm.ParseModelStructuredObject(aiCore)
-	if !ok || parsed == nil {
-		_, _ = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-			"rawModelOutput": trunc200k(aiCore),
-		}}, options.Update().SetUpsert(true))
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed to parse campaign core (YAML)", Code: "CAMPAIGN_CORE_PARSE", Raw: trunc200k(aiCore)[:min(4000, len(trunc200k(aiCore)))]}
-	}
-	ensureCampaignCoreTitle(parsed)
-	applyHostToneAndStyle(parsed, dir.ToneAndStyle)
 	stageMs := resolveLobbyPipelineStageTimeout()
 	for _, stage := range []string{"factions", "majorNPCs", "keyLocations"} {
+		if campaignStageStored(spec, stage) {
+			log.Printf("campaign resume: game %s keeps the stored %s stage", gameID, stage)
+			continue
+		}
 		var reason string
 		ok := runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
 			var ok bool
@@ -864,11 +888,15 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		}
 	}
 	// The world's text is written; what remains is the opening scene, which is a different wait for the table.
-	setPartyStage(ctx, d, gameID, "opening")
-	if !runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
-		return generateCampaignOpeningFrameStage(c, d, gameID, language, dir)
-	}) {
-		return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed generating opening scene frame stage", Code: "CAMPAIGN_STAGE_OPENING_FRAME"}
+	if campaignOpeningFrameStored(spec) {
+		log.Printf("campaign resume: game %s keeps the stored opening scene", gameID)
+	} else {
+		setPartyStage(ctx, d, gameID, "opening")
+		if !runStageWithTimeout(ctx, stageMs, func(c context.Context) bool {
+			return generateCampaignOpeningFrameStage(c, d, gameID, language, dir)
+		}) {
+			return LobbyCampaignOutcome{OK: false, Status: 500, Error: "Failed generating opening scene frame stage", Code: "CAMPAIGN_STAGE_OPENING_FRAME"}
+		}
 	}
 	// The picture was stored while the stages ran; wait for that before reading the spec back, because the campaign is
 	// written back as a whole and would otherwise drop the map marker the save just set.
@@ -880,9 +908,10 @@ func RunLobbyCampaignCoreWithStages(ctx context.Context, d *Deps, gameID, langua
 		existingSpec, _ = existing["campaignSpec"].(map[string]interface{})
 	}
 	combined := mergeCampaignSpecLobby(parsed, existingSpec)
+	// rawModelOutput is deliberately left as the stages wrote it: on a resumed start the core's own reply is not in
+	// this process any more, and blanking the field would hide what the last step actually returned.
 	_, err = d.Coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{"$set": bson.M{
-		"campaignSpec":   combined,
-		"rawModelOutput": trunc200k(aiCore),
+		"campaignSpec": combined,
 	}}, options.Update().SetUpsert(true))
 	if err != nil {
 		return LobbyCampaignOutcome{OK: false, Status: 500, Error: err.Error(), Code: "CAMPAIGN_PIPELINE_EXCEPTION"}

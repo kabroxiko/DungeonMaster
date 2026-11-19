@@ -50,6 +50,9 @@ func rollbackPartyStartAfterOpeningFailure(ctx context.Context, coll *mongo.Coll
 		"lastStartError": strings.TrimSpace(errMsg)[:min(2000, len(strings.TrimSpace(errMsg)))],
 		"lastStartAt":    time.Now().UTC().Format(time.RFC3339Nano),
 	})
+	// The campaign text stays. It is the expensive half of a start - five model calls - and the retry is going to
+	// resume from it; deleting it here is what made "reintentar" ask the table to regenerate the whole adventure. Only
+	// the session shell is cleared, because the opening turn is written into a fresh one.
 	_, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, bson.M{
 		"$set": bson.M{
 			"gameSetup":              next,
@@ -57,7 +60,6 @@ func rollbackPartyStartAfterOpeningFailure(ctx context.Context, coll *mongo.Coll
 			"summaryConversation":    []interface{}{},
 			"systemMessageContentDM": "",
 		},
-		"$unset": bson.M{"campaignSpec": ""},
 	})
 	return err
 }
