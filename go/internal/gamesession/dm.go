@@ -143,6 +143,24 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 
 	// The opening adventure is authored once and read for the whole campaign; every later turn is a play turn.
 	heavy := mode == "initial"
+
+	// Combat turns run on the server's dice: the DM declares what each creature does, the engine rolls it, and the
+	// narration turn is handed the results. Only fights pay the second call; a table talking or travelling does not.
+	var engineState map[string]interface{}
+	if !heavy {
+		var sheet map[string]interface{}
+		if gsetup, ok := gs["gameSetup"].(map[string]interface{}); ok {
+			sheet = pc.CharacterForUser(gsetup, requestingUserID)
+		}
+		if block, state, engineErr := runCombatEngine(ctx, cfg, gs, sheet, inboundForModel, gameID); engineErr != nil {
+			// A failed declaration must not cost the table its turn: the narration call below still runs.
+			log.Printf("dm generate (gameId=%s): combat declaration failed, narrating without engine results: %v", gameID, engineErr)
+		} else if block != "" {
+			msgs = insertSystemBlock(msgs, block)
+			engineState = state
+		}
+	}
+
 	ask := func(messages []interface{}) (string, error) {
 		opts := map[string]interface{}{
 			"max_tokens":      budget,
@@ -175,6 +193,12 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			return 500, &HandleDmGenerateResult{Error: "AI response was empty or failed (see server logs)."}
 		}
 		return 502, &HandleDmGenerateResult{Error: "DM reply was not valid envelope JSON", RawPreview: trunc(raw, 1200)}
+	}
+
+	// The engine's state is the record. The model reads the hit points it was handed and may not rewrite them: a foe
+	// declared unconscious while its stored hp was 3 is the same defect as a miss that dealt damage.
+	if engineState != nil {
+		env.EncounterState = engineState
 	}
 
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)

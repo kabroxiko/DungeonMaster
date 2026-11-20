@@ -1,0 +1,213 @@
+package gamesession
+
+import (
+	"math/rand"
+	"strings"
+	"testing"
+)
+
+func encounterState(participants ...map[string]interface{}) map[string]interface{} {
+	list := make([]interface{}, 0, len(participants))
+	for _, p := range participants {
+		list = append(list, p)
+	}
+	return map[string]interface{}{"participants": list}
+}
+
+func participant(name string, hp, maxHP, ac int) map[string]interface{} {
+	return map[string]interface{}{
+		"displayName": name,
+		"hp_current":  hp,
+		"hp_max":      maxHP,
+		"ac":          ac,
+	}
+}
+
+func hpOf(t *testing.T, state map[string]interface{}, name string) int {
+	t.Helper()
+	combatants, _ := combatantsOf(state)
+	_, c := findCombatant(combatants, name)
+	if c == nil {
+		t.Fatalf("%s is not in the state", name)
+	}
+	hp, _ := intField(c, participantHPCurrentKey)
+	return hp
+}
+
+// The turn that started this work: a total below the target's armor class must be a miss, and a miss deals nothing.
+func TestAttackBelowArmorClassMissesAndDealsNoDamage(t *testing.T) {
+	state := encounterState(participant("Idbul", 6, 8, 14), participant("Mensajero", 10, 10, 12))
+	action := declaredAction{Actor: "Mensajero", Target: "Idbul", Kind: "attack", Modifier: 4, Damage: "1d4+2"}
+
+	var line string
+	for seed := int64(0); seed < 400; seed++ {
+		out := resolveCombatTurn([]declaredAction{action}, state, rand.New(rand.NewSource(seed)))
+		if len(out.Lines) == 0 {
+			t.Fatalf("the action was not resolved")
+		}
+		line = out.Lines[0]
+		if strings.Contains(line, "= 13 vs AC 14") {
+			if !strings.Contains(line, "miss") {
+				t.Fatalf("13 against 14 is a miss, got %q", line)
+			}
+			if out.HPChanged || hpOf(t, out.State, "Idbul") != 6 {
+				t.Fatalf("a miss must not change hit points, got %q", line)
+			}
+			return
+		}
+	}
+	t.Fatalf("no seed produced the 13-versus-14 case; last line %q", line)
+}
+
+// Across the whole range of dice the bookkeeping has to agree with the line the DM is told to narrate.
+func TestHitPointsFollowTheRolledTotal(t *testing.T) {
+	for seed := int64(0); seed < 300; seed++ {
+		state := encounterState(participant("Bram", 12, 12, 12), participant("Goblin", 10, 10, 12))
+		action := declaredAction{Actor: "Bram", Target: "Goblin", Kind: "attack", Modifier: 6, Damage: "1d4+4"}
+		out := resolveCombatTurn([]declaredAction{action}, state, rand.New(rand.NewSource(seed)))
+		line := out.Lines[0]
+		hit := strings.Contains(line, "-> hit")
+		if hit {
+			if !out.HPChanged {
+				t.Fatalf("seed %d: a hit that changed nothing: %q", seed, line)
+			}
+			if hp := hpOf(t, out.State, "Goblin"); hp >= 10 {
+				t.Fatalf("seed %d: hit but hp is %d: %q", seed, hp, line)
+			}
+			continue
+		}
+		if hp := hpOf(t, out.State, "Goblin"); hp != 10 {
+			t.Fatalf("seed %d: miss but hp is %d: %q", seed, hp, line)
+		}
+	}
+}
+
+// A natural 1 misses and a natural 20 lands, whatever the arithmetic says.
+func TestNaturalOneAndTwentyAreHonoured(t *testing.T) {
+	sawOne, sawTwenty := false, false
+	for seed := int64(0); seed < 2000 && (!sawOne || !sawTwenty); seed++ {
+		state := encounterState(participant("Bram", 12, 12, 12), participant("Ogro", 10, 10, 30))
+		// +0 against AC 30: only a natural 20 can land.
+		action := declaredAction{Actor: "Bram", Target: "Ogro", Kind: "attack", Modifier: 0, Damage: "1d6"}
+		out := resolveCombatTurn([]declaredAction{action}, state, rand.New(rand.NewSource(seed)))
+		line := out.Lines[0]
+		if strings.Contains(line, "d20(20)") {
+			sawTwenty = true
+			if !strings.Contains(line, "-> hit") {
+				t.Fatalf("a natural 20 must land: %q", line)
+			}
+		}
+		if strings.Contains(line, "d20(1)") {
+			sawOne = true
+			if !strings.Contains(line, "-> miss") {
+				t.Fatalf("a natural 1 must miss: %q", line)
+			}
+		}
+	}
+	if !sawOne || !sawTwenty {
+		t.Fatalf("the dice never showed a natural 1 and 20 (one=%v twenty=%v)", sawOne, sawTwenty)
+	}
+}
+
+// A foe's numbers are the DM's decision, made once: what the declaration supplies is stored, and the next turn reuses it
+// instead of letting the creature acquire a new bonus or a new armor class.
+func TestFoeNumbersAreStoredAndReused(t *testing.T) {
+	state := encounterState(participant("Bram", 12, 12, 12), participant("Mensajero", 10, 10, 0))
+	first := resolveCombatTurn([]declaredAction{{
+		Actor: "Mensajero", Target: "Bram", Kind: "attack", Modifier: 4, Damage: "1d4+2", AC: 0,
+	}}, state, rand.New(rand.NewSource(3)))
+	if len(first.Lines) == 0 {
+		t.Fatal("the first action was not resolved")
+	}
+	combatants, _ := combatantsOf(first.State)
+	_, foe := findCombatant(combatants, "Mensajero")
+	if got, _ := intField(foe, participantAttackBonusKey); got != 4 {
+		t.Fatalf("the attack bonus should be stored, got %v", foe[participantAttackBonusKey])
+	}
+	if got, _ := foe[participantDamageKey].(string); got != "1d4+2" {
+		t.Fatalf("the damage should be stored, got %v", foe[participantDamageKey])
+	}
+
+	// Second turn: the declaration omits them, and the stored numbers are used.
+	second := resolveCombatTurn([]declaredAction{{
+		Actor: "Mensajero", Target: "Bram", Kind: "attack",
+	}}, first.State, rand.New(rand.NewSource(9)))
+	if len(second.Lines) == 0 {
+		t.Fatal("the second action was not resolved")
+	}
+	if !strings.Contains(second.Lines[0], "+4") {
+		t.Fatalf("the stored attack bonus should be used, got %q", second.Lines[0])
+	}
+}
+
+// A target that is not in the encounter is reported, never resolved against an invented one.
+func TestUnknownTargetIsReportedNotInvented(t *testing.T) {
+	state := encounterState(participant("Bram", 12, 12, 12))
+	out := resolveCombatTurn([]declaredAction{{
+		Actor: "Bram", Target: "Guardia", Kind: "attack", Modifier: 6, Damage: "1d4+4",
+	}}, state, rand.New(rand.NewSource(1)))
+	if len(out.Lines) != 0 {
+		t.Fatalf("nothing should have been resolved, got %v", out.Lines)
+	}
+	if len(out.Unknown) == 0 || !strings.Contains(out.Unknown[0], "Guardia") {
+		t.Fatalf("the missing target should be named, got %v", out.Unknown)
+	}
+}
+
+// The block the narration turn reads has to forbid the contradiction this was built for: a creature with hit points
+// left described as down.
+func TestPromptBlockStatesWhoIsStanding(t *testing.T) {
+	state := encounterState(participant("Bram", 6, 8, 14), participant("Mensajero", 3, 10, 12))
+	out := resolveCombatTurn([]declaredAction{{
+		Actor: "Bram", Target: "Mensajero", Kind: "attack", Modifier: 6, Damage: "1d4+4",
+	}}, state, rand.New(rand.NewSource(2)))
+	block := out.promptBlock()
+	for _, want := range []string{"ENGINE RESULTS", "Mensajero", "hit points above 0", "never describe it as unconscious"} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("the block should say %q:\n%s", want, block)
+		}
+	}
+}
+
+func TestCombatIsActiveOnlyWhileAFoeStands(t *testing.T) {
+	pcName := "Bram"
+	if combatIsActive(encounterState(participant("Bram", 6, 8, 14)), pcName) {
+		t.Fatal("a table with only the player character in the state is not fighting")
+	}
+	if !combatIsActive(encounterState(participant("Bram", 6, 8, 14), participant("Goblin", 3, 7, 13)), pcName) {
+		t.Fatal("a standing foe means the fight is on")
+	}
+	if combatIsActive(encounterState(participant("Bram", 6, 8, 14), participant("Goblin", 0, 7, 13)), pcName) {
+		t.Fatal("a foe at 0 hit points is not fighting")
+	}
+}
+
+// Initiative is a roll like any other: the engine makes it, orders the fight by it, and keeps that order for the rest of
+// the encounter instead of letting each turn produce a new one.
+func TestInitiativeIsRolledOnceAndKept(t *testing.T) {
+	state := encounterState(participant("Bram", 12, 12, 12), participant("Mensajero", 10, 10, 12))
+	declared := []declaredInitiative{{Actor: "Bram", Modifier: 3}, {Actor: "Mensajero", Modifier: 1}}
+
+	lines, rolled := resolveInitiative(declared, state, rand.New(rand.NewSource(11)))
+	if len(lines) == 0 || rolled == nil {
+		t.Fatal("initiative was not rolled")
+	}
+	order := toIfaceSlice(rolled["initiative"])
+	if len(order) != 2 {
+		t.Fatalf("expected both participants in the order, got %d", len(order))
+	}
+	first, _ := intField(order[0].(map[string]interface{}), "score")
+	second, _ := intField(order[1].(map[string]interface{}), "score")
+	if first < second {
+		t.Fatalf("the order should run highest first, got %d then %d", first, second)
+	}
+	if got := lines[len(lines)-1]; !strings.HasPrefix(got, "turn order: ") {
+		t.Fatalf("the block should state the order, got %q", got)
+	}
+
+	// Second turn of the same fight: the stored order stands, and nothing is re-rolled.
+	again, rerolled := resolveInitiative(declared, rolled, rand.New(rand.NewSource(99)))
+	if len(again) != 0 || rerolled != nil {
+		t.Fatalf("an existing order must be kept, got %v", again)
+	}
+}

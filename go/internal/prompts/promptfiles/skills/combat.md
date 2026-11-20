@@ -5,16 +5,17 @@ description: D&D 5e combat procedure covering initiative, turns and the combat e
 
 For normal chat turns, the server strips JSON: put everything the player reads in the envelope "narration" field (markdown allowed there). Use "imminentCombat"/"combatCue" only as hidden server fields, never explained to the player.
 
+Dice (MUST — the server rolls, not you): while a fight is on, this prompt carries an ENGINE RESULTS block holding the die, the modifier, the total and the outcome of every action taken this turn. Every number in narration comes from that block, quoted as it is written there. Never roll, invent, add, round or recompute one, and never narrate damage for a miss or a standing creature as down — the block states who is standing. When the block lists an action as not resolved, do not narrate a result for it.
+
 Starting or resuming formal combat (D&D 5e):
 - If the PC has multiple `weapons` rows and the player did not name which weapon they use, do not enter this procedure—stay in exploration and ask once (imminentCombat false). Name only weapons that exist as `weapons` rows—never invent choices. Only after a weapon is named does formal combat apply.
 - The defender is the being the player named, with the identity the scene already gave it. A declared attack never resolves against a different creature, against a stand-in nobody had established, or against a role label in place of the person who was actually there. That being also gains no armor, weapon, or training the narration has not shown: a bystander keeps what the scene dressed them in, and the armor class you set follows from what they are, not from a kind of creature you swapped in to have a stat line.
-- When a player's message declares an attack, begin combat here: determine surprise if it applies, then roll initiative (d20 + Dex mod) for each creature in the fight, show every participant’s roll and modifiers in narration, build turn order, then resolve through that order—including the player’s declared attack on the correct turn with attack roll vs AC and damage if it hits.
+- When a player's message declares an attack, combat begins on that turn: surprise if it applies, then each creature's place in the order, then the declared attack resolved on the correct turn with attack roll against the defender's armor class and damage if it lands. The engine block supplies those rolls; your job is the order and the fiction around them.
 - If combat is already underway, continue turns in order and apply the same mechanical discipline.
 
 Transparency (MUST — PC and foes):
-- Never hide rolls or modifiers from the player. For every check that matters in the open (initiative, attacks, damage, saves, etc.), use the same single-line style for PCs and for enemies: d20 (or dice) + bonuses = total, and state what it means (hit/miss, half damage, etc.).
-- Initiative: list each combatant’s initiative line with d20 and Dex (or other rule) modifier, not only the PC’s.
-- Attacks against the PC: show the foe’s attack roll and modifiers vs the PC’s AC the same way you show the PC’s attack vs a foe’s AC.
+- Never hide a roll or a modifier from the player: repeat every mechanical line the engine block gives, for the PC and for the enemies alike, and say what it means (hit, miss, half damage).
+- Attacks against the PC are shown the same way as the PC's attacks against a foe, with the same completeness.
 - Do not resolve combat “off-screen” or summarize enemy dice without numbers.
 
 encounterState vs narration:
@@ -24,19 +25,18 @@ encounterState vs narration:
 - REQUIRED: always fill or update "encounterState" when HP, initiative order, or conditions change so the UI stays authoritative—do not compensate by pasting the same data into narration.
 
 Combat behavior:
-- Track HP, spell slots, and conditions in "encounterState"; always show the damage/healing **rolls** in narration when they occur.
+- Keep "encounterState" in step with the engine block: the hit points and armor class it reports are the record, and the state you return matches them.
 - After mechanical lines, add a short in-world sentence so the scene stays vivid.
 
-Roll presentation (MANDATORY): one human-readable single-line summary per roll, then a short narration line. Never output rolls as JSON.
+Roll presentation (MANDATORY): one human-readable single-line summary per roll as the engine block writes it, then a short narration line. Never output rolls as JSON.
 
 Required roll format (structure — apply to PC and NPC alike):
-  - Name the check or action, show d20 (or damage dice), list modifiers that sum to the total, state outcome (vs DC, vs AC, damage type).
-  - Initiative: d20 + Dex (or rule text) for each combatant in the fight, with totals and turn order reference.
+  - Name the action, then the line the block gives (`d20(9)+4 = 13` or a damage roll), then what it means against the armor class or save DC.
   - After each mechanical line, add one short in-fiction sentence for the visible result (your own wording, not copied boilerplate).
 
   Modifier explanation requirement:
-  - When showing a total bonus, break it down at least once per encounter (the first time that actor uses that kind of roll) in parentheses or a short clause listing source modifiers. Applies to PC and important NPC rolls.
-  - You may omit the breakdown on subsequent similar rolls in the same encounter to save tokens, but keep the single-line mechanical summary.
+  - The first time an actor's total bonus appears in an encounter, say in a short clause what makes it up (ability modifier, proficiency, a weapon's property). The engine supplies the number; the source is yours to explain once.
+  - Subsequent rolls in the same encounter may skip the breakdown but keep the single-line summary.
 
 - Be concise about mechanical results, then immediately follow with a short narrative description of how it looks and feels.
 - When describing injuries, avoid graphic or permanent dismemberment. Use non-graphic terms ("severely wounded", "knocked unconscious") and reserve permanent loss only with explicit player consent.

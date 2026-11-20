@@ -94,6 +94,7 @@ description: Opening-scene seed covering structure, length, story hook and first
 | `templates/dm/player_character_context.md` | Per-player sheet + encounter state | `/generate` |
 | `skills/adventure_seed.md` | Opening seed + first-opening naming rule | Initial `/generate` (full skill block) |
 | `skills/combat.md` | Combat mechanics | Every play turn — the block decides when formal combat applies |
+| `skills/combat_declare.md` | Declaration of a combat turn's actions (rolled by the server) | `runCombatEngine` — only while a fight is active |
 | `skills/investigation.md` | Investigation | Investigation mode |
 | `skills/decision.md` | Decision framing | Decision mode |
 | `skills/character_generation_scope.md` | Character route scope (not a play turn) | `/generate-character` |
