@@ -169,19 +169,6 @@ func TestPromptBlockStatesWhoIsStanding(t *testing.T) {
 	}
 }
 
-func TestCombatIsActiveOnlyWhileAFoeStands(t *testing.T) {
-	pcName := "Bram"
-	if combatIsActive(encounterState(participant("Bram", 6, 8, 14)), pcName) {
-		t.Fatal("a table with only the player character in the state is not fighting")
-	}
-	if !combatIsActive(encounterState(participant("Bram", 6, 8, 14), participant("Goblin", 3, 7, 13)), pcName) {
-		t.Fatal("a standing foe means the fight is on")
-	}
-	if combatIsActive(encounterState(participant("Bram", 6, 8, 14), participant("Goblin", 0, 7, 13)), pcName) {
-		t.Fatal("a foe at 0 hit points is not fighting")
-	}
-}
-
 // Initiative is a roll like any other: the engine makes it, orders the fight by it, and keeps that order for the rest of
 // the encounter instead of letting each turn produce a new one.
 func TestInitiativeIsRolledOnceAndKept(t *testing.T) {
@@ -209,5 +196,52 @@ func TestInitiativeIsRolledOnceAndKept(t *testing.T) {
 	again, rerolled := resolveInitiative(declared, rolled, rand.New(rand.NewSource(99)))
 	if len(again) != 0 || rerolled != nil {
 		t.Fatalf("an existing order must be kept, got %v", again)
+	}
+}
+
+// The first attack of a fight has no encounter state yet. The declaration brings the combatants in, and the engine turns
+// them into the record: hit points from the declaration (from the sheet for the player), initiative rolled, the attack
+// resolved against the armor class the DM settled on.
+func TestFirstAttackBootstrapsTheEncounter(t *testing.T) {
+	state := map[string]interface{}{}
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 15, "max_hp": 9}
+	declared := []declaredCombatant{
+		{Name: "Thulim", HPMax: 1, AC: 1}, // the sheet wins for the player
+		{Name: "Guardia de la ciudad", HPMax: 11, AC: 16, AttackBonus: 3, Damage: "1d8+1"},
+	}
+	merged := mergeDeclaredCombatants(state, declared, sheet, "Thulim")
+	combatants, ok := combatantsOf(merged)
+	if !ok || len(combatants) != 2 {
+		t.Fatalf("expected both combatants, got %v", merged)
+	}
+	_, pc := findCombatant(combatants, "Thulim")
+	if hp, _ := intField(pc, participantHPMaxKey); hp != 9 {
+		t.Fatalf("the player's hit points come from the sheet, got %d", hp)
+	}
+	if ac, _ := intField(pc, participantACKey); ac != 15 {
+		t.Fatalf("the player's armor class comes from the sheet, got %d", ac)
+	}
+	_, foe := findCombatant(combatants, "Guardia de la ciudad")
+	if hp, _ := intField(foe, participantHPCurrentKey); hp != 11 {
+		t.Fatalf("a new foe starts at full hit points, got %d", hp)
+	}
+
+	initiative := []declaredInitiative{{Actor: "Thulim", Modifier: 3}, {Actor: "Guardia de la ciudad", Modifier: 1}}
+	lines, scored := resolveInitiative(initiative, merged, rand.New(rand.NewSource(5)))
+	if len(lines) == 0 || scored == nil {
+		t.Fatal("initiative was not rolled for the new encounter")
+	}
+	if order := toIfaceSlice(scored["initiative"]); len(order) != 2 {
+		t.Fatalf("expected both in the order, got %d", len(order))
+	}
+
+	out := resolveCombatTurn([]declaredAction{{
+		Actor: "Thulim", Target: "Guardia de la ciudad", Kind: "attack", Modifier: 5, Damage: "1d4+3",
+	}}, scored, rand.New(rand.NewSource(5)))
+	if len(out.Lines) != 1 {
+		t.Fatalf("the declared attack should be resolved, got %v", out.Lines)
+	}
+	if !strings.Contains(out.Lines[0], "vs AC 16") {
+		t.Fatalf("the attack should resolve against the stored armor class, got %q", out.Lines[0])
 	}
 }

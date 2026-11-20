@@ -361,41 +361,22 @@ func intFromValue(v interface{}) int {
 	return 0
 }
 
-// combatIsActive reports whether the stored encounter state describes a fight the engine should run: at least one
-// participant other than this player's character is still standing.
-func combatIsActive(state map[string]interface{}, pcName string) bool {
-	combatants, ok := combatantsOf(state)
-	if !ok {
-		return false
-	}
-	pc := strings.ToLower(strings.TrimSpace(pcName))
-	for _, c := range combatants {
-		name := strings.ToLower(strings.TrimSpace(fmt.Sprint(c[participantNameKey])))
-		if pc != "" && name == pc {
-			continue
-		}
-		if hp, has := intField(c, participantHPCurrentKey); has && hp > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // runCombatEngine declares this turn's actions with the model, rolls them on the server, and hands back the block the
 // narration turn must obey plus the encounter state after the turn.
 //
 // Two calls, because the split has to be real: the declaration decides what happens and cannot know the outcome, and the
 // narration describes an outcome it did not compute. A single call means the model writes the die and then explains it,
 // which is exactly the behaviour this replaces.
+//
+// It runs whether or not an encounter is already stored: the fight that starts on this turn has no state yet, and gating
+// on an existing fight left the first attack of every combat with nothing to resolve it - the model, told it could not
+// roll, narrated a swing that never landed and said so in its own reasoning.
 func runCombatEngine(ctx context.Context, cfg *config.Config, gs map[string]interface{}, sheet map[string]interface{}, inbound []interface{}, gameID string) (string, map[string]interface{}, error) {
 	state, _ := gs["encounterState"].(map[string]interface{})
 	if state == nil {
-		return "", nil, nil
+		state = map[string]interface{}{}
 	}
 	pcName := pc.DisplayNameFromCharacterSheet(sheet)
-	if !combatIsActive(state, pcName) {
-		return "", nil, nil
-	}
 
 	skill := promptmgr.LoadPrompt("skills/combat_declare.md")
 	if strings.TrimSpace(skill) == "" {
@@ -433,8 +414,12 @@ func runCombatEngine(ctx context.Context, cfg *config.Config, gs map[string]inte
 	}
 	actions := parseDeclaredActions(declared["actions"])
 	initiative := parseDeclaredInitiative(declared["initiative"])
-	if len(actions) == 0 && len(initiative) == 0 {
+	combatants := parseDeclaredCombatants(declared["participants"])
+	if len(actions) == 0 && len(initiative) == 0 && len(combatants) == 0 {
 		return "", nil, nil
+	}
+	if len(combatants) > 0 {
+		state = mergeDeclaredCombatants(state, combatants, sheet, pcName)
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -549,4 +534,80 @@ func resolveInitiative(declared []declaredInitiative, state map[string]interface
 	}
 	lines = append(lines, "turn order: "+strings.Join(names, " -> "))
 	return lines, updated
+}
+
+// declaredCombatant is a creature the declaration brings into the fight: a foe the turn is about to introduce, or the
+// player's character joining one. The numbers are the DM's decision; storing them is what keeps them from drifting.
+type declaredCombatant struct {
+	Name        string
+	HPMax       int
+	AC          int
+	AttackBonus int
+	Damage      string
+}
+
+func parseDeclaredCombatants(raw interface{}) []declaredCombatant {
+	list := toIfaceSlice(raw)
+	out := make([]declaredCombatant, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]interface{})
+		if !ok || m == nil {
+			continue
+		}
+		name := strings.TrimSpace(str(m["displayName"]))
+		if name == "" {
+			name = strings.TrimSpace(str(m["name"]))
+		}
+		if name == "" {
+			continue
+		}
+		out = append(out, declaredCombatant{
+			Name:        name,
+			HPMax:       intFromValue(m["hp_max"]),
+			AC:          intFromValue(m["ac"]),
+			AttackBonus: intFromValue(m["attack_bonus"]),
+			Damage:      strings.TrimSpace(str(m["damage"])),
+		})
+	}
+	return out
+}
+
+// mergeDeclaredCombatants adds the declared creatures to the encounter and leaves the ones already there alone.
+//
+// A participant named like the player's character takes its hit points and armor class from the sheet: the table's own
+// character is not something a fight can rewrite.
+func mergeDeclaredCombatants(state map[string]interface{}, declared []declaredCombatant, sheet map[string]interface{}, pcName string) map[string]interface{} {
+	existing, _ := combatantsOf(state)
+	pc := strings.ToLower(strings.TrimSpace(pcName))
+	for _, entry := range declared {
+		if _, found := findCombatant(existing, entry.Name); found != nil {
+			continue
+		}
+		participantEntry := map[string]interface{}{participantNameKey: entry.Name}
+		hpMax := entry.HPMax
+		ac := entry.AC
+		if pc != "" && strings.ToLower(strings.TrimSpace(entry.Name)) == pc && sheet != nil {
+			if v, ok := intField(sheet, "max_hp"); ok && v > 0 {
+				hpMax = v
+			}
+			if v, ok := intField(sheet, "ac"); ok && v > 0 {
+				ac = v
+			}
+		}
+		if hpMax > 0 {
+			participantEntry[participantHPMaxKey] = hpMax
+			participantEntry[participantHPCurrentKey] = hpMax
+		}
+		if ac > 0 {
+			participantEntry[participantACKey] = ac
+		}
+		if entry.AttackBonus != 0 {
+			participantEntry[participantAttackBonusKey] = entry.AttackBonus
+		}
+		if entry.Damage != "" {
+			participantEntry[participantDamageKey] = entry.Damage
+		}
+		existing = append(existing, participantEntry)
+	}
+	return withCombatants(state, existing)
 }
