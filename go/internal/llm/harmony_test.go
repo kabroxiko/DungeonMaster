@@ -77,3 +77,20 @@ func TestEmptyReplyTwiceIsAnActionableError(t *testing.T) {
 		}
 	}
 }
+
+// The real turn that broke a session: gpt-oss answered, constrained its final payload to JSON, and the parser reported
+// "the model returned no text at all". The final channel carries a constrain marker before the message starts.
+func TestHarmonyWithAConstrainMarkerIsStillAnAnswer(t *testing.T) {
+	raw := "<|channel|>analysis<|message|>Only one weapon: dagger. Attack is violence, so provide imminentCombat." +
+		"<|end|><|start|>assistant<|channel|>final <|constrain|>json<|message|>" +
+		`{"narration":"La hoja entra.","imminentCombat":true,"combatCue":"combate"}` + "<|end|>"
+	got := stripHarmonyChannels(raw)
+	if got != `{"narration":"La hoja entra.","imminentCombat":true,"combatCue":"combate"}` {
+		t.Fatalf("expected the constrained payload, got %q", got)
+	}
+
+	// A final channel whose message never starts carries nothing, and must not come back as the channel tokens.
+	if onlyMarker := stripHarmonyChannels("<|channel|>final <|constrain|>json<|end|>"); onlyMarker != "" {
+		t.Fatalf("an empty final channel has no answer, got %q", onlyMarker)
+	}
+}

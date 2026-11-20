@@ -9,7 +9,7 @@ This document describes prompt templates embedded in `gmai-server` from this dir
 | `core/` | Always-on DM persona and global style (`system`, `style`). |
 | `rules/` | Guards, language directives, memory wrapper, intent router, scene grounding. |
 | `skills/` | Mode-specific skills (combat, investigation, decision, adventure seed, character gen). |
-| `templates/dm/` | Mustache injections, response envelope, party/PC context, combat handoff. |
+| `templates/dm/` | Mustache injections, response envelope, party/PC context. |
 | `templates/campaign/` | Campaign core generator (merged file + stage templates). |
 
 ## Skill file format
@@ -79,7 +79,7 @@ description: Opening-scene seed covering structure, length, story hook and first
 | `rules/vellaris_world.md` | Authoritative-geography rules for an imported Vellaris world | `renderVellarisWorldInject` (`/generate`) |
 | `rules/no_player_options.md` | No numbered options, option lists or "you could do A or B" closers in narration | `composeDmSystemPrompt` (`/generate`, first rule) |
 | `rules/campaign_voice.md` | The table owner's tone and style, stated once | `promptmgr.CampaignVoiceBlock` — campaign core, creative seed, every stage, opening frame, every play turn |
-| `rules/intent_router_system.md` | Intent classification | `intentRouter.js` |
+| `rules/intent_router_system.md` | Intent classification (no loader yet — the route it described belonged to the Node app) | — |
 | `templates/campaign/generator.md` | Campaign metadata builder + Mustache user slice (`---` separated) | `/generate-campaign`, `/generate-campaign-core` |
 | `templates/campaign/stage_factions.md` | `factions` array | `generateCampaignStage('factions')` |
 | `templates/campaign/stage_majorNPCs.md` | `majorNPCs` array | `generateCampaignStage('majorNPCs')` |
@@ -92,7 +92,6 @@ description: Opening-scene seed covering structure, length, story hook and first
 | `templates/dm/player_response_envelope.md` | DM JSON envelope schema | `/generate` |
 | `templates/dm/party_context.md` | Multi-PC names / opening | Party block |
 | `templates/dm/player_character_context.md` | Per-player sheet + encounter state | `/generate` |
-| `templates/dm/combat_entry_handoff.md` | Combat entry handoff (no loader yet — the block is not in use) | — |
 | `skills/adventure_seed.md` | Opening seed + first-opening naming rule | Initial `/generate` (full skill block) |
 | `skills/combat.md` | Combat mechanics | Every play turn — the block decides when formal combat applies |
 | `skills/investigation.md` | Investigation | Investigation mode |

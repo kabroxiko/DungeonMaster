@@ -113,9 +113,20 @@ func stripHarmonyChannels(s string) string {
 	if !strings.Contains(s, "<|") {
 		return s
 	}
-	const finalChannel = "<|channel|>final<|message|>"
+	// The channel is matched by name rather than by one exact byte sequence: a harmony turn marks the final channel and
+	// then says what the payload is, so the same answer can arrive as "<|channel|>final<|message|>" or, when the model
+	// constrains itself, as "<|channel|>final <|constrain|>json<|message|>". Matching the literal with the message marker
+	// attached found nothing in the second form and reported a full answer as no answer at all.
+	const finalChannel = "<|channel|>final"
+	const messageMarker = "<|message|>"
 	if i := strings.LastIndex(s, finalChannel); i >= 0 {
-		s = s[i+len(finalChannel):]
+		rest := s[i+len(finalChannel):]
+		j := strings.Index(rest, messageMarker)
+		if j < 0 {
+			// The final channel was opened but its message never started, so the model said nothing visible.
+			return ""
+		}
+		s = rest[j+len(messageMarker):]
 	} else if strings.Contains(s, "<|channel|>") {
 		// The turn ended inside the channel the model reasons in, so it never wrote an answer. Saying so is the point:
 		// handing the reasoning back makes the caller fail later on an unreadable document instead.

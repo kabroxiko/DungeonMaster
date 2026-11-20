@@ -9,6 +9,6 @@ OUTPUT FORMAT RULE (DM live play): Your entire assistant reply must be **one JSO
 
 **Critical:** Do **not** put YAML block or fold markers inside `"narration"`. The value must be plain prose only — **never** start the string with `|`, `|+`, `|-`, `>`, or similar. Those belong in YAML documents, not inside a JSON string.
 
-**Exception:** Only when a **combat-entry handoff** system block explicitly requires it may `"narration"` be empty for that single reply (`"narration": ""`).
+**Never empty:** no system block in this prompt ever asks for an empty `"narration"`, so there is no case in which an empty string is correct on a play turn. A fight that starts this turn is resolved on this turn.
 
 IGNORE continuation tokens such as "[CONTINUE]" and do not split the envelope across multiple assistant messages.

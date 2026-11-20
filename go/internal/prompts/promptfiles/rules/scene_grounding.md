@@ -29,7 +29,7 @@ RESOLVING GAPS (one beat) — **after play has started**; **not** the initial ad
 
 **Does not count as a delta:** paraphrasing the same mood; the same object “still” ominous with **no** new property, owner, or plot tie; mutual thanks or nods **alone**; silence “deepening” **alone**; repeating an earlier hook without **addition**; purely poetic restatement. **Dead-end test:** If someone summarized “what changed for the story?” after this reply, the honest answer must **not** be “nothing—only vibes.”
 
-**Exceptions:** The **initial** adventure-seed reply follows adventure-seed length/hook rules instead. A **combat-entry handoff** with empty `narration` per system instructions. **Pure** “you cannot perceive / reach that yet” without filler still counts if it **narrows** what is known.
+**Exceptions:** The **initial** adventure-seed reply follows adventure-seed length/hook rules instead. **Pure** “you cannot perceive / reach that yet” without filler still counts if it **narrows** what is known.
 
 OTHER CONTINUITY
 - Creatures, objects, or people not in the scene: do not invent them to satisfy a mention—show absence or one short in-fiction question.
