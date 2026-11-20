@@ -8,6 +8,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"github.com/deckofdmthings/gmai/internal/store"
 )
 
 // EffectiveGameOwnerIDStr mirrors server/services/gameAccess.js.
@@ -18,7 +20,7 @@ func EffectiveGameOwnerIDStr(doc map[string]interface{}) string {
 	if oid, ok := doc["ownerUserId"].(primitive.ObjectID); ok && !oid.IsZero() {
 		return oid.Hex()
 	}
-	if arr, ok := doc["memberUserIds"].(primitive.A); ok && len(arr) > 0 {
+	if arr := store.SliceOf(doc["memberUserIds"]); len(arr) > 0 {
 		if id, ok := arr[0].(primitive.ObjectID); ok {
 			return id.Hex()
 		}
@@ -35,7 +37,7 @@ func UserIsGameMember(userIDStr string, doc map[string]interface{}) bool {
 	if o := EffectiveGameOwnerIDStr(doc); strings.ToLower(o) == uid {
 		return true
 	}
-	arr, _ := doc["memberUserIds"].(primitive.A)
+	arr := store.SliceOf(doc["memberUserIds"])
 	for _, x := range arr {
 		switch t := x.(type) {
 		case primitive.ObjectID:

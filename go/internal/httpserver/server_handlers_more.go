@@ -27,6 +27,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/llm"
 	"github.com/deckofdmthings/gmai/internal/party"
 	"github.com/deckofdmthings/gmai/internal/persist"
+	"github.com/deckofdmthings/gmai/internal/store"
 )
 
 // summarizeGameSetupForDebug logs a small subset of gameSetup (no full generatedCharacter dump).
@@ -240,7 +241,7 @@ func memberOIDStrings(doc map[string]interface{}) []string {
 	if oid, ok := doc["ownerUserId"].(primitive.ObjectID); ok && !oid.IsZero() {
 		out = append(out, oid.Hex())
 	}
-	if arr, ok := doc["memberUserIds"].(primitive.A); ok {
+	if arr := store.SliceOf(doc["memberUserIds"]); len(arr) > 0 {
 		for _, x := range arr {
 			if id, ok := x.(primitive.ObjectID); ok && !id.IsZero() {
 				out = append(out, id.Hex())

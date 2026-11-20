@@ -3,18 +3,49 @@ package store
 import (
 	"context"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsoncodec"
+	"go.mongodb.org/mongo-driver/bson/bsontype"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// bsonRegistry decodes BSON arrays as []interface{} instead of primitive.A.
+//
+// primitive.A is a named slice type, so `value.([]interface{})` on a stored list yields nil and the reader silently sees
+// an empty list rather than a type mismatch - the server drops the transcript, the party list, the campaign arrays, and
+// says nothing. Each package had grown its own helper to work around it, and each new reader was another chance to
+// forget. Setting the type map once, where the driver produces the value, keeps every reader honest.
+func bsonRegistry() *bsoncodec.Registry {
+	registry := bson.NewRegistry()
+	registry.RegisterTypeMapEntry(bsontype.Array, reflect.TypeOf([]interface{}{}))
+	return registry
+}
 
 // Dial connects to MongoDB (same URI as Node mongoose).
 func Dial(ctx context.Context, uri string) (*mongo.Client, error) {
 	opts := options.Client().ApplyURI(uri)
 	opts.SetServerSelectionTimeout(10 * time.Second)
+	opts.SetRegistry(bsonRegistry())
 	return mongo.Connect(ctx, opts)
+}
+
+// SliceOf reads a stored array whatever shape it arrived in: []interface{} from a document this process decoded or
+// built, primitive.A from one decoded before the client registry was set. Reading only the first shape is the mistake
+// that emptied the transcript, so the readers that assert on a stored list go through here.
+func SliceOf(v interface{}) []interface{} {
+	switch a := v.(type) {
+	case []interface{}:
+		return a
+	case primitive.A:
+		return []interface{}(a)
+	}
+	return nil
 }
 
 func GameStates(coll *mongo.Database) *mongo.Collection {

@@ -10,6 +10,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/gameaccess"
 	"github.com/deckofdmthings/gmai/internal/llm"
 	"github.com/deckofdmthings/gmai/internal/party"
+	"github.com/deckofdmthings/gmai/internal/store"
 	"github.com/deckofdmthings/gmai/internal/validate"
 )
 
@@ -102,7 +103,7 @@ func GameStateSummaryForMineList(o map[string]interface{}, viewerUserIDStr strin
 		}
 	}
 	ownerStr := gameaccess.EffectiveGameOwnerIDStr(o)
-	members, _ := o["memberUserIds"].(primitive.A)
+	members := store.SliceOf(o["memberUserIds"])
 	memberCount := len(members)
 	msgCount := 0
 	if n, ok := o["userAndAssistantMessageCount"].(int32); ok {

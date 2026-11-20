@@ -130,14 +130,14 @@ func PersistGameStateFromBody(ctx context.Context, coll *mongo.Collection, hub *
 	sumConv := normalizeConversationUserDisplayNames(toIfaceSlice(body["summaryConversation"]), gameSetup, userID)
 
 	update := bson.M{
-		"gameId":                         gid,
-		"gameSetup":                      gameSetup,
-		"conversation":                   conv,
-		"summaryConversation":            sumConv,
-		"summary":                        body["summary"],
-		"totalTokenCount":                body["totalTokenCount"],
-		"userAndAssistantMessageCount":   body["userAndAssistantMessageCount"],
-		"systemMessageContentDM":         body["systemMessageContentDM"],
+		"gameId":                       gid,
+		"gameSetup":                    gameSetup,
+		"conversation":                 conv,
+		"summaryConversation":          sumConv,
+		"summary":                      body["summary"],
+		"totalTokenCount":              body["totalTokenCount"],
+		"userAndAssistantMessageCount": body["userAndAssistantMessageCount"],
+		"systemMessageContentDM":       body["systemMessageContentDM"],
 	}
 	if body["mode"] != nil {
 		update["mode"] = body["mode"]
@@ -218,9 +218,19 @@ func toMap(v interface{}) map[string]interface{} {
 	return m
 }
 
+// toIfaceSlice reads a list out of a document the driver decoded or out of a body this process built.
+//
+// A BSON array decodes to primitive.A, a named slice type that does not match a case []interface{}: asserting only the
+// plain type read every stored conversation as empty, and the merge then wrote a transcript holding nothing but the
+// reply it had just appended. That is how a turn replaced the history instead of continuing it.
 func toIfaceSlice(v interface{}) []interface{} {
-	a, _ := v.([]interface{})
-	return a
+	switch a := v.(type) {
+	case []interface{}:
+		return a
+	case primitive.A:
+		return []interface{}(a)
+	}
+	return nil
 }
 
 func cloneMap(m map[string]interface{}) map[string]interface{} {
