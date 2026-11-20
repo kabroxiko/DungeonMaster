@@ -308,6 +308,16 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 	for _, m := range promptmgr.ComposeSystemMessages(mode, "", true, language) {
 		parts = append(parts, m["content"])
 	}
+	// The browser does not decide when a fight starts - it sends no mode at all, so every play turn arrived as
+	// exploration and the combat procedure never loaded. A table's first attack was therefore improvised by a model with
+	// no initiative, no encounter bookkeeping and no defender: it invented a bystander with an armor class so it had
+	// something to roll against. Refereeing combat is not a rare mode, it is the job; the block itself decides when
+	// formal combat applies, so it rides along on every play turn and only the opening is left without it.
+	if mode != "combat" && mode != "initial" {
+		if skill := promptmgr.LoadPrompt("skills/combat.md"); skill != "" {
+			parts = append(parts, promptmgr.RenderSkillPrompt(skill, language))
+		}
+	}
 	if mode == "initial" && spec != nil {
 		// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs
 		// and key locations, with location names reconciled against the players' map.

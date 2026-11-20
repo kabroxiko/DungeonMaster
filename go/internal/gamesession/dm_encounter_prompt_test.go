@@ -51,3 +51,24 @@ func TestEmptyEncounterStateRendersAnEmptyObject(t *testing.T) {
 		t.Fatalf("an empty state should give {}, got %q", got)
 	}
 }
+
+// The browser never sends a mode, so every play turn arrives as exploration.
+//
+// Without the combat procedure the DM improvised fights with no initiative, no encounter bookkeeping and no defender:
+// it invented a bystander with an armor class so it had something to roll against. The procedure rides on every play
+// turn now, and the block itself decides when formal combat applies.
+func TestCombatProcedureRidesOnEveryPlayTurn(t *testing.T) {
+	const marker = "Starting or resuming formal combat"
+	for _, mode := range []string{"exploration", "investigation", "decision"} {
+		prompt := composeDmSystemPrompt(mode, "Spanish", "", nil, "")
+		if !strings.Contains(prompt, marker) {
+			t.Fatalf("the %s turn has no combat procedure", mode)
+		}
+	}
+	if strings.Count(composeDmSystemPrompt("combat", "Spanish", "", nil, ""), marker) != 1 {
+		t.Fatal("a combat turn should carry the procedure exactly once")
+	}
+	if strings.Contains(composeDmSystemPrompt("initial", "Spanish", "", nil, ""), marker) {
+		t.Fatal("the opening is not a play turn and should not carry the combat procedure")
+	}
+}

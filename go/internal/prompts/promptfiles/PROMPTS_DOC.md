@@ -88,13 +88,13 @@ description: Opening-scene seed covering structure, length, story hook and first
 | `templates/dm/inject_initial.md` | Opening campaign injection | `/generate` initial |
 | `templates/dm/inject_explore.md` | Exploration injection | `/generate` exploration |
 | `templates/dm/world_vellaris.md` | Imported Vellaris world block (regions, named places, measured travel legs) | `renderVellarisWorldInject` (`/generate`) |
-| `templates/dm/inject_combat.md` | Combat/tense encounter injection | `/generate` combat/decision/investigation |
+| `templates/dm/inject_combat.md` | Combat/tense encounter injection (no loader yet — the block is not in use) | — |
 | `templates/dm/player_response_envelope.md` | DM JSON envelope schema | `/generate` |
 | `templates/dm/party_context.md` | Multi-PC names / opening | Party block |
 | `templates/dm/player_character_context.md` | Per-player sheet + encounter state | `/generate` |
-| `templates/dm/combat_entry_handoff.md` | Combat entry handoff | `/generate` when entering combat |
+| `templates/dm/combat_entry_handoff.md` | Combat entry handoff (no loader yet — the block is not in use) | — |
 | `skills/adventure_seed.md` | Opening seed + first-opening naming rule | Initial `/generate` (full skill block) |
-| `skills/combat.md` | Combat mechanics | Combat mode |
+| `skills/combat.md` | Combat mechanics | Every play turn — the block decides when formal combat applies |
 | `skills/investigation.md` | Investigation | Investigation mode |
 | `skills/decision.md` | Decision framing | Decision mode |
 | `skills/character_generation_scope.md` | Character route scope (not a play turn) | `/generate-character` |
