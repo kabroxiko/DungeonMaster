@@ -423,13 +423,34 @@ func renderPCBlock(gs map[string]interface{}, language, requestingUserID string)
 		"language":                   language,
 		"playerCharacterDisplayName": pc.DisplayNameFromCharacterSheet(sheet),
 		"playerCharacterJson":        trunc(jsonStr(sheet), 120000),
-		"priorEncounterStateJson":    "{}",
+		"priorEncounterStateJson":    priorEncounterStateJSON(gs),
 	}
 	s, err := mustache.Render(tpl, data)
 	if err != nil {
 		return ""
 	}
 	return s
+}
+
+// priorEncounterStateJSON is the encounter the table is in, as the server stored it last turn.
+//
+// The template has always had a slot for it and the slot was filled with "{}": the DM was asked to keep hit points,
+// initiative and armor class in encounterState and then never shown what it had kept, so on the next beat it had no
+// numbers to resolve against and asked the table for one. A value the model is not given is a value it invents or
+// requests mid-fight.
+func priorEncounterStateJSON(gs map[string]interface{}) string {
+	if gs == nil {
+		return "{}"
+	}
+	raw, ok := gs["encounterState"]
+	if !ok || raw == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(raw)
+	if err != nil || len(b) == 0 || string(b) == "null" {
+		return "{}"
+	}
+	return trunc(string(b), 20000)
 }
 
 func dmHiddenObjective(spec map[string]interface{}) string {

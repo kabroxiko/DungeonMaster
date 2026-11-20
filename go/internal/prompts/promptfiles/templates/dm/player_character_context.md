@@ -9,7 +9,7 @@ DM-ONLY — authoritative player character (JSON below). This sheet overrides an
 **Narration:** That string is **authoritative for who this PC is** (e.g. `[DisplayName]:` lines, uniqueness)—**not** a mandate to use the full multi-word form in every beat. Natural speech may use shortenings, titles, or familiar forms when the scene supports them.
 **Until then:** In the **first** opening when there is **no** user message in the request, do **not** put this name in `narration` or NPC speech—second person only (see **First opening** appendix in `skills/adventure_seed.md`).
 
-{{playerCharacterJson}}
+{{{playerCharacterJson}}}
 
 Sheet structure (authoritative for fiction):
 - `weapons` — attack profiles only; **authoritative** for what they can attack with. **Do not** treat lines in `equipment` as extra weapons if the same name appears here.
@@ -33,4 +33,4 @@ Weapon and attack rules (MUST):
 Prior encounter state (JSON; may be empty). Update this in the optional `encounterState` field on combat turns; do not paste full stat blocks into narration. Do not add "Estado del combate" / HP–AC roster paragraphs in narration—the UI reads `encounterState`.
 - **Non-combat turns:** When the player sends **social or trivial** lines **after** combat, read this JSON: any **enemy** participant at **0 HP** (or clearly dead in prior beats) stays **inactive**—do not voice them, do not have them “rise” to question the PC, and do not replay their pre-fight checkpoint dialogue. Answer with **other** fiction (corpse, crowd, sounds, surviving allies, consequences, or a **different** NPC).
 
-{{priorEncounterStateJson}}
+{{{priorEncounterStateJson}}}

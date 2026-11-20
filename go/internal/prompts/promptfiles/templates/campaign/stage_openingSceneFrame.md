@@ -8,7 +8,7 @@ Campaign stage: **first-session opening frame** (DM-only; not player quest text)
 You are choosing **one** primary **physical and social situation** for the **very first** in-play DM reply of this campaign. The table has **not** played yet. Use **high creativity** and **variety** — do **not** default to a clichéd **outer city gate + travel papers + sentry demanding purpose-of-visit** as the main beat unless this campaign’s conflicts **explicitly** require border lockdown. Avoid **anonymous hooded figures** watching from edges as the hook.
 
 **Campaign context (JSON — for you only; do not paste into player-facing text):**
-{{campaignContextJson}}
+{{{campaignContextJson}}}
 
 Return **ONLY** valid YAML (no markdown fence, no commentary). Shape:
 

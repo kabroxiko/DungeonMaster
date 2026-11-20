@@ -85,11 +85,11 @@ YAML structure (MANDATORY — follow before you output):
 {{{languageInstruction}}}
 pcDisplayName: {{pcDisplayName}}
 
-Partial character info (JSON, may be empty): {{gameSetup}}
+Partial character info (JSON, may be empty): {{{gameSetup}}}
 
-**Server-authoritative stats, coinage, max_hp, ac (JSON — already computed; do not output these keys in your YAML):** {{serverCombatAuthoritativeJSON}}
+**Server-authoritative stats, coinage, max_hp, ac (JSON — already computed; do not output these keys in your YAML):** {{{serverCombatAuthoritativeJSON}}}
 
-**Server-authoritative spells and spell_slots (JSON — already computed; do not output these keys in your YAML):** {{serverSpellsAuthoritativeJSON}}
+**Server-authoritative spells and spell_slots (JSON — already computed; do not output these keys in your YAML):** {{{serverSpellsAuthoritativeJSON}}}
 
 **Ids in that JSON lock character build:** non-`random` `race` / `class` / `subrace` / `subclass` are authoritative — your YAML must reflect those PHB choices only.
 
