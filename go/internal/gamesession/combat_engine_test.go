@@ -4,6 +4,8 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+
+	"github.com/deckofdmthings/gmai/internal/llm"
 )
 
 func encounterState(participants ...map[string]interface{}) map[string]interface{} {
@@ -243,5 +245,62 @@ func TestFirstAttackBootstrapsTheEncounter(t *testing.T) {
 	}
 	if !strings.Contains(out.Lines[0], "vs AC 16") {
 		t.Fatalf("the attack should resolve against the stored armor class, got %q", out.Lines[0])
+	}
+}
+
+// The tools are the DM's way to ask for dice mid-turn: open the fight, roll inside it, read the record.
+func TestCombatToolsAnswerLikeTheEngine(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Bram", "ac": 14, "max_hp": 10}
+	tools := newCombatTools(nil, sheet, "Bram", rand.New(rand.NewSource(4)))
+
+	opened := tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Bram"},
+			map[string]interface{}{"displayName": "Goblin", "hp_max": 7, "ac": 13, "attack_bonus": 4, "damage": "1d6+2"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Bram", "modifier": 3},
+			map[string]interface{}{"actor": "Goblin", "modifier": 2},
+		},
+	}})
+	if !strings.Contains(opened.Content, "turn order") {
+		t.Fatalf("opening the encounter should give the order, got %q", opened.Content)
+	}
+	if !strings.Contains(opened.Content, "Goblin: hp 7/7") {
+		t.Fatalf("the standing should be reported, got %q", opened.Content)
+	}
+
+	// A model that writes "player" instead of the sheet's name still rolls for the player's character.
+	rolled := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "player", "target": "Goblin", "kind": "attack", "modifier": 5.0, "damage": "1d4+3",
+	}})
+	if !strings.Contains(rolled.Content, "Bram attacks Goblin") {
+		t.Fatalf("the player alias should resolve to the character, got %q", rolled.Content)
+	}
+	if !strings.Contains(rolled.Content, "vs AC 13") {
+		t.Fatalf("the attack should resolve against the stored armor class, got %q", rolled.Content)
+	}
+
+	state, changed := tools.changed()
+	if !changed || state == nil {
+		t.Fatal("a tool that touched the fight should mark the state as worth storing")
+	}
+	read := tools.run(llm.ToolCall{ID: "3", Name: "encounter"})
+	if !strings.Contains(read.Content, "Goblin") || !strings.Contains(read.Content, "ac 13") {
+		t.Fatalf("reading the encounter should show its record, got %q", read.Content)
+	}
+}
+
+// A tool that names nobody says so instead of inventing a combatant.
+func TestCombatToolsRefuseUnknownNames(t *testing.T) {
+	tools := newCombatTools(nil, nil, "Bram", rand.New(rand.NewSource(1)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{map[string]interface{}{"displayName": "Bram", "hp_max": 10, "ac": 12}},
+	}})
+	result := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Bram", "target": "Guardia", "kind": "attack", "modifier": 5.0,
+	}})
+	if !strings.Contains(result.Content, "not resolved") || !strings.Contains(result.Content, "Guardia") {
+		t.Fatalf("an unknown target should be reported, got %q", result.Content)
 	}
 }

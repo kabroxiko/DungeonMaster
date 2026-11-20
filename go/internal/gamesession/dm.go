@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand"
 	"regexp"
 	"sort"
 	"strings"
@@ -144,20 +145,27 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// The opening adventure is authored once and read for the whole campaign; every later turn is a play turn.
 	heavy := mode == "initial"
 
-	// Combat turns run on the server's dice: the DM declares what each creature does, the engine rolls it, and the
-	// narration turn is handed the results. Only fights pay the second call; a table talking or travelling does not.
+	// The dice belong to the server, and the DM asks for them while it writes the turn: it opens the fight, rolls, reads
+	// who is standing, and only then narrates. A host that refuses the tools field keeps working through the declaration
+	// pass, which produces the same numbers in one block before the narration call.
 	var engineState map[string]interface{}
+	var combat *combatTools
 	if !heavy {
 		var sheet map[string]interface{}
 		if gsetup, ok := gs["gameSetup"].(map[string]interface{}); ok {
 			sheet = pc.CharacterForUser(gsetup, requestingUserID)
 		}
-		if block, state, engineErr := runCombatEngine(ctx, cfg, gs, sheet, inboundForModel, gameID); engineErr != nil {
-			// A failed declaration must not cost the table its turn: the narration call below still runs.
-			log.Printf("dm generate (gameId=%s): combat declaration failed, narrating without engine results: %v", gameID, engineErr)
-		} else if block != "" {
-			msgs = insertSystemBlock(msgs, block)
-			engineState = state
+		state, _ := gs["encounterState"].(map[string]interface{})
+		combat = newCombatTools(state, sheet, pc.DisplayNameFromCharacterSheet(sheet), rand.New(rand.NewSource(time.Now().UnixNano())))
+		if _, url, _, backendErr := llm.BackendFor(cfg, heavy); backendErr == nil && llm.ToolsUnsupported(url) {
+			// This host already said no: use the declaration pass from the start instead of spending a call finding out.
+			if block, state, engineErr := runCombatEngine(ctx, cfg, gs, sheet, inboundForModel, gameID); engineErr != nil {
+				log.Printf("dm generate (gameId=%s): combat declaration failed, narrating without engine results: %v", gameID, engineErr)
+			} else if block != "" {
+				msgs = insertSystemBlock(msgs, block)
+				engineState = state
+			}
+			combat = nil
 		}
 	}
 
@@ -173,6 +181,24 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		// hundreds of hidden tokens makes the table wait half a minute, and can end the turn with nothing to read.
 		if !heavy {
 			opts["reasoning_effort"] = "low"
+		}
+		if combat != nil {
+			// JSON mode and tool calls fight over the same reply: a grammar that forces an object leaves no room for a
+			// tool call. The envelope rules are in the prompt, and the corrective retry covers the rest.
+			toolOpts := map[string]interface{}{}
+			for k, v := range opts {
+				toolOpts[k] = v
+			}
+			delete(toolOpts, "response_format")
+			out, toolErr := llm.GenerateWithTools(ctx, cfg, map[string]interface{}{"messages": messages}, toolOpts, combat.defs(), combat.run)
+			if toolErr != llm.ErrToolsUnsupported {
+				return out, toolErr
+			}
+			log.Printf("dm generate (gameId=%s): this endpoint refused tools; using the declaration pass instead", gameID)
+			if block, state, engineErr := runCombatEngine(ctx, cfg, gs, combat.sheet, inboundForModel, gameID); engineErr == nil && block != "" {
+				messages = insertSystemBlock(messages, block)
+				engineState = state
+			}
 		}
 		return llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": messages}, opts)
 	}
@@ -193,6 +219,12 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			return 500, &HandleDmGenerateResult{Error: "AI response was empty or failed (see server logs)."}
 		}
 		return 502, &HandleDmGenerateResult{Error: "DM reply was not valid envelope JSON", RawPreview: trunc(raw, 1200)}
+	}
+
+	if engineState == nil && combat != nil {
+		if state, ok := combat.changed(); ok {
+			engineState = state
+		}
 	}
 
 	// The engine's state is the record. The model reads the hit points it was handed and may not rewrite them: a foe
