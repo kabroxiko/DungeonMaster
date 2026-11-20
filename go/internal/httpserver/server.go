@@ -102,6 +102,8 @@ func (s *Server) Handler() http.Handler {
 			// The public OAuth client ID the SPA needs to start Google Sign-In. Serving it from the API lets a
 			// built client be deployed against any environment without rebuilding it.
 			"googleClientId": s.Cfg.GoogleClientID,
+			// Whether this server lets the table step an action back. The client shows the control only when it does.
+			"undoEnabled": gamesession.UndoEnabled(s.Cfg),
 		})
 	})
 
@@ -142,6 +144,8 @@ func (s *Server) Handler() http.Handler {
 
 	r.Route("/api/game-session", func(r chi.Router) {
 		r.Post("/generate", s.withAuthBearer(s.handleGenerate))
+		// Development only: put the game back to the state before the last player action. Refused elsewhere.
+		r.Post("/undo", s.withAuthBearer(s.handleUndo))
 		r.Post("/create-invite", s.withAuthBearer(s.handleCreateInvite))
 		r.Post("/bootstrap-session", s.withAuthBearer(s.handleBootstrap))
 		r.Post("/start-party-adventure", s.withAuthBearer(s.handleStartParty))

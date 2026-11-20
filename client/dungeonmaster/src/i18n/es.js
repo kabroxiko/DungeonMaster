@@ -15,6 +15,10 @@ export default {
     chat_retry_hint:
         'Pídele al Maestro de Calabozos la respuesta a este turno. Cualquiera del grupo puede hacerlo.',
     chat_retry_failed: 'No se pudo reintentar. Inténtalo de nuevo.',
+    chat_undo: 'Deshacer',
+    chat_undo_hint:
+        'Vuelve al estado anterior a la última acción. Sólo en desarrollo: se pierden las líneas del turno deshecho.',
+    chat_undo_failed: 'No se pudo deshacer. Inténtalo de nuevo.',
     create_character: 'Crear personaje',
     new_game: 'Nuevo Juego',
     toolbar_aria: 'Cuenta y acciones de partida',

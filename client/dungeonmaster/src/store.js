@@ -48,6 +48,8 @@ export default createStore({
         characterCatalogVersion: 0,
         /** Public OAuth client ID from GET /api/meta (the server's DM_GOOGLE_CLIENT_ID). */
         googleClientId: '',
+        /** True when the server is in development and lets the table take an action back. */
+        undoEnabled: false,
 
     },
     mutations: {
@@ -153,6 +155,9 @@ export default createStore({
         setGoogleClientId(state, clientId) {
             state.googleClientId = clientId != null ? String(clientId).trim() : '';
         },
+        setUndoEnabled(state, enabled) {
+            state.undoEnabled = !!enabled;
+        },
 
     },
     actions: {
@@ -188,10 +193,12 @@ export default createStore({
             try {
                 const { data } = await axios.get('/api/meta');
                 commit('setGoogleClientId', data && data.googleClientId);
+                commit('setUndoEnabled', !!(data && data.undoEnabled));
             } catch (e) {
                 // eslint-disable-next-line no-console
                 console.warn('loadRuntimeConfig failed', e && e.message);
                 commit('setGoogleClientId', '');
+                commit('setUndoEnabled', false);
             }
         },
         /** Merge server profile (nickname, etc.) after reload or when JWT may be stale. */

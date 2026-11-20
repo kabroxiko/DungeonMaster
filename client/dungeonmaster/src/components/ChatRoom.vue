@@ -398,6 +398,14 @@
             :disabled="isSending"
             @click="retryDmReply"
         >{{ $i18n.chat_retry_reply }}</button>
+        <button
+            v-if="showUndoAction"
+            type="button"
+            class="ui-button ui-button--ghost chat-room__unlock"
+            :title="$i18n.chat_undo_hint"
+            :disabled="isSending"
+            @click="undoLastAction"
+        >{{ $i18n.chat_undo }}</button>
         <form @submit.prevent="submitMessage" class="chat-input-form">
             <input class="chat-input" type="text" v-model="newMessage"
               :placeholder="$i18n.chat_placeholder"
@@ -1068,6 +1076,13 @@ export default {
                 if (this.serverLlmError) return true;
                 const dmBlocks = this.dmGenerationLikelyInFlight && !this.partyRoundCollectingActions;
                 return !dmBlocks && this.pendingAssistantUiHold && this.chatInputLocked && !this.errorMessage;
+            },
+            /** Development only: the server says whether the table may step an action back. */
+            showUndoAction() {
+                if (!this.$store.state.undoEnabled) return false;
+                if (this.isSending || this.isInitialOpenBusy) return false;
+                if (this.dmGenerationLikelyInFlight && !this.partyRoundCollectingActions) return false;
+                return this.messages.length > 0;
             },
             chatWaitStatusText() {
                 if (this.dmGenerationLikelyInFlight && !this.partyRoundCollectingActions) {
@@ -2190,6 +2205,26 @@ export default {
              * minus a new player message: the server appends the answer to the stored transcript, so any member can
              * press it and the result is the same for everyone.
              */
+            /**
+             * Development only: go back to the state before the last action. The server restores its own snapshot, so the
+             * reload below is what brings the transcript, position and encounter back with it.
+             */
+            async undoLastAction() {
+                const gid = this.$store.state.gameId;
+                if (!gid) return;
+                this.isSending = true;
+                this.errorMessage = null;
+                try {
+                    await axios.post('/api/game-session/undo', { gameId: gid });
+                    this.pendingAssistantUiHold = false;
+                    this.partyRoundWaitingOthers = false;
+                    await this.syncFromServer();
+                } catch (error) {
+                    this.errorMessage = this.dmErrorText(error) || this.$i18n.chat_undo_failed;
+                } finally {
+                    this.isSending = false;
+                }
+            },
             async retryDmReply() {
                 if (this.isSending || !this.conversationEndsAwaitingAssistant) return;
                 const gid = this.$store.state.gameId;

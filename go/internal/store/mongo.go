@@ -52,6 +52,14 @@ func GameStates(coll *mongo.Database) *mongo.Collection {
 	return coll.Collection("gamestates")
 }
 
+// GameStateSnapshots holds the game document as it was before a player action, so a table running in development can
+// step back one action: the dice engine and the DM can produce a turn nobody wants, and re-typing the scene to get back
+// to it is not a workflow. It is a separate collection because the transcript is loaded on every turn and a stack of
+// copies inside the document would be read every time.
+func GameStateSnapshots(coll *mongo.Database) *mongo.Collection {
+	return coll.Collection("gamestatesnapshots")
+}
+
 func Users(coll *mongo.Database) *mongo.Collection {
 	return coll.Collection("users")
 }

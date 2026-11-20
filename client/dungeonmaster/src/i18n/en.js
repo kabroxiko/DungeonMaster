@@ -15,6 +15,10 @@ export default {
     chat_retry_hint:
         'Ask the Dungeon Master for this turn\'s reply. Anyone in the party can do it.',
     chat_retry_failed: 'The retry failed. Please try again.',
+    chat_undo: 'Undo',
+    chat_undo_hint:
+        'Go back to the state before the last action. Development only: the undone turn\'s lines are dropped.',
+    chat_undo_failed: 'The undo failed. Please try again.',
     create_character: 'Create character',
     new_game: 'New Game',
     toolbar_aria: 'Account and game actions',

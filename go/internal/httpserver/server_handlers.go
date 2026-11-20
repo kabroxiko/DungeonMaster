@@ -16,6 +16,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/gamesession"
 	"github.com/deckofdmthings/gmai/internal/i18n"
 	"github.com/deckofdmthings/gmai/internal/persist"
+	"github.com/deckofdmthings/gmai/internal/store"
 )
 
 func (s *Server) withAuthBearer(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
@@ -195,6 +196,11 @@ func (s *Server) handleAppendPlayer(w http.ResponseWriter, r *http.Request, uid 
 	}
 	gid := strings.TrimSpace(fmt.Sprint(body["gameId"]))
 	ctx := r.Context()
+	// In development the table can step an action back, so the state before it is kept. The snapshot is taken here
+	// because the action starts here: undo has to remove the player's line and the reply it drew.
+	if gamesession.UndoEnabled(s.Cfg) {
+		gamesession.SnapshotBeforeAction(ctx, s.coll(), store.GameStateSnapshots(s.DB), gid)
+	}
 	res, err := gamesession.AppendPlayerUserMessageWithPartyRound(ctx, s.coll(), s.Hub, s.Cfg, s.GS, gid, body, uid)
 	if err != nil {
 		var he *gamesession.HTTPError
@@ -218,4 +224,15 @@ func (s *Server) handleAppendPlayer(w http.ResponseWriter, r *http.Request, uid 
 		_ = err
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleUndo steps the game back to the state before the last player action. Development only; the handler itself
+// refuses everywhere else, so a missing route and a disabled feature look the same to the client.
+func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request, uid string) {
+	var body map[string]interface{}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	status, res := gamesession.HandleUndo(r.Context(), s.GS, s.Cfg, uid, body)
+	writeJSON(w, status, res)
 }
