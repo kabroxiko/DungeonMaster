@@ -444,6 +444,37 @@ func reasoningEffortFor(opts map[string]interface{}, baseURL, fallback string) s
 	return fallback
 }
 
+// plainHTTP remembers, per endpoint, that a URL written as https answers plain HTTP.
+//
+// LM Studio and Ollama serve HTTP on their port; a scheme written as https therefore fails at the TLS handshake with
+// "server gave HTTP response to HTTPS client", which reaches the table as a failed document generation and reads like a
+// model problem. The call is retried over http once and the endpoint stays on it for the rest of the process.
+var plainHTTP sync.Map
+
+// effectiveBaseURL is the scheme this endpoint actually speaks.
+func effectiveBaseURL(baseURL string) string {
+	if downgraded, ok := plainHTTP.Load(baseURL); ok {
+		return downgraded.(string)
+	}
+	return baseURL
+}
+
+// rememberPlainHTTP converts an https URL that answered plain HTTP, and reports whether it did. Only that handshake
+// error qualifies: a real TLS failure on a server that does speak https must not silently become cleartext.
+func rememberPlainHTTP(baseURL string, err error) (string, bool) {
+	if err == nil || !strings.HasPrefix(strings.ToLower(baseURL), "https://") {
+		return "", false
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "http response to https client") {
+		return "", false
+	}
+	downgraded := "http://" + strings.TrimPrefix(baseURL, "https://")
+	plainHTTP.Store(baseURL, downgraded)
+	log.Printf("AI endpoint %s answered plain HTTP; using %s from now on (write the URL as %s to silence this)",
+		baseURL, downgraded, downgraded)
+	return downgraded, true
+}
+
 // responseFormatFor returns the response_format this call should send, or nil when it has none or this endpoint refused
 // it before.
 func responseFormatFor(opts map[string]interface{}, baseURL string) map[string]interface{} {
@@ -498,10 +529,21 @@ func lmStudioRequest(ctx context.Context, backend chatBackend, messages []interf
 // lmStudioChat talks to an OpenAI-compatible local host. It takes the resolved backend rather than the configuration,
 // because the endpoint is per tier: the authoring tier may name a different machine than the play tier.
 func lmStudioChat(ctx context.Context, backend chatBackend, messages []interface{}, model string, maxTok int, temp float64, opts map[string]interface{}, effort string) (string, error) {
+	backend.baseURL = effectiveBaseURL(backend.baseURL)
 	rf := responseFormatFor(opts, backend.baseURL)
 	raw, status, err := lmStudioRequest(ctx, backend, messages, model, maxTok, temp, rf, effort)
 	if err != nil {
-		return "", err
+		// A URL written as https against a server that speaks http is the one transport failure this process can repair
+		// by itself, and it would otherwise reach the table as a broken document with a misleading hint.
+		downgraded, repaired := rememberPlainHTTP(backend.baseURL, err)
+		if !repaired {
+			return "", err
+		}
+		backend.baseURL = downgraded
+		rf = responseFormatFor(opts, backend.baseURL)
+		if raw, status, err = lmStudioRequest(ctx, backend, messages, model, maxTok, temp, rf, effort); err != nil {
+			return "", err
+		}
 	}
 	// A server that does not know a field says so in its 4xx body. Drop that field and ask once more, rather than
 	// dropping to the native API - which an Ollama host does not serve at all.

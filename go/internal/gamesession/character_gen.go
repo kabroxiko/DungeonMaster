@@ -254,11 +254,17 @@ func HandleGenerateCharacter(ctx context.Context, d *Deps, cfg *config.Config, h
 		"max_tokens": 4096, "temperature": 0.75, "heavy": true,
 	})
 	if err != nil || strings.TrimSpace(aiMessage) == "" {
+		// The hint used to name an OpenAI key for every provider, which is noise on a local endpoint that has no key at
+		// all. What actually helps is which tier this call went to and where that tier points.
+		hint := "Check the heavy AI endpoint: its URL, its model name, and that the server is running."
+		if name, url, model, bErr := llm.BackendFor(cfg, true); bErr == nil {
+			hint = fmt.Sprintf("Authoring calls use the heavy tier: %s at %s, model %s. Check DM_AI_HEAVY_URL and DM_AI_HEAVY_MODEL, and that the server is answering.", name, url, model)
+		}
 		return 503, map[string]interface{}{
 			"error":  "Character generation failed: the model returned no usable text.",
 			"code":   "AI_RESPONSE_EMPTY",
 			"detail": errString(err),
-			"hint":   "Check DM_OPENAI_API_KEY or LM Studio settings.",
+			"hint":   hint,
 		}
 	}
 	parsed, ok := llm.ParseModelStructuredObject(aiMessage)
