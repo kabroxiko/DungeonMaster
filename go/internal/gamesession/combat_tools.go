@@ -56,33 +56,8 @@ func (t *combatTools) defs() []llm.Tool {
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"participants": map[string]interface{}{
-						"type":        "array",
-						"description": "Combatants to add. Include the player's character; the server takes its hit points and armor class from the sheet.",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"displayName":  map[string]interface{}{"type": "string"},
-								"hp_max":       map[string]interface{}{"type": "integer"},
-								"ac":           map[string]interface{}{"type": "integer"},
-								"attack_bonus": map[string]interface{}{"type": "integer"},
-								"damage":       map[string]interface{}{"type": "string"},
-							},
-							"required": []interface{}{"displayName"},
-						},
-					},
-					"initiative": map[string]interface{}{
-						"type":        "array",
-						"description": "One entry per combatant, with the modifier added to the d20.",
-						"items": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"actor":    map[string]interface{}{"type": "string"},
-								"modifier": map[string]interface{}{"type": "integer"},
-							},
-							"required": []interface{}{"actor"},
-						},
-					},
+					"participants": participantsSchema(),
+					"initiative":   initiativeSchema(),
 				},
 			},
 		},
@@ -100,12 +75,14 @@ func (t *combatTools) defs() []llm.Tool {
 						"description": "Every action of this round. Preferred over the single-action fields below.",
 						"items":       actionSchema(),
 					},
-					"actor":    map[string]interface{}{"type": "string", "description": "displayName of the creature acting."},
-					"target":   map[string]interface{}{"type": "string", "description": "displayName of whoever it lands on; omit for a save or check."},
-					"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "heal", "save", "check"}},
-					"modifier": map[string]interface{}{"type": "integer", "description": "The whole number added to the d20."},
-					"damage":   map[string]interface{}{"type": "string", "description": "Damage dice such as 1d8+3; attacks only."},
-					"dc":       map[string]interface{}{"type": "integer", "description": "The number a save or check resolves against."},
+					"participants": participantsSchema(),
+					"initiative":   initiativeSchema(),
+					"actor":        map[string]interface{}{"type": "string", "description": "displayName of the creature acting."},
+					"target":       map[string]interface{}{"type": "string", "description": "displayName of whoever it lands on; omit for a save or check."},
+					"kind":         map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "heal", "save", "check"}},
+					"modifier":     map[string]interface{}{"type": "integer", "description": "The whole number added to the d20."},
+					"damage":       map[string]interface{}{"type": "string", "description": "Damage dice such as 1d8+3; attacks only."},
+					"dc":           map[string]interface{}{"type": "integer", "description": "The number a save or check resolves against."},
 				},
 			},
 		},
@@ -175,6 +152,18 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	actions := t.actionsFromCall(call)
 	if len(actions) == 0 {
 		return llm.ToolResult{CallID: call.ID, Content: "error: give an action (or an actions list) with an actor and a kind"}
+	}
+	// A model opening the fight in the same call it rolls is doing the natural thing; refusing its participants and
+	// answering "not in the encounter" cost a whole round trip and read as the engine failing.
+	if declared := parseDeclaredCombatants(call.Arguments["participants"]); len(declared) > 0 {
+		t.state = mergeDeclaredCombatants(t.state, declared, t.sheet, t.pc)
+		t.used = true
+	}
+	if initiative := parseDeclaredInitiative(call.Arguments["initiative"]); len(initiative) > 0 {
+		if _, scored := resolveInitiative(initiative, t.state, t.rng); scored != nil {
+			t.state = scored
+			t.used = true
+		}
 	}
 	t.ensurePlayer() // a potion or a fall happens with no fight open
 	ordered := t.orderByInitiative(actions)
@@ -437,4 +426,39 @@ func (t *combatTools) ensurePlayer() {
 		entry[participantACKey] = ac
 	}
 	t.state = withCombatants(t.state, []map[string]interface{}{entry})
+}
+
+// participantsSchema is the combatant list, offered by both tools: a model that opens the fight while it rolls should
+// not have to know which call is supposed to carry them.
+func participantsSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"description": "Combatants to add. Include the player's character; the server takes its hit points and armor class from the sheet.",
+		"items": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"displayName":  map[string]interface{}{"type": "string"},
+				"hp_max":       map[string]interface{}{"type": "integer"},
+				"ac":           map[string]interface{}{"type": "integer"},
+				"attack_bonus": map[string]interface{}{"type": "integer"},
+				"damage":       map[string]interface{}{"type": "string"},
+			},
+			"required": []interface{}{"displayName"},
+		},
+	}
+}
+
+func initiativeSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"description": "One entry per combatant, with the modifier added to the d20. Rolled once; an existing order is kept.",
+		"items": map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"actor":    map[string]interface{}{"type": "string"},
+				"modifier": map[string]interface{}{"type": "integer"},
+			},
+			"required": []interface{}{"actor"},
+		},
+	}
 }

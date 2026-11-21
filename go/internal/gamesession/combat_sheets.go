@@ -75,3 +75,58 @@ func syncPartySheets(gameSetup map[string]interface{}, state map[string]interfac
 	}
 	return changed
 }
+
+// encounterClaimsConflict reports whether the state the DM wrote down contradicts the engine about who is standing.
+//
+// The engine's state replaces the DM's before it is stored, so the record stays true; the narration does not, and a
+// prose that buries a foe the engine has at 9 hit points is the lie the table actually reads. Naming the contradiction
+// back to the model is the only part of this the server can settle on its own.
+func encounterClaimsConflict(claimed, engine map[string]interface{}) (string, bool) {
+	engineRows, ok := combatantsOf(engine)
+	if !ok {
+		return "", false
+	}
+	claimedRows, ok := combatantsOf(claimed)
+	if !ok {
+		return "", false
+	}
+	for _, row := range claimedRows {
+		name := strings.TrimSpace(fmt.Sprint(row[participantNameKey]))
+		_, actual := findCombatant(engineRows, name)
+		if actual == nil {
+			continue
+		}
+		claimedHP, hasClaimed := intField(row, participantHPCurrentKey)
+		actualHP, hasActual := intField(actual, participantHPCurrentKey)
+		if !hasClaimed || !hasActual {
+			continue
+		}
+		if (claimedHP <= 0) != (actualHP <= 0) {
+			state := "standing"
+			if actualHP <= 0 {
+				state = "down"
+			}
+			return fmt.Sprintf("%s is at %d hit points and %s in the engine's record, not what your reply says", name, actualHP, state), true
+		}
+	}
+	return "", false
+}
+
+// standingSummary is the record in one line, for the correction the DM is sent.
+func standingSummary(state map[string]interface{}) string {
+	combatants, ok := combatantsOf(state)
+	if !ok {
+		return ""
+	}
+	parts := make([]string, 0, len(combatants))
+	for _, c := range combatants {
+		hp, _ := intField(c, participantHPCurrentKey)
+		maxHP, _ := intField(c, participantHPMaxKey)
+		state := "up"
+		if hp <= 0 {
+			state = "down"
+		}
+		parts = append(parts, fmt.Sprintf("%v %d/%d (%s)", c[participantNameKey], hp, maxHP, state))
+	}
+	return strings.Join(parts, "; ")
+}

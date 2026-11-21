@@ -47,3 +47,7 @@ func envelopeWithCorrection(ask func(messages []interface{}) (string, error), me
 // happens, but the server owns the dice: a fight declared and never rolled leaves the table with prose and no outcome,
 // and asking the player to confirm the attack they already declared is the same failure wearing a question mark.
 const dmCombatCorrection = `You announced that a fight is starting, but you asked the engine for nothing: no encounter was opened and no die was rolled. The dice belong to the server. Call open_encounter with the combatants and their initiative modifier, then roll every action you intend to narrate, and only then answer the same turn again as exactly one JSON object with a non-empty "narration". Do not ask the player to confirm an attack they already declared, do not ask which weapon when they named one or have only one on the sheet, and do not answer by explaining what would happen if they attacked.`
+
+// dmStandingCorrection is sent when the reply contradicts the engine about who is standing. The record is not negotiable:
+// the engine rolled the round, and a foe it leaves at 9 hit points is not dead in the same reply.
+const dmStandingCorrection = `Your reply contradicts the record of this round. `

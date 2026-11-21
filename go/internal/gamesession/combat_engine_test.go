@@ -551,3 +551,31 @@ func TestSheetFollowsTheMarkedRowWhenNamesDiffer(t *testing.T) {
 		t.Fatalf("expected 8 hit points on the sheet, got %d", hp)
 	}
 }
+
+// The reply's own state is checked against the engine's: a foe buried at 9 hit points is a contradiction the server can
+// see without reading the prose.
+func TestContradictingTheRecordIsDetected(t *testing.T) {
+	engine := encounterState(participant("Bram", 7, 11, 13), participant("Guardia", 9, 9, 10))
+	buried := encounterState(participant("Bram", 7, 11, 13), map[string]interface{}{
+		"displayName": "Guardia", "hp_current": 0, "hp_max": 9,
+	})
+	if conflict, bad := encounterClaimsConflict(buried, engine); !bad {
+		t.Fatalf("a foe claimed dead at 9 hit points should conflict, got none")
+	} else if !strings.Contains(conflict, "Guardia") || !strings.Contains(conflict, "9") {
+		t.Fatalf("the conflict should name who and what: %q", conflict)
+	}
+
+	agreed := encounterState(participant("Bram", 7, 11, 13), participant("Guardia", 9, 9, 10))
+	if _, bad := encounterClaimsConflict(agreed, engine); bad {
+		t.Fatal("matching states do not conflict")
+	}
+
+	// The other direction: the engine has a foe down and the reply has it fighting on.
+	downed := encounterState(participant("Bram", 7, 11, 13), map[string]interface{}{
+		"displayName": "Guardia", "hp_current": 0, "hp_max": 9,
+	})
+	alive := encounterState(participant("Bram", 7, 11, 13), participant("Guardia", 4, 9, 10))
+	if _, bad := encounterClaimsConflict(alive, downed); !bad {
+		t.Fatal("a foe the engine has at 0 should not be described as standing")
+	}
+}

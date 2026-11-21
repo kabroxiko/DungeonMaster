@@ -237,8 +237,25 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	}
 
 	// The engine's state is the record. The model reads the hit points it was handed and may not rewrite them: a foe
-	// declared unconscious while its stored hp was 3 is the same defect as a miss that dealt damage.
-	if engineState != nil {
+	// declared unconscious while its stored hp was 3 is the same defect as a miss that dealt damage. When the reply's
+	// own state contradicts the engine about who is standing, the prose has already buried someone the table will meet
+	// again, so the turn is asked once more with the record in front of it.
+	if engineState != nil && combat != nil {
+		if claimed, ok := env.EncounterState.(map[string]interface{}); ok {
+			conflict, bad := encounterClaimsConflict(claimed, engineState)
+			if bad {
+				log.Printf("dm generate (gameId=%s): reply contradicts the engine (%s); asking once more", gameID, conflict)
+				correction := dmStandingCorrection + conflict + ". The record after this round: " + standingSummary(engineState) +
+					". Only a participant the record puts at 0 hit points is down: nobody dies, faints or stops fighting while its hit points are above 0, and a foe already down is not killed twice. Answer the same turn again as exactly one JSON object with a non-empty \"narration\" that matches the record and quotes its numbers."
+				corrected := append([]interface{}{}, msgs...)
+				corrected = append(corrected, map[string]interface{}{"role": "system", "content": correction})
+				if secondRaw, secondEnv, secondErr := envelopeWithCorrection(ask, corrected); secondErr == nil && secondEnv != nil {
+					raw, env = secondRaw, secondEnv
+				} else if secondErr != nil {
+					log.Printf("dm generate (gameId=%s): the second attempt at the contradiction failed: %v", gameID, secondErr)
+				}
+			}
+		}
 		env.EncounterState = engineState
 	}
 
