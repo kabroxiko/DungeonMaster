@@ -163,13 +163,8 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 		At             string      `bson:"at"`
 	}
 	findOpts := options.FindOne().SetSort(bson.M{"_id": -1})
-	if err := turns.FindOne(ctx, bson.M{"gameId": gameID}, findOpts).Decode(&mark); err != nil {
-		if err == mongo.ErrNoDocuments {
-			return http.StatusNotFound, map[string]interface{}{
-				"error": "There is no earlier state to go back to.",
-				"code":  "UNDO_NOTHING",
-			}
-		}
+	markErr := turns.FindOne(ctx, bson.M{"gameId": gameID}, findOpts).Decode(&mark)
+	if markErr != nil && markErr != mongo.ErrNoDocuments {
 		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not read the last action.", "code": "UNDO_FAILED"}
 	}
 
@@ -177,9 +172,27 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 	if err := coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc); err != nil {
 		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not read the game.", "code": "UNDO_FAILED"}
 	}
-	before := len(toIfaceSlice(doc["conversation"]))
-	messages := truncateMessages(toIfaceSlice(doc["conversation"]), mark.Messages)
-	summary := truncateMessages(toIfaceSlice(doc["summaryConversation"]), mark.Summary)
+	conversation := toIfaceSlice(doc["conversation"])
+	before := len(conversation)
+
+	// The transcript itself says where the last action began: the last line a player wrote. The mark is used when it
+	// describes this action, and it is the only source for the state the turn overwrote - a turn played before marks
+	// existed is still undone, and its encounter state is simply dropped rather than left describing a deleted turn.
+	useMark := markErr == nil && mark.Messages < before
+	cut := -1
+	if useMark {
+		cut = mark.Messages
+	} else {
+		cut = lastPlayerMessageIndex(conversation)
+	}
+	if cut <= 0 {
+		return http.StatusNotFound, map[string]interface{}{
+			"error": "There is no player action left to undo.",
+			"code":  "UNDO_NOTHING",
+		}
+	}
+	messages := truncateMessages(conversation, cut)
+	summary := truncateMessages(toIfaceSlice(doc["summaryConversation"]), cut)
 	pairs, tokens := countTranscript(messages)
 
 	update := bson.M{
@@ -197,12 +210,12 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 			"rawModelOutput":     "",
 		},
 	}
-	if mark.EncounterState != nil {
+	if useMark && mark.EncounterState != nil {
 		update["$set"].(bson.M)["encounterState"] = mark.EncounterState
 	} else {
 		update["$unset"].(bson.M)["encounterState"] = ""
 	}
-	if mark.PartyPosition != nil {
+	if useMark && mark.PartyPosition != nil {
 		update["$set"].(bson.M)["campaignSpec.partyMapPosition"] = mark.PartyPosition
 	} else {
 		update["$unset"].(bson.M)["campaignSpec.partyMapPosition"] = ""
@@ -211,13 +224,15 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 		log.Printf("undo: could not delete the turn gameId=%s: %v", gameID, err)
 		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not delete the turn.", "code": "UNDO_FAILED"}
 	}
-	if _, err := turns.DeleteOne(ctx, bson.M{"_id": mark.ID}); err != nil {
-		log.Printf("undo: deleted the turn of gameId=%s but could not drop its mark: %v", gameID, err)
+	if markErr == nil {
+		if _, err := turns.DeleteOne(ctx, bson.M{"_id": mark.ID}); err != nil {
+			log.Printf("undo: deleted the turn of gameId=%s but could not drop its mark: %v", gameID, err)
+		}
 	}
 
 	remaining, _ := turns.CountDocuments(ctx, bson.M{"gameId": gameID})
-	log.Printf("undo: gameId=%s deleted %d message(s) back to %s; %d more step(s) available",
-		gameID, before-len(messages), mark.At, remaining)
+	log.Printf("undo: gameId=%s deleted %d message(s) (cut at %d, mark=%v); %d more step(s) available",
+		gameID, before-len(messages), cut, useMark, remaining)
 	if d.Hub != nil {
 		d.Hub.NotifyGameStateUpdated(gameID)
 	}
@@ -228,4 +243,19 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 		"messageCount":    len(messages),
 		"stepsRemaining":  remaining,
 	}
+}
+
+// lastPlayerMessageIndex is where the player's last line starts, which is where the last action starts: the DM's answer
+// and anything the engine wrote after it belong to that action.
+func lastPlayerMessageIndex(conversation []interface{}) int {
+	for i := len(conversation) - 1; i >= 0; i-- {
+		m, _ := conversation[i].(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		if str(m["role"]) == "user" {
+			return i
+		}
+	}
+	return -1
 }

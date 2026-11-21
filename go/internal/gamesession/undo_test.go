@@ -104,3 +104,35 @@ func TestCountersFollowTheDeletedTranscript(t *testing.T) {
 		t.Fatalf("an empty transcript counts nothing, got %d/%d", pairs, tokens)
 	}
 }
+
+// The transcript says where the last action began, so a turn played before marks existed can still be undone. Without
+// this, undo answered "there is no earlier state" on any game whose action predated the feature.
+func TestLastPlayerMessageMarksTheStartOfTheAction(t *testing.T) {
+	conversation := []interface{}{
+		map[string]interface{}{"role": "user", "content": "entro a la taberna"},
+		map[string]interface{}{"role": "assistant", "content": "La puerta cruje."},
+		map[string]interface{}{"role": "user", "content": "apuesto diez monedas"},
+		map[string]interface{}{"role": "assistant", "content": "El tahúr sonríe."},
+	}
+	if got := lastPlayerMessageIndex(conversation); got != 2 {
+		t.Fatalf("the action starts at the player's last line (2), got %d", got)
+	}
+	// Cutting there removes the action and keeps the story before it.
+	if kept := truncateMessages(conversation, 2); len(kept) != 2 {
+		t.Fatalf("expected the two messages before the action, got %d", len(kept))
+	}
+
+	// A transcript whose last line is the DM's answer still cuts at the player's line that drew it.
+	pending := []interface{}{
+		map[string]interface{}{"role": "user", "content": "entro"},
+		map[string]interface{}{"role": "assistant", "content": "La puerta cruje."},
+		map[string]interface{}{"role": "user", "content": "apuesto"},
+	}
+	if got := lastPlayerMessageIndex(pending); got != 2 {
+		t.Fatalf("an unanswered player line is still an action, got %d", got)
+	}
+
+	if got := lastPlayerMessageIndex([]interface{}{map[string]interface{}{"role": "assistant", "content": "hola"}}); got != -1 {
+		t.Fatalf("no player line means no action, got %d", got)
+	}
+}
