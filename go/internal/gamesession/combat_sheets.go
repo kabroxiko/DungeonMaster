@@ -17,7 +17,7 @@ const sheetHPKey = "hp_current"
 // It matches by the same display name the encounter state uses, so a party of several characters each carry their own
 // damage, and it writes only what changed. A sheet's maximum is left alone unless it is missing: the engine applies
 // damage, not character creation.
-func syncPartySheets(gameSetup map[string]interface{}, state map[string]interface{}) bool {
+func syncPartySheets(gameSetup map[string]interface{}, state map[string]interface{}, userID string) bool {
 	if gameSetup == nil || state == nil {
 		return false
 	}
@@ -30,6 +30,9 @@ func syncPartySheets(gameSetup map[string]interface{}, state map[string]interfac
 		return false
 	}
 	changed := false
+	// The player's own row is marked in the encounter state, so it can be written without relying on the two names
+	// agreeing: a sheet whose display name was edited still carries the damage.
+	ownSheet := pc.CharacterForUser(gameSetup, userID)
 	for _, participant := range participants {
 		name := strings.TrimSpace(fmt.Sprint(participant[participantNameKey]))
 		if name == "" {
@@ -38,6 +41,17 @@ func syncPartySheets(gameSetup map[string]interface{}, state map[string]interfac
 		hp, hasHP := intField(participant, participantHPCurrentKey)
 		if !hasHP {
 			continue
+		}
+		if ownSheet != nil && str(participant["kind"]) == "pc" {
+			if current, ok := intField(ownSheet, sheetHPKey); !ok || current != hp {
+				ownSheet[sheetHPKey] = hp
+				if _, hasMax := intField(ownSheet, "max_hp"); !hasMax {
+					if maxHP, ok := intField(participant, participantHPMaxKey); ok && maxHP > 0 {
+						ownSheet["max_hp"] = maxHP
+					}
+				}
+				changed = true
+			}
 		}
 		for _, raw := range sheets {
 			sheet, ok := raw.(map[string]interface{})

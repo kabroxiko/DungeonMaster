@@ -594,12 +594,20 @@ func mergeDeclaredCombatants(state map[string]interface{}, declared []declaredCo
 		participantEntry := map[string]interface{}{participantNameKey: entry.Name}
 		hpMax := entry.HPMax
 		ac := entry.AC
-		if pc != "" && strings.ToLower(strings.TrimSpace(entry.Name)) == pc && sheet != nil {
-			if v, ok := intField(sheet, "max_hp"); ok && v > 0 {
-				hpMax = v
-			}
-			if v, ok := intField(sheet, "ac"); ok && v > 0 {
-				ac = v
+		if pc != "" && strings.ToLower(strings.TrimSpace(entry.Name)) == pc {
+			// The sheet panel looks for its own row by this marker; without it the player's hit points were read from
+			// the maximum and the character always looked unhurt.
+			participantEntry["kind"] = "pc"
+			if sheet != nil {
+				if v, ok := intField(sheet, "max_hp"); ok && v > 0 {
+					hpMax = v
+				}
+				if v, ok := intField(sheet, "ac"); ok && v > 0 {
+					ac = v
+				}
+				if v, ok := intField(sheet, sheetHPKey); ok {
+					participantEntry[participantHPCurrentKey] = v
+				}
 			}
 		}
 		if hpMax > 0 {

@@ -915,20 +915,29 @@ export default {
                 if (this.localPlayerCharacter) return this.localPlayerCharacter;
                 return null;
             },
-            /** Current/max HP for the sheet: encounterState PC row when present, else full max_hp. */
+            /**
+             * Current/max HP for the sheet.
+             *
+             * The sheet's own `hp_current` is the record the server keeps when no fight is on, and the encounter row
+             * wins while one is: the engine marks the player's row with `kind: "pc"`, and a row without the marker is
+             * matched by display name so an older encounter still shows the truth.
+             */
             playerHitPoints() {
                 const c = this.playerCharacter;
                 if (!c) return null;
                 let max = c.max_hp != null ? Number(c.max_hp) : null;
-                let current = max;
+                let current = c.hp_current != null ? Number(c.hp_current) : max;
                 const es = this.lastEncounterState;
                 if (es && Array.isArray(es.participants)) {
                     const lower = (x) => String(x || '').toLowerCase();
-                    const pc = es.participants.find(
-                        (p) =>
-                            p &&
-                            (lower(p.kind) === 'pc' || p.id === 'pc' || lower(p.id) === 'player')
-                    );
+                    const myNames = [c.name, c.characterName, c.identity && c.identity.name]
+                        .filter((x) => x != null && String(x).trim() !== '')
+                        .map((x) => lower(String(x).trim()));
+                    const pc =
+                        es.participants.find(
+                            (p) => p && (lower(p.kind) === 'pc' || p.id === 'pc' || lower(p.id) === 'player')
+                        ) ||
+                        es.participants.find((p) => p && p.displayName && myNames.includes(lower(p.displayName)));
                     if (pc) {
                         if (pc.hp_max != null && !Number.isNaN(Number(pc.hp_max))) max = Number(pc.hp_max);
                         if (pc.hp_current != null && !Number.isNaN(Number(pc.hp_current))) current = Number(pc.hp_current);

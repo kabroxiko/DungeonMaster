@@ -420,7 +420,7 @@ func (t *combatTools) ensurePlayer() {
 	if combatants, ok := combatantsOf(t.state); ok && len(combatants) > 0 {
 		return
 	}
-	entry := map[string]interface{}{participantNameKey: t.pc}
+	entry := map[string]interface{}{participantNameKey: t.pc, "kind": "pc"}
 	maxHP := 0
 	if v, ok := intField(t.sheet, "max_hp"); ok && v > 0 {
 		maxHP = v

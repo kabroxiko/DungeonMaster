@@ -230,7 +230,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// by the engine have to reach it, or a character is back at full health the moment the fight ends.
 	if engineState != nil && persistPayload != nil {
 		if gameSetup, ok := persistPayload["gameSetup"].(map[string]interface{}); ok {
-			if syncPartySheets(gameSetup, engineState) {
+			if syncPartySheets(gameSetup, engineState, requestingUserID) {
 				log.Printf("dm generate (gameId=%s): character sheets updated from the encounter", gameID)
 			}
 		}

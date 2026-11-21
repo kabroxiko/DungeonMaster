@@ -444,7 +444,7 @@ func TestDamageReachesTheCharacterSheet(t *testing.T) {
 	out := resolveCombatTurn([]declaredAction{{
 		Actor: "Guardia", Target: "Thulim", Kind: "attack", Modifier: 20,
 	}}, state, rand.New(rand.NewSource(2)))
-	if !syncPartySheets(gameSetup, out.State) {
+	if !syncPartySheets(gameSetup, out.State, "u1") {
 		t.Fatal("the sheet should have changed")
 	}
 	sheet, _ := gameSetup["playerCharacters"].(map[string]interface{})["u1"].(map[string]interface{})
@@ -458,7 +458,7 @@ func TestDamageReachesTheCharacterSheet(t *testing.T) {
 		t.Fatalf("sheet hp %d should match the engine %d and be below full", hp, engineHP)
 	}
 	// Nothing changed the second time: the sync is not a write per turn.
-	if syncPartySheets(gameSetup, out.State) {
+	if syncPartySheets(gameSetup, out.State, "u1") {
 		t.Fatal("an unchanged sheet should not report a change")
 	}
 }
@@ -510,5 +510,44 @@ func TestHealingOutsideAFightUpdatesTheSheet(t *testing.T) {
 	}(), participantHPCurrentKey)
 	if hp <= 2 {
 		t.Fatalf("the character should be above 2 hit points, got %d", hp)
+	}
+}
+
+// The player's row is marked so the sheet panel can find it without guessing from names.
+func TestThePlayerRowIsMarked(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim Ingotfoot", "ac": 13, "max_hp": 11, "hp_current": 11}
+	merged := mergeDeclaredCombatants(map[string]interface{}{},
+		[]declaredCombatant{{Name: "Thulim Ingotfoot"}, {Name: "Guardia", HPMax: 15, AC: 13}},
+		sheet, "Thulim Ingotfoot")
+	combatants, _ := combatantsOf(merged)
+	_, row := findCombatant(combatants, "Thulim Ingotfoot")
+	if str(row["kind"]) != "pc" {
+		t.Fatalf("the player's row should be marked as the PC, got %v", row["kind"])
+	}
+	if hp, _ := intField(row, participantHPCurrentKey); hp != 11 {
+		t.Fatalf("the row should start from the sheet's current hit points, got %d", hp)
+	}
+	_, foe := findCombatant(combatants, "Guardia")
+	if str(foe["kind"]) == "pc" {
+		t.Fatal("a foe must not be marked as the player")
+	}
+}
+
+// Even if the sheet's display name no longer matches the label the DM uses, the damage lands on the right sheet.
+func TestSheetFollowsTheMarkedRowWhenNamesDiffer(t *testing.T) {
+	gameSetup := map[string]interface{}{
+		"playerCharacters": map[string]interface{}{
+			"u1": map[string]interface{}{"name": "Thulim el Breve", "ac": 13, "max_hp": 11, "hp_current": 11},
+		},
+	}
+	state := encounterState(map[string]interface{}{
+		"displayName": "Thulim Ingotfoot", "kind": "pc", "hp_current": 8, "hp_max": 11, "ac": 13,
+	})
+	if !syncPartySheets(gameSetup, state, "u1") {
+		t.Fatal("the marked row should have written the sheet")
+	}
+	sheet, _ := gameSetup["playerCharacters"].(map[string]interface{})["u1"].(map[string]interface{})
+	if hp, _ := intField(sheet, sheetHPKey); hp != 8 {
+		t.Fatalf("expected 8 hit points on the sheet, got %d", hp)
 	}
 }
