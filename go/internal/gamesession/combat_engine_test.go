@@ -579,3 +579,35 @@ func TestContradictingTheRecordIsDetected(t *testing.T) {
 		t.Fatal("a foe the engine has at 0 should not be described as standing")
 	}
 }
+
+// The order the engine rolled is shown with its numbers: a player who declared the attack and reads that a foe moved
+// first needs to see what decided it.
+func TestToolResultsShowTheTurnOrder(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 13, "max_hp": 11}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(21)))
+	result := tools.run(llm.ToolCall{ID: "1", Name: "roll", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 10, "ac": 12, "attack_bonus": 3, "damage": "1d8+1"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "modifier": 1},
+			map[string]interface{}{"actor": "Guardia", "modifier": 9},
+		},
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 3.0, "damage": "1d8+1"},
+		},
+	}})
+	if !strings.Contains(result.Content, "turn order:") {
+		t.Fatalf("the order should be part of the answer: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Guardia (") || !strings.Contains(result.Content, "Thulim (") {
+		t.Fatalf("both participants and their rolls belong in the order: %q", result.Content)
+	}
+	// The fight opens with the guard, which is what the narration has to explain.
+	first := strings.SplitN(strings.SplitN(result.Content, "turn order: ", 2)[1], "\n", 2)[0]
+	if !strings.HasPrefix(first, "Guardia") {
+		t.Fatalf("the guard won initiative and should be first, got %q", first)
+	}
+}

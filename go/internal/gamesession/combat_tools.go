@@ -253,13 +253,19 @@ func (t *combatTools) orderByInitiative(actions []declaredAction) []declaredActi
 	return out
 }
 
-// describe is the standing of each combatant, which the narration must not contradict.
+// describe is the standing of each combatant, which the narration must not contradict, plus the order the engine rolled.
+//
+// The order is not bookkeeping: a player who declared the attack and reads that someone else moved first needs the
+// numbers that decided it, or the fight looks broken.
 func (t *combatTools) describe() string {
 	combatants, ok := combatantsOf(t.state)
 	if !ok {
 		return "no encounter is open"
 	}
 	var b strings.Builder
+	if order := t.initiativeOrder(); len(order) > 0 {
+		b.WriteString("turn order: " + strings.Join(order, " -> ") + "\n")
+	}
 	b.WriteString("standing:\n")
 	for _, c := range combatants {
 		hp, _ := intField(c, participantHPCurrentKey)
@@ -461,4 +467,22 @@ func initiativeSchema() map[string]interface{} {
 			"required": []interface{}{"actor"},
 		},
 	}
+}
+
+// initiativeOrder reads the stored order as "name (roll)" pairs, highest first.
+func (t *combatTools) initiativeOrder() []string {
+	entries := toIfaceSlice(t.state["initiative"])
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		m, ok := entry.(map[string]interface{})
+		if !ok || m == nil {
+			continue
+		}
+		score, _ := intField(m, "score")
+		out = append(out, fmt.Sprintf("%v (%d)", m["displayName"], score))
+	}
+	return out
 }

@@ -305,6 +305,9 @@ func (o combatOutcome) promptBlock() string {
 			b.WriteString("\n")
 		}
 	}
+	if order := initiativeOrderOf(o.State); len(order) > 0 {
+		b.WriteString("Turn order: " + strings.Join(order, " -> ") + "\n")
+	}
 	if combatants, ok := combatantsOf(o.State); ok {
 		b.WriteString("Standing after this turn:\n")
 		for _, c := range combatants {
@@ -658,4 +661,22 @@ func resolveHeal(action declaredAction, combatants []map[string]interface{}, rng
 	target[participantHPCurrentKey] = after
 	targetName := fmt.Sprint(target[participantNameKey])
 	return fmt.Sprintf("%s heals %s: %s, hp %d -> %d", action.Actor, targetName, roll.Detail(), before, after), after != before
+}
+
+// initiativeOrderOf reads a stored order as "name (roll)" pairs, for the block a host without tools receives.
+func initiativeOrderOf(state map[string]interface{}) []string {
+	entries := toIfaceSlice(state["initiative"])
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		m, ok := entry.(map[string]interface{})
+		if !ok || m == nil {
+			continue
+		}
+		score, _ := intField(m, "score")
+		out = append(out, fmt.Sprintf("%v (%d)", m["displayName"], score))
+	}
+	return out
 }
