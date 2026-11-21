@@ -51,7 +51,8 @@ func (t *combatTools) defs() []llm.Tool {
 		{
 			Name: "open_encounter",
 			Description: "Start a fight. Give every combatant that is not in the encounter yet, and the initiative modifier " +
-				"for each. Returns the turn order. Call this once, when combat begins, before rolling anything.",
+				"for each. Returns the turn order. Call it on the turn the player declares an attack: a fight that is only " +
+				"announced never starts, and the table gets no turn.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -88,7 +89,9 @@ func (t *combatTools) defs() []llm.Tool {
 		{
 			Name: "roll",
 			Description: "Roll one action and get its outcome. An attack is rolled against the target's stored armor class " +
-				"and its damage applied to the target's hit points. A save or check is rolled against the DC you give.",
+				"and its damage applied to the target's hit points. A save or check is rolled against the DC you give. " +
+				"Roll a declared attack as soon as it is declared: the weapon is the one the player named, or the only row " +
+				"on the sheet.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -276,4 +279,12 @@ func (t *combatTools) resolveName(name string) string {
 		}
 	}
 	return trimmed
+}
+
+// usedAny reports whether the DM asked the engine for anything this turn. A turn that announced a fight and asked for
+// nothing is a fight with no dice in it.
+func (t *combatTools) usedAny() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.used
 }

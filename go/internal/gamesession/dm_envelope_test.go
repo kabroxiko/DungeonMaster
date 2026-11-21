@@ -101,3 +101,19 @@ func TestEnvelopeWithCorrectionPropagatesAskErrors(t *testing.T) {
 		t.Fatalf("expected no corrective attempt after a transport error, got %d calls", calls)
 	}
 }
+
+// The DM's own claim that a fight is starting is what the server checks the turn against: announcing combat and asking
+// for no die is the failure that left a table with prose and no outcome.
+func TestEnvelopeCarriesTheCombatClaim(t *testing.T) {
+	env := parseDmEnvelope(`{"narration":"El guardia levanta la espada.","imminentCombat":true}`)
+	if env == nil || !env.ImminentCombat {
+		t.Fatalf("imminentCombat should be read: %+v", env)
+	}
+	if quiet := parseDmEnvelope(`{"narration":"La plaza respira.","imminentCombat":false}`); quiet == nil || quiet.ImminentCombat {
+		t.Fatalf("a quiet turn should read false: %+v", quiet)
+	}
+	// Some models send the flag as a string.
+	if asString := parseDmEnvelope(`{"narration":"La plaza respira.","imminentCombat":"true"}`); asString == nil || !asString.ImminentCombat {
+		t.Fatalf("a quoted true should read as true: %+v", asString)
+	}
+}

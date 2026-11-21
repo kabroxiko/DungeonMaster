@@ -233,6 +233,19 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		env.EncounterState = engineState
 	}
 
+	// The DM's own statement that a fight is starting is checked against the engine: a turn that declares combat and
+	// never asks for a die gives the table prose with no outcome, which is what "no me ataca de vuelta" looks like.
+	if combat != nil && env.ImminentCombat && !combat.usedAny() {
+		log.Printf("dm generate (gameId=%s): combat announced without asking the engine; asking once more", gameID)
+		corrected := append([]interface{}{}, msgs...)
+		corrected = append(corrected, map[string]interface{}{"role": "system", "content": dmCombatCorrection})
+		if secondRaw, secondEnv, secondErr := envelopeWithCorrection(ask, corrected); secondErr == nil && secondEnv != nil {
+			raw, env = secondRaw, secondEnv
+		} else if secondErr != nil {
+			log.Printf("dm generate (gameId=%s): the second attempt at the combat turn failed: %v", gameID, secondErr)
+		}
+	}
+
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)
 
 	persisted := false
@@ -284,7 +297,10 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 }
 
 type dmEnvelope struct {
-	Narration      string
+	Narration string
+	// ImminentCombat is the DM's own statement that a fight is starting. The server reads it to check the turn against
+	// itself: a fight that begins without a single die asked for has no mechanics behind it.
+	ImminentCombat bool
 	EncounterState interface{}
 	Coinage        map[string]interface{}
 	// NewPlaces are the sites this turn introduced that the players must be able to find on the map.
@@ -317,6 +333,12 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 		return nil
 	}
 	out := &dmEnvelope{Narration: n}
+	switch v := obj["imminentCombat"].(type) {
+	case bool:
+		out.ImminentCombat = v
+	case string:
+		out.ImminentCombat = strings.EqualFold(strings.TrimSpace(v), "true")
+	}
 	if es, ok := obj["encounterState"].(map[string]interface{}); ok {
 		out.EncounterState = es
 	}
