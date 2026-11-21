@@ -261,11 +261,19 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 
 	// The DM's own statement that a fight is starting is checked against the engine: a turn that declares combat and
 	// never asks for a die gives the table prose with no outcome, which is what "no me ataca de vuelta" looks like.
-	if combat != nil && (env.ImminentCombat && !combat.usedAny() || combat.needsMore()) {
+	if combat != nil && (env.ImminentCombat && !combat.usedAny() || combat.needsMore() ||
+		combat.usedAny() && combat.foesStanding() && !env.ImminentCombat ||
+		combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration)) {
 		owed := combat.owed()
-		log.Printf("dm generate (gameId=%s): combat turn incomplete (engine used=%v, still to act=%v); asking once more",
-			gameID, combat.usedAny(), owed)
+		log.Printf("dm generate (gameId=%s): combat turn incomplete (engine used=%v, still to act=%v, round closed=%v); asking once more",
+			gameID, combat.usedAny(), owed, combat.roundWasCompleted())
 		correction := dmCombatCorrection
+		if combat.usedAny() && combat.foesStanding() && !env.ImminentCombat {
+			correction = dmFightContinuesCorrection
+		}
+		if combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration) {
+			correction = dmHandoverCorrection
+		}
 		if len(owed) > 0 {
 			correction += " Still owed a turn this round: " + strings.Join(owed, ", ") +
 				". Call roll again with an actions list that includes them; their attack belongs to this round."
@@ -277,6 +285,15 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		} else if secondErr != nil {
 			log.Printf("dm generate (gameId=%s): the second attempt at the combat turn failed: %v", gameID, secondErr)
 		}
+	}
+
+	// The table's turn is not left to the model's memory: a round that closes with a foe standing ends by asking for the
+	// next one, and if the reply forgets, the server says it. Everything else in the narration stays as the DM wrote it.
+	if combat != nil && combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration) {
+		line := roundHandoverLine(language, combat.playedRound+1, combat.openingActor())
+		env.Narration = strings.TrimSpace(env.Narration) + "\n\n" + line
+		log.Printf("dm generate (gameId=%s): the reply closed round %d without asking the table; added the handover",
+			gameID, combat.playedRound)
 	}
 
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)
@@ -381,6 +398,16 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 	out.NewPlaces = ParseNewPlaces(obj["newPlaces"])
 	out.PartyPosition = ParsePartyPosition(obj["partyPosition"])
 	return out
+}
+
+// asksTheTable reports whether the narration ends by asking the table for their next move. That question is the
+// handover between rounds: a reply that closes a round without it never gives the player their turn.
+func asksTheTable(narration string) bool {
+	trimmed := strings.TrimSpace(narration)
+	if trimmed == "" {
+		return false
+	}
+	return strings.HasSuffix(trimmed, "?")
 }
 
 // composeDmSystemPrompt builds the single system message for one play turn.

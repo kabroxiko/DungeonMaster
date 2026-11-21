@@ -26,6 +26,8 @@ type combatTools struct {
 	// acted is who has already taken a turn in this reply. A round in which only the player swung is not a round, and
 	// the model cannot be trusted to remember the order it was given: the answer says who is still owed a turn.
 	acted map[string]struct{}
+	// playedRound is the round this reply played, for the closing line that hands the table the next one.
+	playedRound int
 	// roundSpent says this reply has already played its round. The table answers between rounds, and that answer is
 	// how a player changes strategy: a reply that rolls again is playing a second round nobody agreed to.
 	roundSpent bool
@@ -122,6 +124,7 @@ func (t *combatTools) openEncounter(call llm.ToolCall) llm.ToolResult {
 	if missing := t.unmetDeclarations(declared); len(missing) > 0 {
 		return llm.ToolResult{CallID: call.ID, Content: missingHPError(missing) + t.describe()}
 	}
+	t.startFreshFight()
 	if len(declared) > 0 {
 		t.state = mergeDeclaredCombatants(t.state, declared, t.sheet, t.pc)
 		t.used = true
@@ -160,6 +163,7 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 		if missing := t.unmetDeclarations(declared); len(missing) > 0 {
 			return llm.ToolResult{CallID: call.ID, Content: missingHPError(missing) + t.describe()}
 		}
+		t.startFreshFight()
 		t.state = mergeDeclaredCombatants(t.state, declared, t.sheet, t.pc)
 		t.used = true
 	}
@@ -185,6 +189,8 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	}
 	if combatants, ok := combatantsOf(t.state); ok && len(combatants) > 0 && len(t.waitingToAct()) == 0 {
 		t.roundSpent = true
+		t.playedRound = roundNumberOf(t.state)
+		t.state[roundKey] = t.playedRound + 1
 	}
 	body := strings.Builder{}
 	for _, line := range outcome.Lines {
@@ -194,7 +200,19 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 		body.WriteString("not resolved: " + unknown + "\n")
 	}
 	body.WriteString(t.describe())
+	body.WriteString(t.roundClosing())
 	return llm.ToolResult{CallID: call.ID, Content: body.String()}
+}
+
+// startFreshFight clears a record whose fight is already over, so the next one does not inherit its bodies or its
+// order. A player who attacks the guard again after that guard fell was fighting a corpse in the record.
+func (t *combatTools) startFreshFight() {
+	if !encounterFinished(t.state, t.pc) {
+		return
+	}
+	t.state = map[string]interface{}{}
+	t.acted = map[string]struct{}{}
+	t.roundSpent = false
 }
 
 // unmetDeclarations lists creatures the call brings into the fight without the hit points that make them a creature
@@ -292,6 +310,80 @@ func (t *combatTools) orderByInitiative(actions []declaredAction) []declaredActi
 	return out
 }
 
+// roundClosing says what the reply does next once the round is played: the table declares, and nobody acts until it
+// does. Without it the model reads a finished round as an invitation to play the rest of the fight.
+func (t *combatTools) roundClosing() string {
+	if !t.roundSpent {
+		return ""
+	}
+	if !t.foesStanding() {
+		return "the fight is over: no foe is standing\n"
+	}
+	return fmt.Sprintf("round %d is complete. Nobody acts again in this reply: the reply closes the round and hands the table round %d, whose actors declare in the order above.\n",
+		t.playedRound, t.playedRound+1)
+}
+
+// openingActor is who declares first in the next round: the first player character in the initiative order, and failing
+// that the first combatant still standing. It is the name the handover line addresses.
+func (t *combatTools) openingActor() string {
+	combatants, ok := combatantsOf(t.state)
+	if !ok || len(combatants) == 0 {
+		return ""
+	}
+	pc := strings.ToLower(strings.TrimSpace(t.pc))
+	standing := make([]string, 0, len(combatants))
+	for _, entry := range toIfaceSlice(t.state["initiative"]) {
+		m, _ := entry.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := fmt.Sprint(m["displayName"])
+		_, combatant := findCombatant(combatants, name)
+		if combatant == nil {
+			continue
+		}
+		if hp, has := intField(combatant, participantHPCurrentKey); has && hp <= 0 {
+			continue
+		}
+		isPC := strings.EqualFold(str(combatant["kind"]), "pc") ||
+			(pc != "" && strings.EqualFold(strings.TrimSpace(name), pc))
+		if isPC {
+			return name
+		}
+		standing = append(standing, name)
+	}
+	if len(standing) > 0 {
+		return standing[0]
+	}
+	return ""
+}
+
+// roundWasCompleted reports whether this reply played a round and closed it, so the table is owed the next one.
+func (t *combatTools) roundWasCompleted() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.roundSpent && t.playedRound > 0
+}
+
+// foesStanding reports whether the record still holds a creature for the table to fight.
+func (t *combatTools) foesStanding() bool {
+	combatants, ok := combatantsOf(t.state)
+	if !ok {
+		return false
+	}
+	pc := strings.ToLower(strings.TrimSpace(t.pc))
+	for _, combatant := range combatants {
+		name := strings.ToLower(strings.TrimSpace(fmt.Sprint(combatant[participantNameKey])))
+		if strings.EqualFold(str(combatant["kind"]), "pc") || (pc != "" && name == pc) {
+			continue
+		}
+		if hp, has := intField(combatant, participantHPCurrentKey); !has || hp > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // describe is the standing of each combatant, which the narration must not contradict, plus the order the engine rolled.
 //
 // The order is not bookkeeping: a player who declared the attack and reads that someone else moved first needs the
@@ -338,9 +430,15 @@ func (t *combatTools) waitingToAct() []string {
 	if !ok {
 		return nil
 	}
+	pc := strings.ToLower(strings.TrimSpace(t.pc))
 	out := make([]string, 0, len(combatants))
 	for _, c := range combatants {
 		name := fmt.Sprint(c[participantNameKey])
+		// The player's own turn is declared by the player, not owed by the DM: it is their message that opens it, and
+		// a character at 0 hit points has no turn to give anyway.
+		if strings.EqualFold(str(c["kind"]), "pc") || (pc != "" && strings.EqualFold(strings.TrimSpace(name), pc)) {
+			continue
+		}
 		hp, _ := intField(c, participantHPCurrentKey)
 		if hp <= 0 {
 			continue

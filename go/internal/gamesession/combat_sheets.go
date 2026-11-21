@@ -108,6 +108,12 @@ func encounterClaimsConflict(claimed, engine map[string]interface{}) (string, bo
 			}
 			return fmt.Sprintf("%s is at %d hit points and %s in the engine's record, not what your reply says", name, actualHP, state), true
 		}
+		if claimedHP != actualHP {
+			// A different number is a different wound: the reply was recomputing, and a recomputed total is a figure
+			// that never happened.
+			return fmt.Sprintf("%s is at %d hit points in the engine's record, not %d as your reply says",
+				name, actualHP, claimedHP), true
+		}
 	}
 	return "", false
 }

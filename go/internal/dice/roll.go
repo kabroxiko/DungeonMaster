@@ -55,6 +55,40 @@ func (r Roll) Detail() string {
 	return b.String()
 }
 
+// Plain is the roll as a table reads it out: the faces the dice showed and the modifier, never the sum. It exists so
+// the engine's lines can be copied into prose without the copy turning into an equation.
+func (r Roll) Plain() string {
+	var b strings.Builder
+	for i, faces := range r.Dice {
+		size := 0
+		if i < len(r.sizes) {
+			size = r.sizes[i]
+		}
+		if i > 0 {
+			b.WriteString("+")
+		}
+		b.WriteString("d")
+		b.WriteString(strconv.Itoa(size))
+		b.WriteString(" ")
+		for j, face := range faces {
+			if j > 0 {
+				b.WriteString(",")
+			}
+			b.WriteString(strconv.Itoa(face))
+		}
+	}
+	if r.Modifier != 0 || len(r.Dice) == 0 {
+		if len(r.Dice) > 0 {
+			b.WriteString(", ")
+		}
+		if r.Modifier > 0 && len(r.Dice) > 0 {
+			b.WriteString("+")
+		}
+		b.WriteString(strconv.Itoa(r.Modifier))
+	}
+	return b.String()
+}
+
 // Natural is the face of the first die of the first term, which is what a natural 1 or a natural 20 refers to.
 func (r Roll) Natural() int {
 	if len(r.Dice) == 0 || len(r.Dice[0]) == 0 {

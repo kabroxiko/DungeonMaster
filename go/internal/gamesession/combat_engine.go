@@ -164,6 +164,13 @@ func resolveAttack(action declaredAction, actorIndex int, actor map[string]inter
 		out.Unknown = append(out.Unknown, fmt.Sprintf("target %q is not in the encounter", action.Target))
 		return "", false
 	}
+	if hp, has := intField(target, participantHPCurrentKey); has && hp <= 0 {
+		// The swing at a body that is already down, which is what a fight left open in the record produces: the player
+		// attacks a guard the engine has at 0 and the narration has to describe hitting a corpse.
+		out.Unknown = append(out.Unknown, fmt.Sprintf("%v is already at 0 hit points; nothing there is standing to fight",
+			target[participantNameKey]))
+		return "", false
+	}
 	modifier := action.Modifier
 	if stored, ok := intField(actor, participantAttackBonusKey); ok && action.Modifier == 0 {
 		modifier = stored
@@ -195,7 +202,8 @@ func resolveAttack(action declaredAction, actorIndex int, actor map[string]inter
 	targetName := fmt.Sprint(target[participantNameKey])
 
 	if !hit {
-		return fmt.Sprintf("%s attacks %s: %s vs AC %d -> miss%s", attacker, targetName, toHit.Detail(), ac, acSource), false
+		return fmt.Sprintf("%s attacks %s: miss, attack %d against armor class %d (%s)%s",
+			attacker, targetName, toHit.Total, ac, toHit.Plain(), acSource), false
 	}
 
 	notation := strings.TrimSpace(action.Damage)
@@ -218,7 +226,8 @@ func resolveAttack(action declaredAction, actorIndex int, actor map[string]inter
 	damage, err := dice.RollNotation(notation, rng)
 	if err != nil {
 		out.Unknown = append(out.Unknown, fmt.Sprintf("damage %q could not be rolled: %v", notation, err))
-		return fmt.Sprintf("%s attacks %s: %s vs AC %d -> hit, damage could not be rolled", attacker, targetName, toHit.Detail(), ac), false
+		return fmt.Sprintf("%s attacks %s: hit, attack %d against armor class %d (%s), damage could not be rolled",
+			attacker, targetName, toHit.Total, ac, toHit.Plain()), false
 	}
 
 	before, ok := intField(target, participantHPCurrentKey)
@@ -233,8 +242,8 @@ func resolveAttack(action declaredAction, actorIndex int, actor map[string]inter
 	if _, hasMax := intField(target, participantHPMaxKey); !hasMax {
 		target[participantHPMaxKey] = before
 	}
-	return fmt.Sprintf("%s attacks %s: %s vs AC %d -> hit, damage %s, hp %d -> %d",
-		attacker, targetName, toHit.Detail(), ac, damage.Detail(), before, after), after != before
+	return fmt.Sprintf("%s attacks %s: hit, attack %d against armor class %d (%s), damage %d (%s), hp %d -> %d",
+		attacker, targetName, toHit.Total, ac, toHit.Plain(), damage.Total, damage.Plain(), before, after), after != before
 }
 
 func resolveTest(action declaredAction, rng *rand.Rand) string {
@@ -261,7 +270,7 @@ func resolveTest(action declaredAction, rng *rand.Rand) string {
 	if label == "" {
 		label = "check"
 	}
-	return fmt.Sprintf("%s: %s %s vs DC %d -> %s", who, label, roll.Detail(), dc, outcome)
+	return fmt.Sprintf("%s: %s %d against DC %d (%s), %s", who, label, roll.Total, dc, roll.Plain(), outcome)
 }
 
 // withCombatants writes the resolved participants back into the encounter state, keeping any other field the state
@@ -517,7 +526,7 @@ func resolveInitiative(declared []declaredInitiative, state map[string]interface
 	order := make([]interface{}, 0, len(declared))
 	for _, entry := range declared {
 		roll := dice.D20(entry.Modifier, rng)
-		lines = append(lines, fmt.Sprintf("initiative %s: %s", entry.Actor, roll.Detail()))
+		lines = append(lines, fmt.Sprintf("initiative %s: %d (%s)", entry.Actor, roll.Total, roll.Plain()))
 		order = append(order, map[string]interface{}{
 			"displayName": entry.Actor,
 			"score":       roll.Total,
@@ -549,6 +558,39 @@ func resolveInitiative(declared []declaredInitiative, state map[string]interface
 	// The order itself is not repeated here: every caller states it with the rolls that made it (the tool answer and
 	// promptBlock both do), and printing it twice in one answer read as the engine stuttering.
 	return lines, updated
+}
+
+// roundKey is where the record keeps the round the fight is in. A fight is played one round per reply, and the round
+// number is what the closing line hands back to the table.
+const roundKey = "round"
+
+func roundNumberOf(state map[string]interface{}) int {
+	if v, ok := intField(state, roundKey); ok && v > 0 {
+		return v
+	}
+	return 1
+}
+
+// encounterFinished reports whether the record holds a fight that is over: it has foes, and none of them is standing.
+// The player's own row standing does not keep a fight alive - a guard at 0 is a body whether or not anyone watches it.
+func encounterFinished(state map[string]interface{}, pcName string) bool {
+	combatants, ok := combatantsOf(state)
+	if !ok || len(combatants) == 0 {
+		return false
+	}
+	pc := strings.ToLower(strings.TrimSpace(pcName))
+	foes := 0
+	for _, combatant := range combatants {
+		name := strings.ToLower(strings.TrimSpace(fmt.Sprint(combatant[participantNameKey])))
+		if strings.EqualFold(str(combatant["kind"]), "pc") || (pc != "" && name == pc) {
+			continue
+		}
+		foes++
+		if hp, has := intField(combatant, participantHPCurrentKey); !has || hp > 0 {
+			return false
+		}
+	}
+	return foes > 0
 }
 
 // declaredCombatant is a creature the declaration brings into the fight: a foe the turn is about to introduce, or the
@@ -664,7 +706,7 @@ func resolveHeal(action declaredAction, combatants []map[string]interface{}, rng
 	}
 	target[participantHPCurrentKey] = after
 	targetName := fmt.Sprint(target[participantNameKey])
-	return fmt.Sprintf("%s heals %s: %s, hp %d -> %d", action.Actor, targetName, roll.Detail(), before, after), after != before
+	return fmt.Sprintf("%s heals %s: %d restored (%s), hp %d -> %d", action.Actor, targetName, roll.Total, roll.Plain(), before, after), after != before
 }
 
 // initiativeOrderOf reads a stored order as "name (roll)" pairs, for the block a host without tools receives.

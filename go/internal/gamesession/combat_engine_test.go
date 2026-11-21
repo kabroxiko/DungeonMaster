@@ -48,7 +48,7 @@ func TestAttackBelowArmorClassMissesAndDealsNoDamage(t *testing.T) {
 			t.Fatalf("the action was not resolved")
 		}
 		line = out.Lines[0]
-		if strings.Contains(line, "= 13 vs AC 14") {
+		if strings.Contains(line, "attack 13 against armor class 14") {
 			if !strings.Contains(line, "miss") {
 				t.Fatalf("13 against 14 is a miss, got %q", line)
 			}
@@ -68,7 +68,7 @@ func TestHitPointsFollowTheRolledTotal(t *testing.T) {
 		action := declaredAction{Actor: "Bram", Target: "Goblin", Kind: "attack", Modifier: 6, Damage: "1d4+4"}
 		out := resolveCombatTurn([]declaredAction{action}, state, rand.New(rand.NewSource(seed)))
 		line := out.Lines[0]
-		hit := strings.Contains(line, "-> hit")
+		hit := strings.Contains(line, "hit,")
 		if hit {
 			if !out.HPChanged {
 				t.Fatalf("seed %d: a hit that changed nothing: %q", seed, line)
@@ -93,15 +93,15 @@ func TestNaturalOneAndTwentyAreHonoured(t *testing.T) {
 		action := declaredAction{Actor: "Bram", Target: "Ogro", Kind: "attack", Modifier: 0, Damage: "1d6"}
 		out := resolveCombatTurn([]declaredAction{action}, state, rand.New(rand.NewSource(seed)))
 		line := out.Lines[0]
-		if strings.Contains(line, "d20(20)") {
+		if strings.Contains(line, "(d20 20") {
 			sawTwenty = true
-			if !strings.Contains(line, "-> hit") {
+			if !strings.Contains(line, "hit,") {
 				t.Fatalf("a natural 20 must land: %q", line)
 			}
 		}
-		if strings.Contains(line, "d20(1)") {
+		if strings.Contains(line, "(d20 1") {
 			sawOne = true
-			if !strings.Contains(line, "-> miss") {
+			if !strings.Contains(line, "miss,") {
 				t.Fatalf("a natural 1 must miss: %q", line)
 			}
 		}
@@ -249,7 +249,7 @@ func TestFirstAttackBootstrapsTheEncounter(t *testing.T) {
 	if len(out.Lines) != 1 {
 		t.Fatalf("the declared attack should be resolved, got %v", out.Lines)
 	}
-	if !strings.Contains(out.Lines[0], "vs AC 16") {
+	if !strings.Contains(out.Lines[0], "against armor class 16") {
 		t.Fatalf("the attack should resolve against the stored armor class, got %q", out.Lines[0])
 	}
 }
@@ -283,7 +283,7 @@ func TestCombatToolsAnswerLikeTheEngine(t *testing.T) {
 	if !strings.Contains(rolled.Content, "Bram attacks Goblin") {
 		t.Fatalf("the player alias should resolve to the character, got %q", rolled.Content)
 	}
-	if !strings.Contains(rolled.Content, "vs AC 13") {
+	if !strings.Contains(rolled.Content, "against armor class 13") {
 		t.Fatalf("the attack should resolve against the stored armor class, got %q", rolled.Content)
 	}
 
@@ -327,21 +327,27 @@ func TestToolsSayWhoIsStillOwedATurn(t *testing.T) {
 			map[string]interface{}{"actor": "Goblin", "modifier": 2},
 		},
 	}})
-	if !strings.Contains(opened.Content, "still to act in this reply:") {
-		t.Fatalf("opening a fight should say who has not acted: %q", opened.Content)
+	owedLine := func(body string) string {
+		for _, line := range strings.Split(body, "\n") {
+			if strings.HasPrefix(line, "still to act in this reply:") {
+				return line
+			}
+		}
+		return ""
 	}
-	if !strings.Contains(opened.Content, "Goblin") || !strings.Contains(opened.Content, "Bram") {
-		t.Fatalf("both sides are owed a turn after the opening: %q", opened.Content)
+	if line := owedLine(opened.Content); !strings.Contains(line, "Goblin") {
+		t.Fatalf("the foe is owed a turn after the opening: %q", opened.Content)
+	}
+	// The player plays their own character: their turn is never on the list the DM owes.
+	if line := owedLine(opened.Content); strings.Contains(line, "Bram") {
+		t.Fatalf("the player's own turn is not the DM's to take: %q", line)
 	}
 
 	afterPlayer := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
 		"actor": "player", "target": "Goblin", "kind": "attack", "modifier": 5.0, "damage": "1d4+3",
 	}})
-	if !strings.Contains(afterPlayer.Content, "still to act in this reply: Goblin") {
+	if line := owedLine(afterPlayer.Content); !strings.Contains(line, "Goblin") {
 		t.Fatalf("after the player's turn the foe is still owed one: %q", afterPlayer.Content)
-	}
-	if strings.Contains(afterPlayer.Content, "still to act in this reply: Bram") {
-		t.Fatalf("the player already acted: %q", afterPlayer.Content)
 	}
 
 	afterFoe := tools.run(llm.ToolCall{ID: "3", Name: "roll", Arguments: map[string]interface{}{
@@ -736,5 +742,161 @@ func TestAFoeDeclaredWithoutHitPointsIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(opened.Content, "Guardia: hp 11/11") {
 		t.Fatalf("the guard should stand at its full hit points: %q", opened.Content)
+	}
+}
+
+// A player who attacks a foe the record already has at 0 is swinging at a body. The engine says so instead of rolling
+// damage into a fight that is over.
+func TestAttackingTheFallenIsRefused(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 13, "max_hp": 11}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(31)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 1, "ac": 5, "damage": "1d6+2"},
+		},
+	}})
+	tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 50.0, "damage": "1d4+3",
+	}})
+
+	// The next turn of play is a new reply, so a new tool set over the record the last one left.
+	next := newCombatTools(tools.state, sheet, "Thulim", rand.New(rand.NewSource(33)))
+	again := next.run(llm.ToolCall{ID: "3", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 50.0, "damage": "1d4+3",
+	}})
+	if !strings.Contains(again.Content, "already at 0 hit points") {
+		t.Fatalf("a swing at a fallen foe should be refused: %q", again.Content)
+	}
+	if strings.Contains(again.Content, "Thulim attacks Guardia") {
+		t.Fatalf("no attack should be rolled against a body: %q", again.Content)
+	}
+}
+
+// A fight that ended must not carry its bodies into the next one: opening the encounter again used to find the old
+// participant already there, leave it at 0 and keep its order, so the new fight began with a corpse.
+func TestANewFightDoesNotInheritTheLastOne(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 13, "max_hp": 11}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(32)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 1, "ac": 5, "damage": "1d6+2"},
+		},
+	}})
+	tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 50.0, "damage": "1d4+3",
+	}})
+
+	next := newCombatTools(tools.state, sheet, "Thulim", rand.New(rand.NewSource(34)))
+	opened := next.run(llm.ToolCall{ID: "3", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 11, "ac": 13, "damage": "1d6+2"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "modifier": 3},
+			map[string]interface{}{"actor": "Guardia", "modifier": 1},
+		},
+	}})
+	if !strings.Contains(opened.Content, "Guardia: hp 11/11") {
+		t.Fatalf("the new fight should start with the guard standing: %q", opened.Content)
+	}
+	if strings.Contains(opened.Content, "hp 0/1") {
+		t.Fatalf("the old body should not be in the record: %q", opened.Content)
+	}
+}
+
+// A round that leaves a foe standing closes by handing the table the next round. Without that handover the model read a
+// finished round as permission to play the rest of the fight.
+func TestAFinishedRoundHandsTheTableTheNextOne(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 13, "max_hp": 30}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(41)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 60, "ac": 13, "attack_bonus": 4, "damage": "1d8+2"},
+		},
+	}})
+	round := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2"},
+		},
+	}})
+	if !strings.Contains(round.Content, "round 1 is complete") {
+		t.Fatalf("a played round should say so: %q", round.Content)
+	}
+	if !strings.Contains(round.Content, "hands the table round 2") {
+		t.Fatalf("the next round belongs to the table: %q", round.Content)
+	}
+	if roundNumberOf(tools.state) != 2 {
+		t.Fatalf("the record should be in round 2, got %d", roundNumberOf(tools.state))
+	}
+
+	// The round that ends the fight has nothing to hand over.
+	ending := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(42)))
+	ending.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Rata", "hp_max": 1, "ac": 5},
+		},
+	}})
+	killed := ending.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Rata", "kind": "attack", "modifier": 50.0, "damage": "1d4+3",
+	}})
+	if !strings.Contains(killed.Content, "the fight is over: no foe is standing") {
+		t.Fatalf("the fight that ends should be reported as over: %q", killed.Content)
+	}
+	if strings.Contains(killed.Content, "hands the table round") {
+		t.Fatalf("nothing is handed over when nobody is left: %q", killed.Content)
+	}
+}
+
+// The handover is the server's to guarantee: a round that closes with a foe standing ends by asking the table, in the
+// game's own language, and the actor named is the player's own character when the order reaches them first.
+func TestTheRoundHandoverNamesThePlayerAndSpeaksTheGamesLanguage(t *testing.T) {
+	spanish := roundHandoverLine("Spanish", 3, "Varek")
+	if !strings.Contains(spanish, "Ronda 3") || !strings.Contains(spanish, "Varek") || !strings.HasSuffix(spanish, "?") {
+		t.Fatalf("the handover should name the round and ask the player: %q", spanish)
+	}
+	english := roundHandoverLine("English", 3, "Varek")
+	if !strings.Contains(english, "Round 3") || !strings.HasSuffix(english, "?") {
+		t.Fatalf("english handover: %q", english)
+	}
+	if asksTheTable("La ronda termina frente al fuego.") {
+		t.Fatal("a closing reflection is not a question to the table")
+	}
+	if !asksTheTable("La ronda termina.\n\n¿Qué hace Varek?") {
+		t.Fatal("a question to the table is a handover whatever comes before it")
+	}
+
+	sheet := map[string]interface{}{"name": "Varek", "ac": 13, "max_hp": 20}
+	tools := newCombatTools(nil, sheet, "Varek", rand.New(rand.NewSource(51)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Varek"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 30, "ac": 12, "attack_bonus": 3, "damage": "1d6+1"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Guardia", "modifier": 1},
+			map[string]interface{}{"actor": "Varek", "modifier": 9},
+		},
+	}})
+	if got := tools.openingActor(); got != "Varek" {
+		t.Fatalf("the player opens the round when the order reaches them first, got %q", got)
+	}
+}
+
+// A reply that reports a different hit point total than the engine settled is recomputing, and the server can see it.
+func TestInventedHitPointsAreContradicted(t *testing.T) {
+	engine := encounterState(participant("Thulim", 7, 11, 13), participant("Guardia", 40, 40, 15))
+	drifted := encounterState(participant("Thulim", 4, 11, 13), participant("Guardia", 40, 40, 15))
+	conflict, bad := encounterClaimsConflict(drifted, engine)
+	if !bad {
+		t.Fatal("a recomputed hit point total should be a contradiction")
+	}
+	if !strings.Contains(conflict, "7") || !strings.Contains(conflict, "4") {
+		t.Fatalf("the correction should name both totals: %q", conflict)
 	}
 }
