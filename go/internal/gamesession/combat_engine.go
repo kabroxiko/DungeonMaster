@@ -546,11 +546,8 @@ func resolveInitiative(declared []declaredInitiative, state map[string]interface
 	updated["initiative"] = order
 	updated["participants"] = withCombatants(state, combatants)["participants"]
 
-	names := make([]string, 0, len(order))
-	for _, entry := range order {
-		names = append(names, fmt.Sprint(entry.(map[string]interface{})["displayName"]))
-	}
-	lines = append(lines, "turn order: "+strings.Join(names, " -> "))
+	// The order itself is not repeated here: every caller states it with the rolls that made it (the tool answer and
+	// promptBlock both do), and printing it twice in one answer read as the engine stuttering.
 	return lines, updated
 }
 

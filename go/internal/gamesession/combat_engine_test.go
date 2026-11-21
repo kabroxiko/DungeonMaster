@@ -190,8 +190,14 @@ func TestInitiativeIsRolledOnceAndKept(t *testing.T) {
 	if first < second {
 		t.Fatalf("the order should run highest first, got %d then %d", first, second)
 	}
-	if got := lines[len(lines)-1]; !strings.HasPrefix(got, "turn order: ") {
-		t.Fatalf("the block should state the order, got %q", got)
+	// One die line per participant, highest first: the order is stated by the callers, with these totals.
+	if len(lines) != len(declared) {
+		t.Fatalf("expected a line per participant, got %v", lines)
+	}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "initiative ") {
+			t.Fatalf("every line should be one creature's initiative roll, got %q", line)
+		}
 	}
 
 	// Second turn of the same fight: the stored order stands, and nothing is re-rolled.
@@ -697,5 +703,38 @@ func TestAnActionWithoutAKindIsAnAttack(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "Thulim attacks Guardia") {
 		t.Fatalf("the attack should be resolved: %q", result.Content)
+	}
+}
+
+// A creature declared with no hit points used to enter the record at 0 and be read as already down: a foe born dead,
+// killed by nobody. The numbers are the DM's to give, so the tool asks for them.
+func TestAFoeDeclaredWithoutHitPointsIsRefused(t *testing.T) {
+	tools := newCombatTools(nil, nil, "Bram", rand.New(rand.NewSource(24)))
+	result := tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Bram", "hp_max": 12, "ac": 13},
+			map[string]interface{}{"displayName": "Guardia", "ac": 12},
+		},
+	}})
+	if !strings.Contains(result.Content, "no hit points given for Guardia") {
+		t.Fatalf("a creature with no hit points should be named: %q", result.Content)
+	}
+	combatants, _ := combatantsOf(tools.state)
+	if _, found := findCombatant(combatants, "Guardia"); found != nil {
+		t.Fatal("a creature with no hit points should not enter the record")
+	}
+
+	// Once it is given a maximum, the fight opens with it standing.
+	opened := tools.run(llm.ToolCall{ID: "2", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Bram", "hp_max": 12, "ac": 13},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 11, "ac": 12},
+		},
+	}})
+	if strings.Contains(opened.Content, "no hit points given") {
+		t.Fatalf("the fight should open once the hit points are given: %q", opened.Content)
+	}
+	if !strings.Contains(opened.Content, "Guardia: hp 11/11") {
+		t.Fatalf("the guard should stand at its full hit points: %q", opened.Content)
 	}
 }

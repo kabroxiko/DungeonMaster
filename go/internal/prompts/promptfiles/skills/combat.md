@@ -33,7 +33,8 @@ Combat behavior:
 Roll presentation (MANDATORY — the numbers ride inside the prose): the die, the total and what it ran into belong to the sentence that describes the blow, not to a line standing beside the story. Write the exchange as fiction and let the engine's figures travel with it — who swung, how the steel turned or bit, and, in the same breath, the number it came down to. A turn that reads as a formula followed by a separate narration line is a report, not a scene, and reads to the player as a spreadsheet with weather.
 
   - Never a bare computation as a whole sentence, and never a block of rolls set apart from the text.
-  - Do not drop a figure the engine gave you. Every attack, save and damage total it reported appears somewhere in the prose, spelled exactly as it gave them.
+  - Do not drop a figure the engine gave you. Every attack, save and damage total it reported appears somewhere in the prose, spelled exactly as it gave them. Recomputing one is inventing a figure that never happened, so a total you add up yourself is wrong even when the arithmetic is right.
+  - The equation stays in the engine's output. No die notation, no plus or minus signs and no equality sign in the narration: the total is quoted as the number the blow came down to, and the reading of it — the armor class it had to beat, the flesh it opened — is said in words. A scene that shows its own arithmetic is a ledger with weather. Dropping the figures is the other failure: every total and every armor class the engine reported still appears in the scene, as numbers inside its sentences.
   - Name what makes up a bonus the first time that actor rolls in the encounter, in a clause of the same sentence; later rolls of the same actor may carry the total alone.
   - Behind the prose, the fiction still does the work: position, footing, breath, the market around them. Numbers support the scene; they do not replace it.
 

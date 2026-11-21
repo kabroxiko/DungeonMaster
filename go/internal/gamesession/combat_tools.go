@@ -119,6 +119,9 @@ func (t *combatTools) openEncounter(call llm.ToolCall) llm.ToolResult {
 	if len(declared) == 0 && len(initiative) == 0 {
 		return llm.ToolResult{CallID: call.ID, Content: "error: give at least one participant or one initiative entry"}
 	}
+	if missing := t.unmetDeclarations(declared); len(missing) > 0 {
+		return llm.ToolResult{CallID: call.ID, Content: missingHPError(missing) + t.describe()}
+	}
 	if len(declared) > 0 {
 		t.state = mergeDeclaredCombatants(t.state, declared, t.sheet, t.pc)
 		t.used = true
@@ -154,6 +157,9 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	// A model opening the fight in the same call it rolls is doing the natural thing; refusing its participants and
 	// answering "not in the encounter" cost a whole round trip and read as the engine failing.
 	if declared := parseDeclaredCombatants(call.Arguments["participants"]); len(declared) > 0 {
+		if missing := t.unmetDeclarations(declared); len(missing) > 0 {
+			return llm.ToolResult{CallID: call.ID, Content: missingHPError(missing) + t.describe()}
+		}
 		t.state = mergeDeclaredCombatants(t.state, declared, t.sheet, t.pc)
 		t.used = true
 	}
@@ -189,6 +195,31 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	}
 	body.WriteString(t.describe())
 	return llm.ToolResult{CallID: call.ID, Content: body.String()}
+}
+
+// unmetDeclarations lists creatures the call brings into the fight without the hit points that make them a creature
+// rather than a corpse. The numbers are the DM's to give, so the engine asks for them instead of inventing a total.
+func (t *combatTools) unmetDeclarations(declared []declaredCombatant) []string {
+	existing, _ := combatantsOf(t.state)
+	pc := strings.ToLower(strings.TrimSpace(t.pc))
+	missing := make([]string, 0, len(declared))
+	for _, entry := range declared {
+		if _, found := findCombatant(existing, entry.Name); found != nil {
+			continue
+		}
+		if pc != "" && strings.EqualFold(strings.TrimSpace(entry.Name), pc) {
+			continue // the sheet supplies the player's own hit points
+		}
+		if entry.HPMax <= 0 {
+			missing = append(missing, entry.Name)
+		}
+	}
+	return missing
+}
+
+func missingHPError(names []string) string {
+	return "error: no hit points given for " + strings.Join(names, ", ") +
+		": a creature enters the fight with its hp_max, and a creature at 0 is already down. Add hp_max to those entries and call again\n"
 }
 
 // actionsFromCall reads either the single-action arguments or an "actions" list.
