@@ -16,7 +16,7 @@ Each entry of "participants" is a creature the fight needs and the encounter sta
 Each entry of "actions":
 - `actor`: the `displayName` of the participant acting, exactly as the encounter state or the character sheet writes it.
 - `target`: the `displayName` of whoever the action lands on; `""` for a save or check that has no target.
-- `kind`: `"attack"` for a weapon or spell attack, `"save"` for a saving throw, `"check"` for an ability check.
+- `kind`: `"attack"` for a weapon or spell attack, `"heal"` for healing (its dice go in `damage`), `"save"` for a saving throw, `"check"` for an ability check.
 - `modifier`: the whole number added to the d20. For the player's attack use the `attack_bonus` of the weapon they named; for a foe, use the bonus you place on it.
 - `damage`: the damage dice as notation (`1d8+3`), attacks only. Leave it out when the attack deals no damage.
 - `ac` or `dc`: the number the roll resolves against, when the encounter state does not already store it.

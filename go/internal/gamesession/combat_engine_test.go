@@ -428,3 +428,87 @@ func TestHalfARoundIsVisible(t *testing.T) {
 		t.Fatalf("the guard should be named as owed, got %v", owed)
 	}
 }
+
+// Damage taken in a fight has to land on the character sheet: the encounter state ends with the fight, and a character
+// that walked out of every battle at full health is the bug this closes.
+func TestDamageReachesTheCharacterSheet(t *testing.T) {
+	gameSetup := map[string]interface{}{
+		"playerCharacters": map[string]interface{}{
+			"u1": map[string]interface{}{"name": "Thulim", "displayName": "Thulim", "ac": 14, "max_hp": 10},
+		},
+	}
+	state := encounterState(
+		map[string]interface{}{"displayName": "Thulim", "hp_current": 10, "hp_max": 10, "ac": 14},
+		map[string]interface{}{"displayName": "Guardia", "hp_current": 12, "hp_max": 12, "ac": 13, "attack_bonus": 20, "damage": "1d4+1"},
+	)
+	out := resolveCombatTurn([]declaredAction{{
+		Actor: "Guardia", Target: "Thulim", Kind: "attack", Modifier: 20,
+	}}, state, rand.New(rand.NewSource(2)))
+	if !syncPartySheets(gameSetup, out.State) {
+		t.Fatal("the sheet should have changed")
+	}
+	sheet, _ := gameSetup["playerCharacters"].(map[string]interface{})["u1"].(map[string]interface{})
+	hp, _ := intField(sheet, sheetHPKey)
+	engineHP, _ := intField(func() map[string]interface{} {
+		combatants, _ := combatantsOf(out.State)
+		_, c := findCombatant(combatants, "Thulim")
+		return c
+	}(), participantHPCurrentKey)
+	if hp != engineHP || hp >= 10 {
+		t.Fatalf("sheet hp %d should match the engine %d and be below full", hp, engineHP)
+	}
+	// Nothing changed the second time: the sync is not a write per turn.
+	if syncPartySheets(gameSetup, out.State) {
+		t.Fatal("an unchanged sheet should not report a change")
+	}
+}
+
+// Healing gives hit points back and stops at the maximum, and it works outside a fight as well.
+func TestHealingRaisesHitPointsUpToTheMaximum(t *testing.T) {
+	state := encounterState(map[string]interface{}{"displayName": "Thulim", "hp_current": 3, "hp_max": 10, "ac": 14})
+	out := resolveCombatTurn([]declaredAction{{
+		Actor: "Thulim", Target: "Thulim", Kind: "heal", Damage: "1d8+4",
+	}}, state, rand.New(rand.NewSource(4)))
+	if len(out.Lines) != 1 || !strings.Contains(out.Lines[0], "heals Thulim") {
+		t.Fatalf("expected a healing line, got %v", out.Lines)
+	}
+	hp := hpOf(t, out.State, "Thulim")
+	if hp < 3 || hp > 10 {
+		t.Fatalf("healing should stay within the maximum, got %d", hp)
+	}
+	if !out.HPChanged {
+		t.Fatal("healing that lands should report a change")
+	}
+
+	// A Cure Wounds that overshoots stops at the maximum.
+	full := resolveCombatTurn([]declaredAction{{
+		Actor: "Thulim", Target: "Thulim", Kind: "heal", Damage: "10d10",
+	}}, state, rand.New(rand.NewSource(4)))
+	if hp := hpOf(t, full.State, "Thulim"); hp != 10 {
+		t.Fatalf("healing past the maximum should stop at 10, got %d", hp)
+	}
+}
+
+// A potion drunk with no fight open still reaches the sheet: the player's own character joins the engine for it.
+func TestHealingOutsideAFightUpdatesTheSheet(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 14, "max_hp": 10, "hp_current": 2}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(5)))
+	result := tools.run(llm.ToolCall{ID: "1", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Thulim", "kind": "heal", "damage": "1d8+3",
+	}})
+	if !strings.Contains(result.Content, "heals Thulim") {
+		t.Fatalf("the potion should heal, got %q", result.Content)
+	}
+	state, ok := tools.changed()
+	if !ok {
+		t.Fatal("the tool should mark the state as changed")
+	}
+	hp, _ := intField(func() map[string]interface{} {
+		combatants, _ := combatantsOf(state)
+		_, c := findCombatant(combatants, "Thulim")
+		return c
+	}(), participantHPCurrentKey)
+	if hp <= 2 {
+		t.Fatalf("the character should be above 2 hit points, got %d", hp)
+	}
+}

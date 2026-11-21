@@ -17,7 +17,7 @@ Sheet structure (authoritative for fiction):
 - `ammunition` — projectile **counts** only (localized): **each** string must include an **Arabic-numeral** quantity; **not** in `equipment` or `weapons`.
 - `tools` — PHB **Tools** / kits / instruments; may be `[]`. **Not** mixed into generic `equipment`.
 - `equipment` — **residual** gear: packs, foci, holy symbol, spellbook, rope, clothes when unarmored, **always a coin/purse line**, **pack or backpack**, **ammo carrier line** when `ammunition` is non-empty. **Must not** duplicate any name from `weapons`; **must not** list PHB Tools-table items or ammo quantities here.
-- `stats`, `max_hp`, `ac`, `coinage`, `skills`, `spells`, and `spell_slots` are **server-computed**; **authoritative** for checks, HP, AC, wealth, skills, spells. `languages` — **PHB 5e** at the level on the sheet. No flat `starting_equipment` — use `armor`, `weapons`, `ammunition`, `tools`, `equipment`.
+- `stats`, `max_hp`, `hp_current`, `ac`, `coinage`, `skills`, `spells`, and `spell_slots` are **server-computed**; **authoritative** for checks, HP (current and maximum), AC, wealth, skills, spells. Never invent or restate a hit point total: the engine settles damage and healing and writes it here. `languages` — **PHB 5e** at the level on the sheet. No flat `starting_equipment` — use `armor`, `weapons`, `ammunition`, `tools`, `equipment`.
 
 Wealth (MUST):
 - Costs use **appropriate denominations** (PHB exchange). Do not hand-wave free purchases unless a **gift**, wage, or reward is established in fiction. When cash changes, set optional envelope `coinage` to the **new full object** `{ pp, gp, ep, sp, cp }` so the sheet stays in sync.

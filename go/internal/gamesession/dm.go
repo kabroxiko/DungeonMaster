@@ -226,6 +226,15 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			engineState = state
 		}
 	}
+	// The fight is tracked in the encounter state, but the table keeps the character sheet: damage and healing settled
+	// by the engine have to reach it, or a character is back at full health the moment the fight ends.
+	if engineState != nil && persistPayload != nil {
+		if gameSetup, ok := persistPayload["gameSetup"].(map[string]interface{}); ok {
+			if syncPartySheets(gameSetup, engineState) {
+				log.Printf("dm generate (gameId=%s): character sheets updated from the encounter", gameID)
+			}
+		}
+	}
 
 	// The engine's state is the record. The model reads the hit points it was handed and may not rewrite them: a foe
 	// declared unconscious while its stored hp was 3 is the same defect as a miss that dealt damage.

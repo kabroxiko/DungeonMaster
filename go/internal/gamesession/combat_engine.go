@@ -132,6 +132,14 @@ func resolveCombatTurn(actions []declaredAction, state map[string]interface{}, r
 			if changed {
 				out.HPChanged = true
 			}
+		case "heal":
+			line, changed := resolveHeal(action, combatants, rng, &out)
+			if line != "" {
+				out.Lines = append(out.Lines, line)
+			}
+			if changed {
+				out.HPChanged = true
+			}
 		case "save", "check":
 			out.Lines = append(out.Lines, resolveTest(action, rng))
 		default:
@@ -610,4 +618,36 @@ func mergeDeclaredCombatants(state map[string]interface{}, declared []declaredCo
 		existing = append(existing, participantEntry)
 	}
 	return withCombatants(state, existing)
+}
+
+// resolveHeal rolls healing dice and gives the hit points back, up to the target's maximum. Healing a creature at full
+// health changes nothing and is reported as such rather than as a silent no-op.
+func resolveHeal(action declaredAction, combatants []map[string]interface{}, rng *rand.Rand, out *combatOutcome) (string, bool) {
+	_, target := findCombatant(combatants, action.Target)
+	if target == nil {
+		out.Unknown = append(out.Unknown, fmt.Sprintf("healing target %q is not in the encounter", action.Target))
+		return "", false
+	}
+	notation := strings.TrimSpace(action.Damage)
+	if notation == "" {
+		out.Unknown = append(out.Unknown, "healing needs dice: give damage as the healing notation, such as 1d8+3")
+		return "", false
+	}
+	roll, err := dice.RollNotation(notation, rng)
+	if err != nil {
+		out.Unknown = append(out.Unknown, fmt.Sprintf("healing %q could not be rolled: %v", notation, err))
+		return "", false
+	}
+	before, ok := intField(target, participantHPCurrentKey)
+	if !ok {
+		before, _ = intField(target, participantHPMaxKey)
+	}
+	maxHP, hasMax := intField(target, participantHPMaxKey)
+	after := before + roll.Total
+	if hasMax && after > maxHP {
+		after = maxHP
+	}
+	target[participantHPCurrentKey] = after
+	targetName := fmt.Sprint(target[participantNameKey])
+	return fmt.Sprintf("%s heals %s: %s, hp %d -> %d", action.Actor, targetName, roll.Detail(), before, after), after != before
 }

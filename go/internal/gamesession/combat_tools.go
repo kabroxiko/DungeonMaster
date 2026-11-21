@@ -102,7 +102,7 @@ func (t *combatTools) defs() []llm.Tool {
 					},
 					"actor":    map[string]interface{}{"type": "string", "description": "displayName of the creature acting."},
 					"target":   map[string]interface{}{"type": "string", "description": "displayName of whoever it lands on; omit for a save or check."},
-					"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "save", "check"}},
+					"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "heal", "save", "check"}},
 					"modifier": map[string]interface{}{"type": "integer", "description": "The whole number added to the d20."},
 					"damage":   map[string]interface{}{"type": "string", "description": "Damage dice such as 1d8+3; attacks only."},
 					"dc":       map[string]interface{}{"type": "integer", "description": "The number a save or check resolves against."},
@@ -176,6 +176,7 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	if len(actions) == 0 {
 		return llm.ToolResult{CallID: call.ID, Content: "error: give an action (or an actions list) with an actor and a kind"}
 	}
+	t.ensurePlayer() // a potion or a fall happens with no fight open
 	ordered := t.orderByInitiative(actions)
 	outcome := resolveCombatTurn(ordered, t.state, t.rng)
 	t.state = outcome.State
@@ -401,11 +402,39 @@ func actionSchema() map[string]interface{} {
 		"properties": map[string]interface{}{
 			"actor":    map[string]interface{}{"type": "string", "description": "displayName of the creature acting."},
 			"target":   map[string]interface{}{"type": "string", "description": "displayName of whoever it lands on; omit for a save or check."},
-			"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "save", "check"}},
+			"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "heal", "save", "check"}},
 			"modifier": map[string]interface{}{"type": "integer", "description": "The whole number added to the d20."},
 			"damage":   map[string]interface{}{"type": "string", "description": "Damage dice such as 1d8+3; attacks only."},
 			"dc":       map[string]interface{}{"type": "integer", "description": "The number a save or check resolves against."},
 		},
 		"required": []interface{}{"actor", "kind"},
 	}
+}
+
+// ensurePlayer puts the player's own character in the encounter when there is none, so damage and healing that happen
+// outside a fight still reach the engine - and from there the sheet.
+func (t *combatTools) ensurePlayer() {
+	if t.sheet == nil || strings.TrimSpace(t.pc) == "" {
+		return
+	}
+	if combatants, ok := combatantsOf(t.state); ok && len(combatants) > 0 {
+		return
+	}
+	entry := map[string]interface{}{participantNameKey: t.pc}
+	maxHP := 0
+	if v, ok := intField(t.sheet, "max_hp"); ok && v > 0 {
+		maxHP = v
+	}
+	current := maxHP
+	if v, ok := intField(t.sheet, sheetHPKey); ok {
+		current = v
+	}
+	if maxHP > 0 {
+		entry[participantHPMaxKey] = maxHP
+		entry[participantHPCurrentKey] = current
+	}
+	if ac, ok := intField(t.sheet, "ac"); ok && ac > 0 {
+		entry[participantACKey] = ac
+	}
+	t.state = withCombatants(t.state, []map[string]interface{}{entry})
 }
