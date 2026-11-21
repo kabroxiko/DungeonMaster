@@ -88,13 +88,18 @@ func (t *combatTools) defs() []llm.Tool {
 		},
 		{
 			Name: "roll",
-			Description: "Roll one action and get its outcome. An attack is rolled against the target's stored armor class " +
-				"and its damage applied to the target's hit points. A save or check is rolled against the DC you give. " +
-				"Roll a declared attack as soon as it is declared: the weapon is the one the player named, or the only row " +
-				"on the sheet.",
+			Description: "Resolve this round. Pass an `actions` list holding every action of the round - the player's and " +
+				"the answer of each foe still standing - and the engine rolls them in initiative order, applies damage and " +
+				"reports who is up. A single action is also accepted when only one creature acts, but a foe with hit points " +
+				"left always takes its turn, and its attack belongs to this round, not the next one.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
+					"actions": map[string]interface{}{
+						"type":        "array",
+						"description": "Every action of this round. Preferred over the single-action fields below.",
+						"items":       actionSchema(),
+					},
 					"actor":    map[string]interface{}{"type": "string", "description": "displayName of the creature acting."},
 					"target":   map[string]interface{}{"type": "string", "description": "displayName of whoever it lands on; omit for a save or check."},
 					"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "save", "check"}},
@@ -102,7 +107,6 @@ func (t *combatTools) defs() []llm.Tool {
 					"damage":   map[string]interface{}{"type": "string", "description": "Damage dice such as 1d8+3; attacks only."},
 					"dc":       map[string]interface{}{"type": "integer", "description": "The number a save or check resolves against."},
 				},
-				"required": []interface{}{"actor", "kind"},
 			},
 		},
 		{
@@ -162,24 +166,28 @@ func (t *combatTools) openEncounter(call llm.ToolCall) llm.ToolResult {
 	return llm.ToolResult{CallID: call.ID, Content: body.String()}
 }
 
+// roll resolves one action, or a whole round when it is given the round's actions.
+//
+// A round is every participant's turn: the player's action and the answer of each foe still standing. Resolving them in
+// one call is what keeps a counterattack in the turn it belongs to - a model that rolls the player's swing and stops has
+// answered the table with half a round, and the reply is checked for that.
 func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
-	action := declaredAction{
-		Actor:    t.resolveName(str(call.Arguments["actor"])),
-		Target:   t.resolveName(str(call.Arguments["target"])),
-		Kind:     strings.TrimSpace(str(call.Arguments["kind"])),
-		Damage:   strings.TrimSpace(str(call.Arguments["damage"])),
-		Modifier: intFromValue(call.Arguments["modifier"]),
-		DC:       intFromValue(call.Arguments["dc"]),
-		AC:       intFromValue(call.Arguments["ac"]),
+	actions := t.actionsFromCall(call)
+	if len(actions) == 0 {
+		return llm.ToolResult{CallID: call.ID, Content: "error: give an action (or an actions list) with an actor and a kind"}
 	}
-	if action.Actor == "" {
-		return llm.ToolResult{CallID: call.ID, Content: "error: actor is required"}
-	}
-	outcome := resolveCombatTurn([]declaredAction{action}, t.state, t.rng)
+	ordered := t.orderByInitiative(actions)
+	outcome := resolveCombatTurn(ordered, t.state, t.rng)
 	t.state = outcome.State
 	t.used = true
-	if len(outcome.Lines) > 0 {
-		t.markActed(action.Actor)
+	for _, line := range outcome.Lines {
+		// A line begins with the actor's name, which is who just took a turn.
+		for _, action := range ordered {
+			if strings.HasPrefix(line, action.Actor) {
+				t.markActed(action.Actor)
+				break
+			}
+		}
 	}
 	body := strings.Builder{}
 	for _, line := range outcome.Lines {
@@ -190,6 +198,69 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	}
 	body.WriteString(t.describe())
 	return llm.ToolResult{CallID: call.ID, Content: body.String()}
+}
+
+// actionsFromCall reads either the single-action arguments or an "actions" list.
+func (t *combatTools) actionsFromCall(call llm.ToolCall) []declaredAction {
+	if list := toIfaceSlice(call.Arguments["actions"]); len(list) > 0 {
+		out := make([]declaredAction, 0, len(list))
+		for _, item := range list {
+			m, ok := item.(map[string]interface{})
+			if !ok || m == nil {
+				continue
+			}
+			if action := t.actionFromMap(m); action.Actor != "" {
+				out = append(out, action)
+			}
+		}
+		return out
+	}
+	if action := t.actionFromMap(call.Arguments); action.Actor != "" {
+		return []declaredAction{action}
+	}
+	return nil
+}
+
+func (t *combatTools) actionFromMap(m map[string]interface{}) declaredAction {
+	return declaredAction{
+		Actor:    t.resolveName(str(m["actor"])),
+		Target:   t.resolveName(str(m["target"])),
+		Kind:     strings.TrimSpace(str(m["kind"])),
+		Damage:   strings.TrimSpace(str(m["damage"])),
+		Modifier: intFromValue(m["modifier"]),
+		DC:       intFromValue(m["dc"]),
+		AC:       intFromValue(m["ac"]),
+	}
+}
+
+// orderByInitiative resolves the round in the order the table is playing in, whatever order the actions arrived in.
+func (t *combatTools) orderByInitiative(actions []declaredAction) []declaredAction {
+	scores := map[string]int{}
+	for _, entry := range toIfaceSlice(t.state["initiative"]) {
+		m, _ := entry.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(fmt.Sprint(m["displayName"])))
+		score, _ := intField(m, "score")
+		scores[name] = score
+	}
+	if len(scores) == 0 {
+		return actions
+	}
+	out := append([]declaredAction(nil), actions...)
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0; j-- {
+			a := scores[strings.ToLower(strings.TrimSpace(out[j].Actor))]
+			b := scores[strings.ToLower(strings.TrimSpace(out[j-1].Actor))]
+			if a > b {
+				out[j], out[j-1] = out[j-1], out[j]
+				continue
+			}
+			break
+		}
+	}
+	return out
 }
 
 // describe is the standing of each combatant, which the narration must not contradict.
@@ -287,4 +358,54 @@ func (t *combatTools) usedAny() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.used
+}
+
+// needsMore reports whether the reply is stopping while a foe is still owed a turn. The fight being over - no foe left
+// standing - means nobody is owed anything: the player's own turn does not need chasing after that.
+func (t *combatTools) needsMore() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	combatants, ok := combatantsOf(t.state)
+	if !ok {
+		return false
+	}
+	pc := strings.ToLower(strings.TrimSpace(t.pc))
+	foeStanding := false
+	for _, c := range combatants {
+		name := strings.ToLower(strings.TrimSpace(fmt.Sprint(c[participantNameKey])))
+		if pc != "" && name == pc {
+			continue
+		}
+		if hp, has := intField(c, participantHPCurrentKey); has && hp > 0 {
+			foeStanding = true
+			break
+		}
+	}
+	if !foeStanding {
+		return false
+	}
+	return len(t.waitingToAct()) > 0
+}
+
+// owed is who still has to act, for the correction the server sends back.
+func (t *combatTools) owed() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.waitingToAct()
+}
+
+// actionSchema is one declared action, shared by the round list and the single-action fields.
+func actionSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"actor":    map[string]interface{}{"type": "string", "description": "displayName of the creature acting."},
+			"target":   map[string]interface{}{"type": "string", "description": "displayName of whoever it lands on; omit for a save or check."},
+			"kind":     map[string]interface{}{"type": "string", "enum": []interface{}{"attack", "save", "check"}},
+			"modifier": map[string]interface{}{"type": "integer", "description": "The whole number added to the d20."},
+			"damage":   map[string]interface{}{"type": "string", "description": "Damage dice such as 1d8+3; attacks only."},
+			"dc":       map[string]interface{}{"type": "integer", "description": "The number a save or check resolves against."},
+		},
+		"required": []interface{}{"actor", "kind"},
+	}
 }

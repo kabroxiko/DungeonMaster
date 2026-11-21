@@ -235,10 +235,17 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 
 	// The DM's own statement that a fight is starting is checked against the engine: a turn that declares combat and
 	// never asks for a die gives the table prose with no outcome, which is what "no me ataca de vuelta" looks like.
-	if combat != nil && env.ImminentCombat && !combat.usedAny() {
-		log.Printf("dm generate (gameId=%s): combat announced without asking the engine; asking once more", gameID)
+	if combat != nil && (env.ImminentCombat && !combat.usedAny() || combat.needsMore()) {
+		owed := combat.owed()
+		log.Printf("dm generate (gameId=%s): combat turn incomplete (engine used=%v, still to act=%v); asking once more",
+			gameID, combat.usedAny(), owed)
+		correction := dmCombatCorrection
+		if len(owed) > 0 {
+			correction += " Still owed a turn this round: " + strings.Join(owed, ", ") +
+				". Call roll again with an actions list that includes them; their attack belongs to this round."
+		}
 		corrected := append([]interface{}{}, msgs...)
-		corrected = append(corrected, map[string]interface{}{"role": "system", "content": dmCombatCorrection})
+		corrected = append(corrected, map[string]interface{}{"role": "system", "content": correction})
 		if secondRaw, secondEnv, secondErr := envelopeWithCorrection(ask, corrected); secondErr == nil && secondEnv != nil {
 			raw, env = secondRaw, secondEnv
 		} else if secondErr != nil {

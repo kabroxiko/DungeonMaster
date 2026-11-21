@@ -366,3 +366,65 @@ func TestDownedFoesAreNotOwedATurn(t *testing.T) {
 		}
 	}
 }
+
+// A round is resolved in one call, in initiative order, so a foe's answer lands in the turn it belongs to.
+func TestRoundResolvesEveryParticipantInOrder(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 14, "max_hp": 10}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(12)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 30, "ac": 13, "attack_bonus": 4, "damage": "1d8+2"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Guardia", "modifier": 9}, // the guard acts first
+			map[string]interface{}{"actor": "Thulim", "modifier": 1},
+		},
+	}})
+
+	round := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			// Deliberately listed player-first: the engine puts them in initiative order.
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2"},
+		},
+	}})
+	lines := strings.Split(strings.TrimSpace(round.Content), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected both actions resolved, got %q", round.Content)
+	}
+	if !strings.HasPrefix(lines[0], "Guardia attacks Thulim") {
+		t.Fatalf("the round should run in initiative order, first line was %q", lines[0])
+	}
+	if !strings.Contains(round.Content, "Thulim attacks Guardia") {
+		t.Fatalf("the player's action should be resolved too: %q", round.Content)
+	}
+	if strings.Contains(round.Content, "still to act in this reply:") {
+		t.Fatalf("a complete round owes nobody a turn: %q", round.Content)
+	}
+	if tools.needsMore() {
+		t.Fatal("nothing is outstanding after a complete round")
+	}
+}
+
+// Rolling only the player's action leaves the foe owed, and the server can see it.
+func TestHalfARoundIsVisible(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 14, "max_hp": 10}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(13)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 30, "ac": 13, "attack_bonus": 4, "damage": "1d8+2"},
+		},
+	}})
+	tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3",
+	}})
+	if !tools.needsMore() {
+		t.Fatal("the guard still owes a turn")
+	}
+	owed := tools.owed()
+	if len(owed) != 1 || !strings.Contains(owed[0], "Guardia") {
+		t.Fatalf("the guard should be named as owed, got %v", owed)
+	}
+}
