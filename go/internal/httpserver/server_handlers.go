@@ -199,7 +199,7 @@ func (s *Server) handleAppendPlayer(w http.ResponseWriter, r *http.Request, uid 
 	// In development the table can step an action back, so the state before it is kept. The snapshot is taken here
 	// because the action starts here: undo has to remove the player's line and the reply it drew.
 	if gamesession.UndoEnabled(s.Cfg) {
-		gamesession.SnapshotBeforeAction(ctx, s.coll(), store.GameStateSnapshots(s.DB), gid)
+		gamesession.RecordActionStart(ctx, s.coll(), store.GameStateTurns(s.DB), gid, uid)
 	}
 	res, err := gamesession.AppendPlayerUserMessageWithPartyRound(ctx, s.coll(), s.Hub, s.Cfg, s.GS, gid, body, uid)
 	if err != nil {

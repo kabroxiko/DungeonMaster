@@ -62,3 +62,45 @@ func TestUndoRequiresAGame(t *testing.T) {
 		t.Fatalf("expected a missing-game error, got %d %v", status, res)
 	}
 }
+
+// Undo keeps the head of the transcript and drops the tail the action added: it deletes, it does not restore a copy.
+func TestTruncateKeepsTheHead(t *testing.T) {
+	messages := []interface{}{
+		map[string]interface{}{"role": "user", "content": "entro"},
+		map[string]interface{}{"role": "assistant", "content": "la puerta cruje"},
+		map[string]interface{}{"role": "user", "content": "apuesto"},
+		map[string]interface{}{"role": "assistant", "content": "el tahúr sonríe"},
+	}
+	kept := truncateMessages(messages, 2)
+	if len(kept) != 2 {
+		t.Fatalf("expected the first two, got %d", len(kept))
+	}
+	if str(kept[1].(map[string]interface{})["content"]) != "la puerta cruje" {
+		t.Fatalf("the wrong head was kept: %v", kept)
+	}
+	// A mark from a transcript that has since shrunk must not panic or invent messages.
+	if got := truncateMessages(messages, 9); len(got) != 4 {
+		t.Fatalf("a mark past the end should keep everything, got %d", len(got))
+	}
+	if got := truncateMessages(messages, -3); len(got) != 0 {
+		t.Fatalf("a negative mark should keep nothing, got %d", len(got))
+	}
+}
+
+// The counters follow the transcript that is left, not the one that was deleted.
+func TestCountersFollowTheDeletedTranscript(t *testing.T) {
+	messages := []interface{}{
+		map[string]interface{}{"role": "user", "content": "entro a la taberna"},
+		map[string]interface{}{"role": "assistant", "content": "La puerta cruje."},
+	}
+	pairs, tokens := countTranscript(messages)
+	if pairs != 1 {
+		t.Fatalf("one reply means one pair, got %d", pairs)
+	}
+	if tokens != (len("entro a la taberna")+len("La puerta cruje."))/4 {
+		t.Fatalf("unexpected token estimate %d", tokens)
+	}
+	if pairs, tokens := countTranscript(nil); pairs != 0 || tokens != 0 {
+		t.Fatalf("an empty transcript counts nothing, got %d/%d", pairs, tokens)
+	}
+}

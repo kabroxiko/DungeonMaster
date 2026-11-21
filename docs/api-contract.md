@@ -79,7 +79,7 @@ password — never appear in a log line.
 | POST | `/create-invite` | Bearer |
 | POST | `/import-world` | Bearer |
 | POST | `/measure-travel` | Bearer |
-| POST | `/undo` | Bearer, **development only** | Steps the game back to the state before the last player action (`{ gameId }` → `{ ok, undone, messageCount, stepsRemaining }`); 403 `UNDO_DISABLED` elsewhere |
+| POST | `/undo` | Bearer, **development only** | Deletes what the last player action added — its messages, its encounter state and its map pin (`{ gameId }` → `{ ok, deletedMessages, messageCount, stepsRemaining }`); 403 `UNDO_DISABLED` elsewhere |
 
 ### Campaign generation and the map
 

@@ -52,12 +52,12 @@ func GameStates(coll *mongo.Database) *mongo.Collection {
 	return coll.Collection("gamestates")
 }
 
-// GameStateSnapshots holds the game document as it was before a player action, so a table running in development can
-// step back one action: the dice engine and the DM can produce a turn nobody wants, and re-typing the scene to get back
-// to it is not a workflow. It is a separate collection because the transcript is loaded on every turn and a stack of
-// copies inside the document would be read every time.
-func GameStateSnapshots(coll *mongo.Database) *mongo.Collection {
-	return coll.Collection("gamestatesnapshots")
+// GameStateTurns holds one mark per player action: where in the transcript the action began, and the two values the
+// turn overwrites. Undo deletes the mark and the messages it guards, so a development table can step back an action
+// without a copy of the whole game lying around. It lives apart from the game document because the transcript is read
+// on every turn and a growing array inside it would be read every time.
+func GameStateTurns(coll *mongo.Database) *mongo.Collection {
+	return coll.Collection("gamestateturns")
 }
 
 func Users(coll *mongo.Database) *mongo.Collection {

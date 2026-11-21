@@ -16,8 +16,7 @@ import (
 	"github.com/deckofdmthings/gmai/internal/store"
 )
 
-// undoStackLimit bounds how many actions a development table can step back. Each entry is a full copy of the game, so
-// the stack is short on purpose: this is for "that turn was wrong", not for a timeline.
+// undoStackLimit bounds how many actions a development table can step back.
 const undoStackLimit = 20
 
 // UndoEnabled reports whether this process lets the table take an action back.
@@ -43,33 +42,49 @@ func UndoEnabled(cfg *config.Config) bool {
 	return false
 }
 
-// SnapshotBeforeAction stores the game as it stands before a player action changes it.
+// RecordActionStart writes the mark that says where the action about to be taken begins.
 //
-// The snapshot is taken at the action, not at the reply: undo has to remove the player's line and the DM's answer
-// together, because the pair is what a turn is.
-func SnapshotBeforeAction(ctx context.Context, coll, snapshots *mongo.Collection, gameID string) {
-	if coll == nil || snapshots == nil || strings.TrimSpace(gameID) == "" {
+// It holds two lengths and the two values the turn overwrites; it is not a copy of the game. Undo is then a deletion:
+// the player's line, the DM's answer and the state they moved are removed, and what stays is what was there before.
+func RecordActionStart(ctx context.Context, coll, turns *mongo.Collection, gameID, userID string) {
+	if coll == nil || turns == nil || strings.TrimSpace(gameID) == "" {
 		return
+	}
+	projection := bson.M{
+		"conversation":                  1,
+		"summaryConversation":           1,
+		"encounterState":                1,
+		"campaignSpec.partyMapPosition": 1,
 	}
 	var doc map[string]interface{}
-	if err := coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc); err != nil || doc == nil {
+	if err := coll.FindOne(ctx, bson.M{"gameId": gameID}, options.FindOne().SetProjection(projection)).Decode(&doc); err != nil {
 		return
 	}
-	if _, err := snapshots.InsertOne(ctx, bson.M{
-		"gameId":  gameID,
-		"takenAt": time.Now().UTC().Format(time.RFC3339Nano),
-		"doc":     doc,
-	}); err != nil {
-		log.Printf("undo: could not snapshot gameId=%s: %v", gameID, err)
+	spec, _ := doc["campaignSpec"].(map[string]interface{})
+	var position interface{}
+	if spec != nil {
+		position = spec["partyMapPosition"]
+	}
+	mark := bson.M{
+		"gameId":         gameID,
+		"at":             time.Now().UTC().Format(time.RFC3339Nano),
+		"user":           userID,
+		"messages":       len(toIfaceSlice(doc["conversation"])),
+		"summary":        len(toIfaceSlice(doc["summaryConversation"])),
+		"encounterState": doc["encounterState"],
+		"partyPosition":  position,
+	}
+	if _, err := turns.InsertOne(ctx, mark); err != nil {
+		log.Printf("undo: could not record the start of an action gameId=%s: %v", gameID, err)
 		return
 	}
-	trimUndoStack(ctx, snapshots, gameID)
+	trimTurnMarks(ctx, turns, gameID)
 }
 
-// trimUndoStack drops the oldest snapshots past the limit, so a long session does not accumulate a document per turn.
-func trimUndoStack(ctx context.Context, snapshots *mongo.Collection, gameID string) {
+// trimTurnMarks drops the oldest marks past the limit, so a long session does not accumulate one per turn.
+func trimTurnMarks(ctx context.Context, turns *mongo.Collection, gameID string) {
 	opts := options.Find().SetSort(bson.M{"_id": -1}).SetSkip(undoStackLimit).SetProjection(bson.M{"_id": 1})
-	cursor, err := snapshots.Find(ctx, bson.M{"gameId": gameID}, opts)
+	cursor, err := turns.Find(ctx, bson.M{"gameId": gameID}, opts)
 	if err != nil {
 		return
 	}
@@ -83,16 +98,39 @@ func trimUndoStack(ctx context.Context, snapshots *mongo.Collection, gameID stri
 			ids = append(ids, item.ID)
 		}
 	}
-	if len(ids) == 0 {
-		return
+	if len(ids) > 0 {
+		_, _ = turns.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": ids}})
 	}
-	_, _ = snapshots.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": ids}})
 }
 
-// HandleUndo puts the game back to the snapshot taken before the last player action.
-//
-// It answers with the restored document so the caller can re-render without a second request, and it is refused outside
-// development: see UndoEnabled.
+// truncateMessages keeps the first n of a stored list, which is how a turn is deleted from the transcript.
+func truncateMessages(messages []interface{}, n int) []interface{} {
+	if n < 0 {
+		n = 0
+	}
+	if n > len(messages) {
+		n = len(messages)
+	}
+	return messages[:n]
+}
+
+// countTranscript recomputes the counters from the truncated transcript: a counter that still counts a deleted message
+// is the same class of lie as an encounter state that still holds its damage.
+func countTranscript(messages []interface{}) (pairs int, tokens int) {
+	for _, raw := range messages {
+		m, _ := raw.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		tokens += len(str(m["content"])) / 4
+		if str(m["role"]) == "assistant" {
+			pairs++
+		}
+	}
+	return pairs, tokens
+}
+
+// HandleUndo deletes what the last action added: its messages, its encounter state and its map pin.
 func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string, body map[string]interface{}) (int, map[string]interface{}) {
 	if !UndoEnabled(cfg) {
 		return http.StatusForbidden, map[string]interface{}{
@@ -104,8 +142,11 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 	if gameID == "" {
 		return http.StatusBadRequest, map[string]interface{}{"error": "gameId is required", "code": "GAME_ID_REQUIRED"}
 	}
+	if d == nil || d.Coll == nil {
+		return http.StatusInternalServerError, map[string]interface{}{"error": "No database", "code": "UNDO_FAILED"}
+	}
 	coll := store.GameStates(d.Coll.Database())
-	snapshots := store.GameStateSnapshots(d.Coll.Database())
+	turns := store.GameStateTurns(d.Coll.Database())
 	if _, err := gameaccess.AssertGameMember(ctx, coll, userID, gameID); err != nil {
 		if err == gameaccess.ErrGameNotFound {
 			return http.StatusNotFound, map[string]interface{}{"error": "Game not found", "code": "GAME_NOT_FOUND"}
@@ -113,53 +154,78 @@ func HandleUndo(ctx context.Context, d *Deps, cfg *config.Config, userID string,
 		return http.StatusBadRequest, map[string]interface{}{"error": err.Error()}
 	}
 
-	var snapshot struct {
-		ID      interface{}            `bson:"_id"`
-		Doc     map[string]interface{} `bson:"doc"`
-		TakenAt string                 `bson:"takenAt"`
+	var mark struct {
+		ID             interface{} `bson:"_id"`
+		Messages       int         `bson:"messages"`
+		Summary        int         `bson:"summary"`
+		EncounterState interface{} `bson:"encounterState"`
+		PartyPosition  interface{} `bson:"partyPosition"`
+		At             string      `bson:"at"`
 	}
 	findOpts := options.FindOne().SetSort(bson.M{"_id": -1})
-	if err := snapshots.FindOne(ctx, bson.M{"gameId": gameID}, findOpts).Decode(&snapshot); err != nil {
+	if err := turns.FindOne(ctx, bson.M{"gameId": gameID}, findOpts).Decode(&mark); err != nil {
 		if err == mongo.ErrNoDocuments {
 			return http.StatusNotFound, map[string]interface{}{
 				"error": "There is no earlier state to go back to.",
 				"code":  "UNDO_NOTHING",
 			}
 		}
-		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not read the previous state.", "code": "UNDO_FAILED"}
-	}
-	if snapshot.Doc == nil {
-		return http.StatusInternalServerError, map[string]interface{}{"error": "The previous state is empty.", "code": "UNDO_FAILED"}
+		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not read the last action.", "code": "UNDO_FAILED"}
 	}
 
-	// The replacement document cannot carry a different _id; deleting it lets Mongo keep the one the game already has.
-	restored := make(map[string]interface{}, len(snapshot.Doc))
-	for k, v := range snapshot.Doc {
-		if k == "_id" {
-			continue
-		}
-		restored[k] = v
+	var doc map[string]interface{}
+	if err := coll.FindOne(ctx, bson.M{"gameId": gameID}).Decode(&doc); err != nil {
+		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not read the game.", "code": "UNDO_FAILED"}
 	}
-	if _, err := coll.ReplaceOne(ctx, bson.M{"gameId": gameID}, restored); err != nil {
-		log.Printf("undo: could not restore gameId=%s: %v", gameID, err)
-		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not restore the previous state.", "code": "UNDO_FAILED"}
+	before := len(toIfaceSlice(doc["conversation"]))
+	messages := truncateMessages(toIfaceSlice(doc["conversation"]), mark.Messages)
+	summary := truncateMessages(toIfaceSlice(doc["summaryConversation"]), mark.Summary)
+	pairs, tokens := countTranscript(messages)
+
+	update := bson.M{
+		"$set": bson.M{
+			"conversation":                 messages,
+			"summaryConversation":          summary,
+			"userAndAssistantMessageCount": pairs,
+			"totalTokenCount":              tokens,
+		},
+		"$unset": bson.M{
+			"llmCallError":       "",
+			"llmCallStartedAt":   "",
+			"llmCallCompletedAt": "",
+			"llmCallEnteredAt":   "",
+			"rawModelOutput":     "",
+		},
 	}
-	if _, err := snapshots.DeleteOne(ctx, bson.M{"_id": snapshot.ID}); err != nil {
-		log.Printf("undo: restored gameId=%s but could not drop the snapshot: %v", gameID, err)
+	if mark.EncounterState != nil {
+		update["$set"].(bson.M)["encounterState"] = mark.EncounterState
+	} else {
+		update["$unset"].(bson.M)["encounterState"] = ""
+	}
+	if mark.PartyPosition != nil {
+		update["$set"].(bson.M)["campaignSpec.partyMapPosition"] = mark.PartyPosition
+	} else {
+		update["$unset"].(bson.M)["campaignSpec.partyMapPosition"] = ""
+	}
+	if _, err := coll.UpdateOne(ctx, bson.M{"gameId": gameID}, update); err != nil {
+		log.Printf("undo: could not delete the turn gameId=%s: %v", gameID, err)
+		return http.StatusInternalServerError, map[string]interface{}{"error": "Could not delete the turn.", "code": "UNDO_FAILED"}
+	}
+	if _, err := turns.DeleteOne(ctx, bson.M{"_id": mark.ID}); err != nil {
+		log.Printf("undo: deleted the turn of gameId=%s but could not drop its mark: %v", gameID, err)
 	}
 
-	conversation := toIfaceSlice(restored["conversation"])
-	remaining, _ := snapshots.CountDocuments(ctx, bson.M{"gameId": gameID})
-	log.Printf("undo: gameId=%s restored to %s; %d message(s) left, %d more step(s) available",
-		gameID, snapshot.TakenAt, len(conversation), remaining)
+	remaining, _ := turns.CountDocuments(ctx, bson.M{"gameId": gameID})
+	log.Printf("undo: gameId=%s deleted %d message(s) back to %s; %d more step(s) available",
+		gameID, before-len(messages), mark.At, remaining)
 	if d.Hub != nil {
 		d.Hub.NotifyGameStateUpdated(gameID)
 	}
 	return http.StatusOK, map[string]interface{}{
-		"ok":             true,
-		"gameId":         gameID,
-		"undone":         snapshot.TakenAt,
-		"messageCount":   len(conversation),
-		"stepsRemaining": remaining,
+		"ok":              true,
+		"gameId":          gameID,
+		"deletedMessages": before - len(messages),
+		"messageCount":    len(messages),
+		"stepsRemaining":  remaining,
 	}
 }
