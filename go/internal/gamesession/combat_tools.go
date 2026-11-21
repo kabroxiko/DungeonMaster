@@ -23,13 +23,16 @@ type combatTools struct {
 	rng   *rand.Rand
 	// used records that a tool changed something, so the caller knows the encounter state is worth storing.
 	used bool
+	// acted is who has already taken a turn in this reply. A round in which only the player swung is not a round, and
+	// the model cannot be trusted to remember the order it was given: the answer says who is still owed a turn.
+	acted map[string]struct{}
 }
 
 func newCombatTools(state map[string]interface{}, sheet map[string]interface{}, pcName string, rng *rand.Rand) *combatTools {
 	if state == nil {
 		state = map[string]interface{}{}
 	}
-	return &combatTools{state: state, sheet: sheet, pc: pcName, rng: rng}
+	return &combatTools{state: state, sheet: sheet, pc: pcName, rng: rng, acted: map[string]struct{}{}}
 }
 
 func (t *combatTools) changed() (map[string]interface{}, bool) {
@@ -172,6 +175,9 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	outcome := resolveCombatTurn([]declaredAction{action}, t.state, t.rng)
 	t.state = outcome.State
 	t.used = true
+	if len(outcome.Lines) > 0 {
+		t.markActed(action.Actor)
+	}
 	body := strings.Builder{}
 	for _, line := range outcome.Lines {
 		body.WriteString(line + "\n")
@@ -201,7 +207,42 @@ func (t *combatTools) describe() string {
 		}
 		fmt.Fprintf(&b, "- %v: hp %d/%d, ac %d, %s\n", c[participantNameKey], hp, maxHP, ac, state)
 	}
+	if waiting := t.waitingToAct(); len(waiting) > 0 {
+		b.WriteString("still to act in this reply: " + strings.Join(waiting, ", ") + "\n")
+	}
 	return b.String()
+}
+
+// markActed records a turn taken. A participant who could not be found has no turn to record.
+func (t *combatTools) markActed(name string) {
+	name = t.resolveName(name)
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	t.acted[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+}
+
+// waitingToAct lists the participants who are standing and have not taken their turn in this reply: the ones the DM
+// still owes the table before it answers.
+func (t *combatTools) waitingToAct() []string {
+	combatants, ok := combatantsOf(t.state)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(combatants))
+	for _, c := range combatants {
+		name := fmt.Sprint(c[participantNameKey])
+		hp, _ := intField(c, participantHPCurrentKey)
+		if hp <= 0 {
+			continue
+		}
+		if _, done := t.acted[strings.ToLower(strings.TrimSpace(name))]; done {
+			continue
+		}
+		maxHP, _ := intField(c, participantHPMaxKey)
+		out = append(out, fmt.Sprintf("%s (hp %d/%d)", name, hp, maxHP))
+	}
+	return out
 }
 
 // snapshot is the encounter state as JSON, for the debug log.

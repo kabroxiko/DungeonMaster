@@ -304,3 +304,65 @@ func TestCombatToolsRefuseUnknownNames(t *testing.T) {
 		t.Fatalf("an unknown target should be reported, got %q", result.Content)
 	}
 }
+
+// A round in which only the player swings is not a round. The tools say who is still owed a turn, so the DM cannot
+// answer as if the enemies had politely waited.
+func TestToolsSayWhoIsStillOwedATurn(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Bram", "ac": 14, "max_hp": 10}
+	tools := newCombatTools(nil, sheet, "Bram", rand.New(rand.NewSource(8)))
+
+	opened := tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Bram"},
+			map[string]interface{}{"displayName": "Goblin", "hp_max": 30, "ac": 13, "attack_bonus": 4, "damage": "1d6+2"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Bram", "modifier": 3},
+			map[string]interface{}{"actor": "Goblin", "modifier": 2},
+		},
+	}})
+	if !strings.Contains(opened.Content, "still to act in this reply:") {
+		t.Fatalf("opening a fight should say who has not acted: %q", opened.Content)
+	}
+	if !strings.Contains(opened.Content, "Goblin") || !strings.Contains(opened.Content, "Bram") {
+		t.Fatalf("both sides are owed a turn after the opening: %q", opened.Content)
+	}
+
+	afterPlayer := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "player", "target": "Goblin", "kind": "attack", "modifier": 5.0, "damage": "1d4+3",
+	}})
+	if !strings.Contains(afterPlayer.Content, "still to act in this reply: Goblin") {
+		t.Fatalf("after the player's turn the foe is still owed one: %q", afterPlayer.Content)
+	}
+	if strings.Contains(afterPlayer.Content, "still to act in this reply: Bram") {
+		t.Fatalf("the player already acted: %q", afterPlayer.Content)
+	}
+
+	afterFoe := tools.run(llm.ToolCall{ID: "3", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Goblin", "target": "Bram", "kind": "attack", "modifier": 4.0, "damage": "1d6+2",
+	}})
+	if strings.Contains(afterFoe.Content, "still to act in this reply:") {
+		t.Fatalf("both sides acted, the round is complete: %q", afterFoe.Content)
+	}
+}
+
+// A fallen foe is not owed a turn: the list is about who can still act.
+func TestDownedFoesAreNotOwedATurn(t *testing.T) {
+	tools := newCombatTools(nil, nil, "Bram", rand.New(rand.NewSource(6)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Bram", "hp_max": 10, "ac": 12},
+			map[string]interface{}{"displayName": "Rata", "hp_max": 1, "ac": 5},
+		},
+	}})
+	// A one-hit-point rat against a +50 attack: it is down after this, and owes nothing.
+	tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Bram", "target": "Rata", "kind": "attack", "modifier": 50.0, "damage": "1d4+3",
+	}})
+	remaining := tools.waitingToAct()
+	for _, who := range remaining {
+		if strings.Contains(who, "Rata") {
+			t.Fatalf("a foe at 0 hit points should not be waiting to act: %v", remaining)
+		}
+	}
+}
