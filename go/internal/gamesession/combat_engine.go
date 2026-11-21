@@ -122,6 +122,13 @@ func resolveCombatTurn(actions []declaredAction, state map[string]interface{}, r
 			out.Unknown = append(out.Unknown, fmt.Sprintf("%q is not in the encounter", action.Actor))
 			continue
 		}
+		if hp, has := intField(actor, participantHPCurrentKey); has && hp <= 0 {
+			// A creature at 0 hit points is unconscious and gets no turn. The blow that dropped it earlier in this same
+			// round already took it out of the fight; letting its declared attack land afterwards reads as the engine
+			// playing a round the table never saw.
+			out.Lines = append(out.Lines, fmt.Sprintf("%v is at 0 hit points and does not act", actor[participantNameKey]))
+			continue
+		}
 		kind := strings.ToLower(strings.TrimSpace(action.Kind))
 		switch kind {
 		case "attack":

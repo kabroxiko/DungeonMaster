@@ -26,6 +26,9 @@ type combatTools struct {
 	// acted is who has already taken a turn in this reply. A round in which only the player swung is not a round, and
 	// the model cannot be trusted to remember the order it was given: the answer says who is still owed a turn.
 	acted map[string]struct{}
+	// roundSpent says this reply has already played its round. The table answers between rounds, and that answer is
+	// how a player changes strategy: a reply that rolls again is playing a second round nobody agreed to.
+	roundSpent bool
 }
 
 func newCombatTools(state map[string]interface{}, sheet map[string]interface{}, pcName string, rng *rand.Rand) *combatTools {
@@ -120,24 +123,16 @@ func (t *combatTools) openEncounter(call llm.ToolCall) llm.ToolResult {
 		t.state = mergeDeclaredCombatants(t.state, declared, t.sheet, t.pc)
 		t.used = true
 	}
-	var order []string
-	if lines, scored := resolveInitiative(initiative, t.state, t.rng); scored != nil {
-		t.state = scored
+	var scored []string
+	if lines, updated := resolveInitiative(initiative, t.state, t.rng); updated != nil {
+		t.state = updated
 		t.used = true
-		order = append(order, lines...)
-	}
-	if existing := toIfaceSlice(t.state["initiative"]); len(order) == 0 && len(existing) > 0 {
-		for _, entry := range existing {
-			m, _ := entry.(map[string]interface{})
-			if m != nil {
-				order = append(order, fmt.Sprintf("%v %v", m["displayName"], m["score"]))
-			}
-		}
+		scored = lines
 	}
 	body := strings.Builder{}
 	body.WriteString("encounter open.\n")
-	if len(order) > 0 {
-		body.WriteString("turn order: " + strings.Join(order, " -> ") + "\n")
+	for _, line := range scored {
+		body.WriteString(line + "\n")
 	}
 	body.WriteString(t.describe())
 	return llm.ToolResult{CallID: call.ID, Content: body.String()}
@@ -149,6 +144,9 @@ func (t *combatTools) openEncounter(call llm.ToolCall) llm.ToolResult {
 // one call is what keeps a counterattack in the turn it belongs to - a model that rolls the player's swing and stops has
 // answered the table with half a round, and the reply is checked for that.
 func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
+	if t.roundSpent {
+		return llm.ToolResult{CallID: call.ID, Content: "error: this reply has already played its round; the table answers before the next one begins. Narrate what happened and stop\n" + t.describe()}
+	}
 	actions := t.actionsFromCall(call)
 	if len(actions) == 0 {
 		return llm.ToolResult{CallID: call.ID, Content: "error: give an action (or an actions list) with an actor and a kind"}
@@ -178,6 +176,9 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 				break
 			}
 		}
+	}
+	if combatants, ok := combatantsOf(t.state); ok && len(combatants) > 0 && len(t.waitingToAct()) == 0 {
+		t.roundSpent = true
 	}
 	body := strings.Builder{}
 	for _, line := range outcome.Lines {
@@ -212,10 +213,17 @@ func (t *combatTools) actionsFromCall(call llm.ToolCall) []declaredAction {
 }
 
 func (t *combatTools) actionFromMap(m map[string]interface{}) declaredAction {
+	kind := strings.TrimSpace(str(m["kind"]))
+	target := t.resolveName(str(m["target"]))
+	if kind == "" && target != "" {
+		// An action aimed at someone is an attack. Answering "unknown action kind" cost the table a whole round trip
+		// because the argument was left out, not because the model meant something exotic.
+		kind = "attack"
+	}
 	return declaredAction{
 		Actor:    t.resolveName(str(m["actor"])),
-		Target:   t.resolveName(str(m["target"])),
-		Kind:     strings.TrimSpace(str(m["kind"])),
+		Target:   target,
+		Kind:     kind,
 		Damage:   strings.TrimSpace(str(m["damage"])),
 		Modifier: intFromValue(m["modifier"]),
 		DC:       intFromValue(m["dc"]),

@@ -611,3 +611,91 @@ func TestToolResultsShowTheTurnOrder(t *testing.T) {
 		t.Fatalf("the guard won initiative and should be first, got %q", first)
 	}
 }
+
+// A blow that drops a foe takes that foe out of the round it fell in. A dead creature swinging back is the engine
+// playing a turn the table never saw.
+func TestAFoeDroppedInTheRoundTakesNoTurnInIt(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 14, "max_hp": 11}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(21)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			// One hit point, and the player acts first with a bonus a d20 cannot miss on: the guard is down before its
+			// own declared attack comes up in the order.
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 1, "ac": 5, "attack_bonus": 40, "damage": "1d6+2"},
+		},
+		"initiative": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "modifier": 20},
+			map[string]interface{}{"actor": "Guardia", "modifier": 1},
+		},
+	}})
+
+	round := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 50.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 40.0, "damage": "1d6+2"},
+		},
+	}})
+	if !strings.Contains(round.Content, "Guardia is at 0 hit points and does not act") {
+		t.Fatalf("the dropped guard should be reported as not acting: %q", round.Content)
+	}
+	if strings.Contains(round.Content, "Guardia attacks Thulim") {
+		t.Fatalf("a guard at 0 hit points should not attack: %q", round.Content)
+	}
+	combatants, _ := combatantsOf(tools.state)
+	if _, player := findCombatant(combatants, "Thulim"); player != nil {
+		if hp, _ := intField(player, participantHPCurrentKey); hp != 11 {
+			t.Fatalf("the player should be untouched, hp was %d", hp)
+		}
+	}
+}
+
+// The table answers between rounds, so a reply gets exactly one. A second roll in the same reply would play a round
+// nobody agreed to, and the player could not change strategy inside it.
+func TestASecondRoundInTheSameReplyIsRefused(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 14, "max_hp": 30}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(22)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 60, "ac": 13, "attack_bonus": 4, "damage": "1d8+2"},
+		},
+	}})
+	tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2"},
+		},
+	}})
+	again := tools.run(llm.ToolCall{ID: "3", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2"},
+		},
+	}})
+	if !strings.Contains(again.Content, "already played its round") {
+		t.Fatalf("a second round in one reply should be refused: %q", again.Content)
+	}
+}
+
+// An action aimed at someone is an attack; the tool does not spend a round trip on a missing field the argument's own
+// shape already settles.
+func TestAnActionWithoutAKindIsAnAttack(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 14, "max_hp": 10}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(23)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 30, "ac": 13, "damage": "1d8+2"},
+		},
+	}})
+	result := tools.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Thulim", "target": "Guardia", "modifier": 5.0, "damage": "1d4+3",
+	}})
+	if strings.Contains(result.Content, "unknown action kind") {
+		t.Fatalf("a missing kind with a target is an attack: %q", result.Content)
+	}
+	if !strings.Contains(result.Content, "Thulim attacks Guardia") {
+		t.Fatalf("the attack should be resolved: %q", result.Content)
+	}
+}
