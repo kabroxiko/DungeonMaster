@@ -170,7 +170,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		state, _ := gs["encounterState"].(map[string]interface{})
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
-		declared, declareErr := interpretTurn(ctx, cfg, gs, sheet, inboundForModel, gameID)
+		declared, declareErr := interpretTurn(ctx, cfg, gs, sheet, inboundForModel, gameID, pcName)
 		if declareErr != nil {
 			log.Printf("dm generate (gameId=%s): the declaration could not be read, narrating without engine results: %v", gameID, declareErr)
 		}

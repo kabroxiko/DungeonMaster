@@ -30,10 +30,95 @@ type declaration struct {
 }
 
 // interpretTurn reads the player's message as one declared action.
-func interpretTurn(ctx context.Context, cfg *config.Config, gs, sheet map[string]interface{}, inbound []interface{}, gameID string) (declaration, error) {
+func interpretTurn(ctx context.Context, cfg *config.Config, gs, sheet map[string]interface{}, inbound []interface{}, gameID, pcName string) (declaration, error) {
+	first, err := askDeclaration(ctx, cfg, gs, inbound, gameID, "")
+	if err != nil {
+		return first, err
+	}
+	// A creature declared without the numbers that make it fightable is a hole in the record: the engine would assume an
+	// armor class and the creature would have nothing to swing with. One targeted question fills it, and only when the
+	// hole exists.
+	if gaps := missingFoeStats(first.Participants, pcName); len(gaps) > 0 {
+		note := "The creatures of this fight are missing the numbers they fight with: " + strings.Join(gaps, "; ") +
+			". Answer again with the same actions, and a participants list in which every foe carries hp_max, ac, attack_bonus and damage. These are your decisions as referee: choose them from D&D 5e for what each creature is."
+		second, secondErr := askDeclaration(ctx, cfg, gs, inbound, gameID, note)
+		if secondErr == nil {
+			// The second answer only fills numbers. A creature it left out stays in the fight: a completion that empties
+			// the list is not a fix, it is the fight disappearing.
+			first.Participants = mergeParticipantStats(first.Participants, second.Participants)
+			if len(second.Initiative) > 0 && len(first.Initiative) == 0 {
+				first.Initiative = second.Initiative
+			}
+			if strings.TrimSpace(first.Ask) == "" && strings.TrimSpace(second.Ask) != "" {
+				first.Ask = second.Ask
+			}
+			return first, nil
+		}
+	}
+	return first, nil
+}
+
+// mergeParticipantStats fills the holes of the first declaration with the numbers of the second, name by name, and keeps
+// every creature the first one named.
+func mergeParticipantStats(first, second []declaredCombatant) []declaredCombatant {
+	byName := make(map[string]declaredCombatant, len(second))
+	for _, entry := range second {
+		byName[strings.ToLower(strings.TrimSpace(entry.Name))] = entry
+	}
+	out := make([]declaredCombatant, 0, len(first))
+	for _, entry := range first {
+		if fix, ok := byName[strings.ToLower(strings.TrimSpace(entry.Name))]; ok {
+			if entry.HPMax <= 0 {
+				entry.HPMax = fix.HPMax
+			}
+			if entry.AC <= 0 {
+				entry.AC = fix.AC
+			}
+			if entry.AttackBonus == 0 {
+				entry.AttackBonus = fix.AttackBonus
+			}
+			if strings.TrimSpace(entry.Damage) == "" {
+				entry.Damage = fix.Damage
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// missingFoeStats names the foes whose entry lacks what it takes to fight. The player's own character is not one of
+// them: its hit points and armor class come from the sheet.
+func missingFoeStats(participants []declaredCombatant, pcName string) []string {
+	gaps := make([]string, 0, len(participants))
+	for _, entry := range participants {
+		if strings.EqualFold(strings.TrimSpace(entry.Name), strings.TrimSpace(pcName)) {
+			continue
+		}
+		missing := make([]string, 0, 3)
+		if entry.HPMax <= 0 {
+			missing = append(missing, "hp_max")
+		}
+		if entry.AC <= 0 {
+			missing = append(missing, "ac")
+		}
+		if entry.AttackBonus == 0 && entry.Damage == "" {
+			missing = append(missing, "attack_bonus and damage")
+		}
+		if len(missing) > 0 {
+			gaps = append(gaps, entry.Name+" ("+strings.Join(missing, ", ")+")")
+		}
+	}
+	return gaps
+}
+
+// askDeclaration is one question to the interpreter, with an optional note added when the previous answer had a hole.
+func askDeclaration(ctx context.Context, cfg *config.Config, gs map[string]interface{}, inbound []interface{}, gameID, note string) (declaration, error) {
 	system := promptmgr.LoadPrompt("skills/combat_declare.md")
 	if system == "" {
 		return declaration{}, fmt.Errorf("the declaration prompt is missing")
+	}
+	if strings.TrimSpace(note) != "" {
+		system += "\n\n" + note
 	}
 	if record := encounterRecordBlock(gs); record != "" {
 		system += "\n\n" + record
@@ -64,7 +149,6 @@ func interpretTurn(ctx context.Context, cfg *config.Config, gs, sheet map[string
 	if len(actions) > 0 {
 		out.Action = actions[0]
 	}
-	_ = sheet
 	return out, nil
 }
 
@@ -172,10 +256,40 @@ func openFight(state map[string]interface{}, declared declaration, sheet map[str
 	if scored != nil {
 		state = scored
 	}
-	if _, ok := intField(state, turnIndexKey); !ok {
+	// A fight whose creatures arrived without an order gets one from the engine. The modifiers are the ones declared,
+	// and zero for anyone left out: a tie is a tie, and a fight with no order has no turn to play.
+	if len(orderOfState(state)) == 0 {
+		if auto, rolled := resolveInitiative(initiativeFor(state), state, rng); rolled != nil {
+			state = rolled
+			lines = append(lines, auto...)
+		}
+	}
+	if _, ok := intField(state, turnIndexKey); !ok && len(orderOfState(state)) > 0 {
 		state[turnIndexKey] = 0
 	}
 	return state, lines
+}
+
+// initiativeFor builds the order the record can roll on its own: whoever is in the fight, with the modifiers the fight
+// already knows and zero for the rest.
+func initiativeFor(state map[string]interface{}) []declaredInitiative {
+	combatants, ok := combatantsOf(state)
+	if !ok {
+		return nil
+	}
+	out := make([]declaredInitiative, 0, len(combatants))
+	for _, combatant := range combatants {
+		name := strings.TrimSpace(fmt.Sprint(combatant[participantNameKey]))
+		if name == "" {
+			continue
+		}
+		modifier := 0
+		if dex, has := intField(combatant, "initiative_modifier"); has {
+			modifier = dex
+		}
+		out = append(out, declaredInitiative{Actor: name, Modifier: modifier})
+	}
+	return out
 }
 
 // combatTurnsPerReply bounds one reply. A round is short; anything longer is a run of turns that should have stopped at
@@ -195,7 +309,7 @@ func humanActors(gs map[string]interface{}, requestingUserID, pcName string) []s
 // combatResultsBlock is what the narrator is given: the lines the engine resolved, the record they left, and who owes
 // the next declaration. The narration is written from this, not from a fight the model would have to imagine.
 func combatResultsBlock(lines []string, state map[string]interface{}, waitingOn string) string {
-	if len(lines) == 0 && len(state) == 0 {
+	if len(lines) == 0 {
 		return ""
 	}
 	b := strings.Builder{}

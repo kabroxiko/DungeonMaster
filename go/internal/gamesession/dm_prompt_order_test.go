@@ -137,7 +137,7 @@ func TestCombatTurnsDropTheCampaignWorld(t *testing.T) {
 		t.Fatal("a combat turn still carries the exploration guidance")
 	}
 	// What decides the round has to be there.
-	for _, must := range []string{"open_encounter", "dry and ominous", "Varek"} {
+	for _, must := range []string{"already resolved when your turn to write begins", "dry and ominous", "Varek"} {
 		if !strings.Contains(combatPrompt, must) {
 			t.Fatalf("a combat turn lost %q", must)
 		}
