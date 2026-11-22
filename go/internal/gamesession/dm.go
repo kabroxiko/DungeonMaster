@@ -252,16 +252,9 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// again, so the turn is asked once more with the record in front of it.
 	if engineState != nil && combat != nil {
 		if _, ok := env.EncounterState.(map[string]interface{}); !ok {
-			// The record is checked against the reply's own copy of it, and a reply that leaves it out cannot be
-			// checked at all: this is how a guard that fell in the prose stayed standing in the record.
-			log.Printf("dm generate (gameId=%s): the reply resolved a round without returning the record; asking once more", gameID)
-			corrected := append([]interface{}{}, msgs...)
-			corrected = append(corrected, map[string]interface{}{"role": "system", "content": dmRecordCorrection})
-			if secondRaw, secondEnv, secondErr := envelopeWithCorrection(ask, corrected); secondErr == nil && secondEnv != nil {
-				raw, env = secondRaw, secondEnv
-			} else if secondErr != nil {
-				log.Printf("dm generate (gameId=%s): the second attempt without the record failed: %v", gameID, secondErr)
-			}
+			// Not retried: a reply that leaves the record out cannot be checked, and the point of this line is to find
+			// out how often it happens and which of the three causes it is, before deciding what to do about it.
+			log.Printf("dm generate (gameId=%s): %s", gameID, describeMissingRecord(env, raw, combat, engineState))
 		}
 		if claimed, ok := env.EncounterState.(map[string]interface{}); ok {
 			conflict, bad := encounterClaimsConflict(claimed, engineState)
@@ -419,6 +412,24 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 	out.NewPlaces = ParseNewPlaces(obj["newPlaces"])
 	out.PartyPosition = ParsePartyPosition(obj["partyPosition"])
 	return out
+}
+
+// describeMissingRecord explains a reply that resolved a round without returning the record. The three causes call for
+// different fixes, and guessing between them is how the last one went unnoticed:
+//   - the model never wrote the field, because nothing in the reply forced it to,
+//   - it wrote the field and the JSON did not parse, so the turn was read from a broken object,
+//   - it wrote the field in another shape (a list, a string), which the envelope parser drops by design.
+func describeMissingRecord(env *dmEnvelope, raw string, combat *combatTools, engineState map[string]interface{}) string {
+	combatants, _ := combatantsOf(engineState)
+	cause := "the model omitted encounterState entirely"
+	switch {
+	case strings.Contains(raw, "encounterState") && strings.TrimSpace(env.Narration) == "":
+		cause = "the reply was not parsed as an envelope at all, though it mentions encounterState"
+	case strings.Contains(raw, "encounterState"):
+		cause = "encounterState was written but not as an object, so the parser dropped it"
+	}
+	return fmt.Sprintf("reply resolved a round and returned no usable record (%s); tools used=%v, participants=%d, narration=%d chars",
+		cause, combat != nil && combat.usedAny(), len(combatants), len(strings.TrimSpace(env.Narration)))
 }
 
 // asksTheTable reports whether the narration ends by asking the table for their next move. That question is the

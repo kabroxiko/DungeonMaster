@@ -72,10 +72,6 @@ func roundHandoverLine(language string, round int, actor string) string {
 	return fmt.Sprintf("**Round %d.** What does %s do?", round, actor)
 }
 
-// dmRecordCorrection is sent when a reply resolved a round and did not return the record. The state is what the server
-// checks the round against; without it the reply is unchecked, and the prose is free to bury a foe that stands.
-const dmRecordCorrection = `Your reply resolved a round but omitted encounterState. Answer the same turn again as exactly one JSON object: the same narration, plus an "encounterState" carrying every participant of this fight with the hit points, armor class and order the engine reported. Do not change a number: the record is the check the round is read against, and a foe the record has standing does not fall in the narration.`
-
 // dmStandingCorrection is sent when the reply contradicts the engine about who is standing. The record is not negotiable:
 // the engine rolled the round, and a foe it leaves at 9 hit points is not dead in the same reply.
 const dmStandingCorrection = `Your reply contradicts the record of this round. `
