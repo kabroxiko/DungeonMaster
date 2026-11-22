@@ -94,7 +94,7 @@ func TestCombatProcedureRidesOnEveryPlayTurn(t *testing.T) {
 func TestMissingRecordIsDiagnosedByCause(t *testing.T) {
 	engine := encounterState(participant("Bram", 9, 12, 15), participant("Goblin", 7, 7, 13))
 
-	omitted := describeMissingRecord(&dmEnvelope{Narration: "La daga entra y el goblin cae."}, `{"narration":"La daga entra y el goblin cae."}`, nil, engine)
+	omitted := describeMissingRecord(&dmEnvelope{Narration: "La daga entra y el goblin cae."}, `{"narration":"La daga entra y el goblin cae."}`, engine)
 	if !strings.Contains(omitted, "omitted encounterState entirely") {
 		t.Fatalf("a reply that never wrote the field: %q", omitted)
 	}
@@ -102,12 +102,12 @@ func TestMissingRecordIsDiagnosedByCause(t *testing.T) {
 		t.Fatalf("the diagnosis should say what the record held: %q", omitted)
 	}
 
-	unparsed := describeMissingRecord(&dmEnvelope{}, `encounterState: ...`, nil, engine)
+	unparsed := describeMissingRecord(&dmEnvelope{}, `encounterState: ...`, engine)
 	if !strings.Contains(unparsed, "not parsed as an envelope") {
 		t.Fatalf("a reply that is not an envelope at all: %q", unparsed)
 	}
 
-	wrongShape := describeMissingRecord(&dmEnvelope{Narration: "El goblin cae."}, `{"narration":"El goblin cae.","encounterState":[]}`, nil, engine)
+	wrongShape := describeMissingRecord(&dmEnvelope{Narration: "El goblin cae."}, `{"narration":"El goblin cae.","encounterState":[]}`, engine)
 	if !strings.Contains(wrongShape, "not as an object") {
 		t.Fatalf("a field in another shape: %q", wrongShape)
 	}

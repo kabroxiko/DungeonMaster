@@ -155,27 +155,47 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// The opening adventure is authored once and read for the whole campaign; every later turn is a play turn.
 	heavy := mode == "initial"
 
-	// The dice belong to the server, and the DM asks for them while it writes the turn: it opens the fight, rolls, reads
-	// who is standing, and only then narrates. A host that refuses the tools field keeps working through the declaration
-	// pass, which produces the same numbers in one block before the narration call.
+	// The engine owns the fight. The model is asked two small things with a strict shape - what the player just
+	// declared, and what one creature does on its own turn - and every rule that decides the round stays here: the
+	// order, the pointer, the dice and the record. A model left to run the fight skips a turn, plays a round twice, or
+	// answers for a creature nobody asked it about; none of that is a prompt problem, it is a division of labour.
 	var engineState map[string]interface{}
-	var combat *combatTools
+	var waitingOn string
 	if !heavy {
 		var sheet map[string]interface{}
 		if gsetup, ok := gs["gameSetup"].(map[string]interface{}); ok {
 			sheet = pc.CharacterForUser(gsetup, requestingUserID)
 		}
+		pcName := pc.DisplayNameFromCharacterSheet(sheet)
 		state, _ := gs["encounterState"].(map[string]interface{})
-		combat = newCombatTools(state, sheet, pc.DisplayNameFromCharacterSheet(sheet), rand.New(rand.NewSource(time.Now().UnixNano())))
-		if _, url, _, backendErr := llm.BackendFor(cfg, heavy); backendErr == nil && llm.ToolsUnsupported(url) {
-			// This host already said no: use the declaration pass from the start instead of spending a call finding out.
-			if block, state, engineErr := runCombatEngine(ctx, cfg, gs, sheet, inboundForModel, gameID); engineErr != nil {
-				log.Printf("dm generate (gameId=%s): combat declaration failed, narrating without engine results: %v", gameID, engineErr)
-			} else if block != "" {
-				msgs = insertSystemBlock(msgs, block)
-				engineState = state
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+		declared, declareErr := interpretTurn(ctx, cfg, gs, sheet, inboundForModel, gameID)
+		if declareErr != nil {
+			log.Printf("dm generate (gameId=%s): the declaration could not be read, narrating without engine results: %v", gameID, declareErr)
+		}
+		lines := make([]string, 0, 8)
+		if declared.Ask == "" {
+			state, opened := openFight(state, declared, sheet, pcName, rng)
+			lines = append(lines, opened...)
+			decide := func(actor string, current map[string]interface{}) (declaredAction, error) {
+				return decideTurn(ctx, cfg, gs, current, actor, gameID)
 			}
-			combat = nil
+			var played []string
+			state, played, waitingOn = playCombatTurns(state, humanActors(gs, requestingUserID, pcName), declared.Action, decide, rng, combatTurnsPerReply)
+			lines = append(lines, played...)
+			engineState = state
+			if waitingOn != "" {
+				state[awaitingKey] = waitingOn
+			}
+			log.Printf("dm generate (gameId=%s): engine played %d line(s); the table owes its declaration to %q", gameID, len(lines), waitingOn)
+		} else {
+			// The table owes an answer before anything can be rolled: a weapon, when the character has several.
+			engineState = state
+			log.Printf("dm generate (gameId=%s): the declaration asked the table for %q", gameID, declared.Ask)
+		}
+		if block := combatResultsBlock(lines, engineState, waitingOn); block != "" {
+			msgs = insertSystemBlock(msgs, block)
 		}
 	}
 
@@ -191,24 +211,6 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		// hundreds of hidden tokens makes the table wait half a minute, and can end the turn with nothing to read.
 		if !heavy {
 			opts["reasoning_effort"] = "low"
-		}
-		if combat != nil {
-			// JSON mode and tool calls fight over the same reply: a grammar that forces an object leaves no room for a
-			// tool call. The envelope rules are in the prompt, and the corrective retry covers the rest.
-			toolOpts := map[string]interface{}{}
-			for k, v := range opts {
-				toolOpts[k] = v
-			}
-			delete(toolOpts, "response_format")
-			out, toolErr := llm.GenerateWithTools(ctx, cfg, map[string]interface{}{"messages": messages}, toolOpts, combat.defs(), combat.run)
-			if toolErr != llm.ErrToolsUnsupported {
-				return out, toolErr
-			}
-			log.Printf("dm generate (gameId=%s): this endpoint refused tools; using the declaration pass instead", gameID)
-			if block, state, engineErr := runCombatEngine(ctx, cfg, gs, combat.sheet, inboundForModel, gameID); engineErr == nil && block != "" {
-				messages = insertSystemBlock(messages, block)
-				engineState = state
-			}
 		}
 		return llm.GenerateResponse(ctx, cfg, map[string]interface{}{"messages": messages}, opts)
 	}
@@ -231,11 +233,6 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		return 502, &HandleDmGenerateResult{Error: "DM reply was not valid envelope JSON", RawPreview: trunc(raw, 1200)}
 	}
 
-	if engineState == nil && combat != nil {
-		if state, ok := combat.changed(); ok {
-			engineState = state
-		}
-	}
 	// The fight is tracked in the encounter state, but the table keeps the character sheet: damage and healing settled
 	// by the engine have to reach it, or a character is back at full health the moment the fight ends.
 	if engineState != nil && persistPayload != nil {
@@ -250,11 +247,11 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// declared unconscious while its stored hp was 3 is the same defect as a miss that dealt damage. When the reply's
 	// own state contradicts the engine about who is standing, the prose has already buried someone the table will meet
 	// again, so the turn is asked once more with the record in front of it.
-	if engineState != nil && combat != nil {
+	if engineState != nil {
 		if _, ok := env.EncounterState.(map[string]interface{}); !ok {
 			// Not retried: a reply that leaves the record out cannot be checked, and the point of this line is to find
 			// out how often it happens and which of the three causes it is, before deciding what to do about it.
-			log.Printf("dm generate (gameId=%s): %s", gameID, describeMissingRecord(env, raw, combat, engineState))
+			log.Printf("dm generate (gameId=%s): %s", gameID, describeMissingRecord(env, raw, engineState))
 		}
 		if claimed, ok := env.EncounterState.(map[string]interface{}); ok {
 			conflict, bad := encounterClaimsConflict(claimed, engineState)
@@ -274,40 +271,11 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		env.EncounterState = engineState
 	}
 
-	// The DM's own statement that a fight is starting is checked against the engine: a turn that declares combat and
-	// never asks for a die gives the table prose with no outcome, which is what "no me ataca de vuelta" looks like.
-	incompleteRound := combat != nil && combat.needsMore()
-	if combat != nil && (env.ImminentCombat && !combat.usedAny() || incompleteRound ||
-		combat.usedAny() && combat.foesStanding() && !env.ImminentCombat) {
-		owed := combat.owed()
-		log.Printf("dm generate (gameId=%s): combat turn incomplete (engine used=%v, still to act=%v, round closed=%v); asking once more",
-			gameID, combat.usedAny(), owed, combat.roundWasCompleted())
-		correction := dmCombatCorrection
-		if combat.usedAny() && combat.foesStanding() && !env.ImminentCombat {
-			correction = dmFightContinuesCorrection
-		}
-		if len(owed) > 0 {
-			correction += " Still owed a turn this round: " + strings.Join(owed, ", ") +
-				". Call roll again with an actions list that includes them; their attack belongs to this round."
-		}
-		corrected := append([]interface{}{}, msgs...)
-		corrected = append(corrected, map[string]interface{}{"role": "system", "content": correction})
-		if secondRaw, secondEnv, secondErr := envelopeWithCorrection(ask, corrected); secondErr == nil && secondEnv != nil {
-			raw, env = secondRaw, secondEnv
-		} else if secondErr != nil {
-			log.Printf("dm generate (gameId=%s): the second attempt at the combat turn failed: %v", gameID, secondErr)
-		}
-	}
-
 	// The handover is already in the record: the engine closes the round it played and names the declaration it waits
 	// on. What the player still has to read is the question, and a small model forgets to write it.
 	// Everything else in the narration stays as the DM wrote it.
-	if combat != nil && combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration) {
-		actor := combat.AwaitingActor()
-		if actor == "" {
-			actor = combat.openingActor()
-		}
-		env.Narration = strings.TrimSpace(env.Narration) + "\n\n" + roundHandoverLine(language, combat.playedRound+1, actor)
+	if waitingOn != "" && engineState != nil && !asksTheTable(env.Narration) {
+		env.Narration = strings.TrimSpace(env.Narration) + "\n\n" + roundHandoverLine(language, roundNumberOf(engineState), waitingOn)
 	}
 
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)
@@ -419,7 +387,7 @@ func parseDmEnvelope(raw string) *dmEnvelope {
 //   - the model never wrote the field, because nothing in the reply forced it to,
 //   - it wrote the field and the JSON did not parse, so the turn was read from a broken object,
 //   - it wrote the field in another shape (a list, a string), which the envelope parser drops by design.
-func describeMissingRecord(env *dmEnvelope, raw string, combat *combatTools, engineState map[string]interface{}) string {
+func describeMissingRecord(env *dmEnvelope, raw string, engineState map[string]interface{}) string {
 	combatants, _ := combatantsOf(engineState)
 	cause := "the model omitted encounterState entirely"
 	switch {
@@ -428,8 +396,8 @@ func describeMissingRecord(env *dmEnvelope, raw string, combat *combatTools, eng
 	case strings.Contains(raw, "encounterState"):
 		cause = "encounterState was written but not as an object, so the parser dropped it"
 	}
-	return fmt.Sprintf("reply resolved a round and returned no usable record (%s); tools used=%v, participants=%d, narration=%d chars",
-		cause, combat != nil && combat.usedAny(), len(combatants), len(strings.TrimSpace(env.Narration)))
+	return fmt.Sprintf("reply resolved a round and returned no usable record (%s); participants=%d, narration=%d chars",
+		cause, len(combatants), len(strings.TrimSpace(env.Narration)))
 }
 
 // asksTheTable reports whether the narration ends by asking the table for their next move. That question is the
