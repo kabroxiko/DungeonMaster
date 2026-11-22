@@ -331,8 +331,10 @@ func (t *combatTools) openingActor() string {
 		return ""
 	}
 	pc := strings.ToLower(strings.TrimSpace(t.pc))
-	standing := make([]string, 0, len(combatants))
-	for _, entry := range toIfaceSlice(t.state["initiative"]) {
+	order := toIfaceSlice(t.state["initiative"])
+	// The player's own character opens the question whether it is standing or down: a character at 0 hit points makes
+	// death saves, and it is the player's to answer, never the DM's creatures'.
+	for _, entry := range order {
 		m, _ := entry.(map[string]interface{})
 		if m == nil {
 			continue
@@ -342,18 +344,24 @@ func (t *combatTools) openingActor() string {
 		if combatant == nil {
 			continue
 		}
-		if hp, has := intField(combatant, participantHPCurrentKey); has && hp <= 0 {
-			continue
-		}
-		isPC := strings.EqualFold(str(combatant["kind"]), "pc") ||
-			(pc != "" && strings.EqualFold(strings.TrimSpace(name), pc))
-		if isPC {
+		if strings.EqualFold(str(combatant["kind"]), "pc") ||
+			(pc != "" && strings.EqualFold(strings.TrimSpace(name), pc)) {
 			return name
 		}
-		standing = append(standing, name)
 	}
-	if len(standing) > 0 {
-		return standing[0]
+	for _, entry := range order {
+		m, _ := entry.(map[string]interface{})
+		if m == nil {
+			continue
+		}
+		name := fmt.Sprint(m["displayName"])
+		_, combatant := findCombatant(combatants, name)
+		if combatant == nil {
+			continue
+		}
+		if hp, has := intField(combatant, participantHPCurrentKey); !has || hp > 0 {
+			return name
+		}
 	}
 	return ""
 }

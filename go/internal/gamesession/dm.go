@@ -110,6 +110,16 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	}
 
 	inbound := filterNoSystem(messages)
+	// A fight is read from the record, not from the campaign's history. The whole transcript is what makes a combat
+	// turn unaffordable: past scenes crowd the window until the model has no room left to answer in, and it has been
+	// told the same alley twice already. What the round needs is the scene it is happening in.
+	if mode != "initial" && encounterInProgress(gs) {
+		if trimmed := trimForCombat(inbound, combatTranscriptMessages); len(trimmed) < len(inbound) {
+			log.Printf("dm generate (gameId=%s): combat turn carries the last %d of %d messages",
+				gameID, len(trimmed), len(inbound))
+			inbound = trimmed
+		}
+	}
 	inboundForModel := withSpeakerAttribution(inbound)
 
 	// The consolidated system prompt leads every request, so its order is the provider's prefix-cache key: blocks
@@ -410,6 +420,31 @@ func asksTheTable(narration string) bool {
 	return strings.HasSuffix(trimmed, "?")
 }
 
+// encounterInProgress reports whether the stored record holds a fight that is still running: at least one foe on its
+// feet. The player's own row standing is not a fight, and an empty record is not one either.
+func encounterInProgress(gs map[string]interface{}) bool {
+	if gs == nil {
+		return false
+	}
+	state, ok := gs["encounterState"].(map[string]interface{})
+	if !ok || len(state) == 0 {
+		return false
+	}
+	combatants, ok := combatantsOf(state)
+	if !ok {
+		return false
+	}
+	for _, combatant := range combatants {
+		if strings.EqualFold(str(combatant["kind"]), "pc") {
+			continue
+		}
+		if hp, has := intField(combatant, participantHPCurrentKey); !has || hp > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // composeDmSystemPrompt builds the single system message for one play turn.
 //
 // Blocks are ordered most-stable first so the provider's prefix cache can reuse the leading bytes across turns:
@@ -417,6 +452,14 @@ func asksTheTable(narration string) bool {
 // Anything that changes every turn must stay below the static rules, because changing the head of the prompt
 // invalidates the cache for every message that follows it.
 func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]interface{}, requestingUserID string) string {
+	// A fight does not need the campaign's world. The geography, the factions and the exploration guidance are read on
+	// the turns spent moving through the map; in the middle of a round they crowd out the rules that decide the blow,
+	// and a small model reads the world first because the world comes first. The record decides, not the browser:
+	// a turn with a foe standing is a combat turn whatever mode was sent.
+	effectiveMode := mode
+	if mode != "initial" && encounterInProgress(gs) {
+		effectiveMode = "combat"
+	}
 	// Campaign-scoped blocks: identical for every turn of this game.
 	var spec map[string]interface{}
 	if gs != nil {
@@ -443,7 +486,7 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 		parts = append(parts, promptmgr.LoadPrompt("rules/json_output_guard.md"))
 	}
 	// Empty summary here: the memory block is per-turn state and joins the per-turn group below.
-	for _, m := range promptmgr.ComposeSystemMessages(mode, "", true, language) {
+	for _, m := range promptmgr.ComposeSystemMessages(effectiveMode, "", true, language) {
 		parts = append(parts, m["content"])
 	}
 	// The browser does not decide when a fight starts - it sends no mode at all, so every play turn arrived as
@@ -451,7 +494,7 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 	// no initiative, no encounter bookkeeping and no defender: it invented a bystander with an armor class so it had
 	// something to roll against. Refereeing combat is not a rare mode, it is the job; the block itself decides when
 	// formal combat applies, so it rides along on every play turn and only the opening is left without it.
-	if mode != "combat" && mode != "initial" {
+	if effectiveMode != "combat" && effectiveMode != "initial" {
 		if skill := promptmgr.LoadPrompt("skills/combat.md"); skill != "" {
 			parts = append(parts, promptmgr.RenderSkillPrompt(skill, language))
 		}
@@ -461,11 +504,11 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 		// and key locations, with location names reconciled against the players' map.
 		parts = append(parts, renderInitialCampaignInject(spec))
 	}
-	if spec != nil {
+	if spec != nil && effectiveMode != "combat" {
 		// The Vellaris world is the campaign's only geography: there is no second, invented topology to fall back on,
 		// because two competing geographies in one prompt make the DM drift on location.
 		parts = append(parts, renderVellarisWorldInject(spec))
-		if inj := promptmgr.LoadPrompt("templates/dm/inject_explore.md"); inj != "" && mode == "exploration" {
+		if inj := promptmgr.LoadPrompt("templates/dm/inject_explore.md"); inj != "" && effectiveMode == "exploration" {
 			// minimal Mustache data
 			data := map[string]interface{}{
 				"factions":                   []interface{}{},
@@ -495,6 +538,27 @@ func joinPromptBlocks(parts []string) string {
 		}
 	}
 	return strings.Join(out, "\n\n")
+}
+
+// combatTranscriptMessages is how much of the conversation a combat turn carries: the exchanges of the fight in
+// progress, with room for the scene that opened it. The record - participants, hit points, round, order - is what makes
+// the fight continuous, and it travels in the system prompt, not in the transcript.
+const combatTranscriptMessages = 16
+
+// trimForCombat keeps the tail of the conversation, starting at a player message so the cut never leaves the model
+// looking at half an exchange. A transcript that already fits is returned untouched.
+func trimForCombat(messages []interface{}, keep int) []interface{} {
+	if keep <= 0 || len(messages) <= keep {
+		return messages
+	}
+	tail := messages[len(messages)-keep:]
+	for i, m := range tail {
+		if role, _ := m.(map[string]interface{})["role"].(string); role == "user" {
+			return append([]interface{}{}, tail[i:]...)
+		}
+	}
+	// No player message in the window: keep it whole rather than answer a conversation that starts mid-sentence.
+	return messages
 }
 
 func filterNoSystem(messages []interface{}) []interface{} {

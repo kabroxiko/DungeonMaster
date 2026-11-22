@@ -97,3 +97,85 @@ func TestDmSystemPromptStaticRulesLeadPerTurnState(t *testing.T) {
 		t.Fatal("the per-turn session summary is placed above the static language rule")
 	}
 }
+
+// In a fight the world does not matter: geography, factions and exploration guidance are thousands of tokens that
+// crowd out the rules of the round, and the record says when a fight is running whatever mode the browser sent.
+func TestCombatTurnsDropTheCampaignWorld(t *testing.T) {
+	spec := map[string]interface{}{
+		"title":           "A Campaign",
+		"campaignConcept": "A concept.",
+		"toneAndStyle":    "dry and ominous",
+		"vellarisWorld": map[string]interface{}{
+			"regions": []interface{}{map[string]interface{}{"id": "r1", "name": "The Hollow Coast"}},
+		},
+	}
+	sheet := map[string]interface{}{
+		"gameSetup": map[string]interface{}{
+			"playerCharacters": map[string]interface{}{"u1": map[string]interface{}{
+				"name": "Varek", "display_name": "Varek", "kind": "pc", "ac": 13, "max_hp": 12, "hp_current": 8,
+			}},
+			"playerCharactersOrder": []interface{}{"u1"},
+		},
+	}
+	fighting := map[string]interface{}{
+		"campaignSpec": spec,
+		"gameSetup":    sheet["gameSetup"],
+		"encounterState": map[string]interface{}{
+			"round": 2,
+			"participants": []interface{}{
+				map[string]interface{}{"displayName": "Varek", "kind": "pc", "hp_current": 8, "hp_max": 12, "ac": 13},
+				map[string]interface{}{"displayName": "Guardia", "hp_current": 9, "hp_max": 9, "ac": 12},
+			},
+		},
+	}
+	combatPrompt := composeDmSystemPrompt("exploration", "English", "", fighting, "u1")
+
+	if strings.Contains(combatPrompt, "The Hollow Coast") {
+		t.Fatal("a combat turn still carries the world's geography")
+	}
+	if strings.Contains(combatPrompt, "DM-ONLY EXPLORATION GUIDANCE") {
+		t.Fatal("a combat turn still carries the exploration guidance")
+	}
+	// What decides the round has to be there.
+	for _, must := range []string{"open_encounter", "dry and ominous", "Varek"} {
+		if !strings.Contains(combatPrompt, must) {
+			t.Fatalf("a combat turn lost %q", must)
+		}
+	}
+
+	// Outside a fight the world is still the campaign's only geography.
+	calm := map[string]interface{}{"campaignSpec": spec, "gameSetup": sheet["gameSetup"], "encounterState": map[string]interface{}{}}
+	if prompt := composeDmSystemPrompt("exploration", "English", "", calm, "u1"); !strings.Contains(prompt, "The Hollow Coast") {
+		t.Fatal("an exploration turn lost the world")
+	}
+}
+
+// A combat turn reads the fight from the record, not from the campaign's whole history: the transcript is cut to the
+// exchanges of this fight, and the cut lands on a player message so the model is never handed half an exchange.
+func TestCombatTranscriptKeepsTheFightAndDropsTheBacklog(t *testing.T) {
+	message := func(role, content string) interface{} {
+		return map[string]interface{}{"role": role, "content": content}
+	}
+	var messages []interface{}
+	for i := 0; i < 20; i++ {
+		messages = append(messages, message("user", "exploración antigua"), message("assistant", "narración antigua"))
+	}
+	messages = append(messages, message("user", "ataco al guardia con mi daga"))
+
+	trimmed := trimForCombat(messages, 6)
+	if len(trimmed) == 0 || len(trimmed) > 6 {
+		t.Fatalf("the window should be bounded by the keep count, got %d", len(trimmed))
+	}
+	if role, _ := trimmed[0].(map[string]interface{})["role"].(string); role != "user" {
+		t.Fatalf("the cut should start at a player message, got %q", role)
+	}
+	last, _ := trimmed[len(trimmed)-1].(map[string]interface{})["content"].(string)
+	if !strings.Contains(last, "ataco al guardia") {
+		t.Fatalf("the player's declaration must survive the cut, got %q", last)
+	}
+
+	short := []interface{}{message("user", "hola")}
+	if got := trimForCombat(short, 6); len(got) != 1 {
+		t.Fatalf("a short transcript should be left alone, got %d", len(got))
+	}
+}
