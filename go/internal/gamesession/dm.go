@@ -113,7 +113,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// A fight is read from the record, not from the campaign's history. The whole transcript is what makes a combat
 	// turn unaffordable: past scenes crowd the window until the model has no room left to answer in, and it has been
 	// told the same alley twice already. What the round needs is the scene it is happening in.
-	if mode != "initial" && encounterInProgress(gs) {
+	if mode != "initial" && encounterInProgress(gs, pcDisplayName(gs, requestingUserID)) {
 		if trimmed := trimForCombat(inbound, combatTranscriptMessages); len(trimmed) < len(inbound) {
 			log.Printf("dm generate (gameId=%s): combat turn carries the last %d of %d messages",
 				gameID, len(trimmed), len(inbound))
@@ -251,6 +251,18 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	// own state contradicts the engine about who is standing, the prose has already buried someone the table will meet
 	// again, so the turn is asked once more with the record in front of it.
 	if engineState != nil && combat != nil {
+		if _, ok := env.EncounterState.(map[string]interface{}); !ok {
+			// The record is checked against the reply's own copy of it, and a reply that leaves it out cannot be
+			// checked at all: this is how a guard that fell in the prose stayed standing in the record.
+			log.Printf("dm generate (gameId=%s): the reply resolved a round without returning the record; asking once more", gameID)
+			corrected := append([]interface{}{}, msgs...)
+			corrected = append(corrected, map[string]interface{}{"role": "system", "content": dmRecordCorrection})
+			if secondRaw, secondEnv, secondErr := envelopeWithCorrection(ask, corrected); secondErr == nil && secondEnv != nil {
+				raw, env = secondRaw, secondEnv
+			} else if secondErr != nil {
+				log.Printf("dm generate (gameId=%s): the second attempt without the record failed: %v", gameID, secondErr)
+			}
+		}
 		if claimed, ok := env.EncounterState.(map[string]interface{}); ok {
 			conflict, bad := encounterClaimsConflict(claimed, engineState)
 			if bad {
@@ -271,18 +283,15 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 
 	// The DM's own statement that a fight is starting is checked against the engine: a turn that declares combat and
 	// never asks for a die gives the table prose with no outcome, which is what "no me ataca de vuelta" looks like.
-	if combat != nil && (env.ImminentCombat && !combat.usedAny() || combat.needsMore() ||
-		combat.usedAny() && combat.foesStanding() && !env.ImminentCombat ||
-		combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration)) {
+	incompleteRound := combat != nil && combat.needsMore()
+	if combat != nil && (env.ImminentCombat && !combat.usedAny() || incompleteRound ||
+		combat.usedAny() && combat.foesStanding() && !env.ImminentCombat) {
 		owed := combat.owed()
 		log.Printf("dm generate (gameId=%s): combat turn incomplete (engine used=%v, still to act=%v, round closed=%v); asking once more",
 			gameID, combat.usedAny(), owed, combat.roundWasCompleted())
 		correction := dmCombatCorrection
 		if combat.usedAny() && combat.foesStanding() && !env.ImminentCombat {
 			correction = dmFightContinuesCorrection
-		}
-		if combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration) {
-			correction = dmHandoverCorrection
 		}
 		if len(owed) > 0 {
 			correction += " Still owed a turn this round: " + strings.Join(owed, ", ") +
@@ -297,13 +306,15 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 		}
 	}
 
-	// The table's turn is not left to the model's memory: a round that closes with a foe standing ends by asking for the
-	// next one, and if the reply forgets, the server says it. Everything else in the narration stays as the DM wrote it.
+	// The handover is already in the record: the engine closes the round it played and names the declaration it waits
+	// on. What the player still has to read is the question, and a small model forgets to write it.
+	// Everything else in the narration stays as the DM wrote it.
 	if combat != nil && combat.roundWasCompleted() && combat.foesStanding() && !asksTheTable(env.Narration) {
-		line := roundHandoverLine(language, combat.playedRound+1, combat.openingActor())
-		env.Narration = strings.TrimSpace(env.Narration) + "\n\n" + line
-		log.Printf("dm generate (gameId=%s): the reply closed round %d without asking the table; added the handover",
-			gameID, combat.playedRound)
+		actor := combat.AwaitingActor()
+		if actor == "" {
+			actor = combat.openingActor()
+		}
+		env.Narration = strings.TrimSpace(env.Narration) + "\n\n" + roundHandoverLine(language, combat.playedRound+1, actor)
 	}
 
 	_ = markLlmCompleted(ctx, d.Coll, gameID, raw, env)
@@ -422,7 +433,7 @@ func asksTheTable(narration string) bool {
 
 // encounterInProgress reports whether the stored record holds a fight that is still running: at least one foe on its
 // feet. The player's own row standing is not a fight, and an empty record is not one either.
-func encounterInProgress(gs map[string]interface{}) bool {
+func encounterInProgress(gs map[string]interface{}, pcName string) bool {
 	if gs == nil {
 		return false
 	}
@@ -435,7 +446,7 @@ func encounterInProgress(gs map[string]interface{}) bool {
 		return false
 	}
 	for _, combatant := range combatants {
-		if strings.EqualFold(str(combatant["kind"]), "pc") {
+		if isPlayerCombatant(combatant, pcName) {
 			continue
 		}
 		if hp, has := intField(combatant, participantHPCurrentKey); !has || hp > 0 {
@@ -457,7 +468,7 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 	// and a small model reads the world first because the world comes first. The record decides, not the browser:
 	// a turn with a foe standing is a combat turn whatever mode was sent.
 	effectiveMode := mode
-	if mode != "initial" && encounterInProgress(gs) {
+	if mode != "initial" && encounterInProgress(gs, pcDisplayName(gs, requestingUserID)) {
 		effectiveMode = "combat"
 	}
 	// Campaign-scoped blocks: identical for every turn of this game.
@@ -635,7 +646,7 @@ func renderPCBlock(gs map[string]interface{}, language, requestingUserID string)
 		"language":                   language,
 		"playerCharacterDisplayName": pc.DisplayNameFromCharacterSheet(sheet),
 		"playerCharacterJson":        trunc(jsonStr(sheet), 120000),
-		"priorEncounterStateJson":    priorEncounterStateJSON(gs),
+		"priorEncounterStateJson":    priorEncounterStateJSON(gs, requestingUserID),
 	}
 	s, err := mustache.Render(tpl, data)
 	if err != nil {
@@ -650,9 +661,27 @@ func renderPCBlock(gs map[string]interface{}, language, requestingUserID string)
 // initiative and armor class in encounterState and then never shown what it had kept, so on the next beat it had no
 // numbers to resolve against and asked the table for one. A value the model is not given is a value it invents or
 // requests mid-fight.
-func priorEncounterStateJSON(gs map[string]interface{}) string {
+// pcDisplayName is the player's character as the sheet names it, empty when the game has no sheet for them.
+func pcDisplayName(gs map[string]interface{}, requestingUserID string) string {
+	if gs == nil {
+		return ""
+	}
+	setup, _ := gs["gameSetup"].(map[string]interface{})
+	if setup == nil {
+		return ""
+	}
+	return pc.DisplayNameFromCharacterSheet(pc.CharacterForUser(setup, requestingUserID))
+}
+
+func priorEncounterStateJSON(gs map[string]interface{}, requestingUserID string) string {
 	if gs == nil {
 		return "{}"
+	}
+	// In a fight the numbers come from the tools, and the record is written back by the server. Handing the model the
+	// whole stat block again is what turned narration into a roster of hit points and armor classes: it reads the JSON
+	// to keep it in step, then says it out loud. So a fight in progress reports who is in it and nothing else.
+	if encounterInProgress(gs, pcDisplayName(gs, requestingUserID)) {
+		return encounterNamesOnly(gs)
 	}
 	raw, ok := gs["encounterState"]
 	if !ok || raw == nil {
@@ -663,6 +692,39 @@ func priorEncounterStateJSON(gs map[string]interface{}) string {
 		return "{}"
 	}
 	return trunc(string(b), 20000)
+}
+
+// isPlayerCombatant reports whether a stored participant is the player's own character. The marker is not always there:
+// a record written before the marker existed, or by the declaration pass, carries the name alone.
+func isPlayerCombatant(combatant map[string]interface{}, pcName string) bool {
+	if strings.EqualFold(str(combatant["kind"]), "pc") {
+		return true
+	}
+	pc := strings.TrimSpace(pcName)
+	return pc != "" && strings.EqualFold(strings.TrimSpace(fmt.Sprint(combatant[participantNameKey])), pc)
+}
+
+// encounterNamesOnly is the fight as the narration needs it: who is in it and whose turn it is, with no numbers to
+// restate. The engine's tools carry the hit points and the armor classes.
+func encounterNamesOnly(gs map[string]interface{}) string {
+	state, _ := gs["encounterState"].(map[string]interface{})
+	combatants, ok := combatantsOf(state)
+	if !ok {
+		return "{}"
+	}
+	standing := make([]string, 0, len(combatants))
+	for _, combatant := range combatants {
+		if hp, has := intField(combatant, participantHPCurrentKey); has && hp <= 0 {
+			continue
+		}
+		standing = append(standing, fmt.Sprint(combatant[participantNameKey]))
+	}
+	if len(standing) == 0 {
+		return "{}"
+	}
+	round := roundNumberOf(state)
+	return fmt.Sprintf("A fight is in progress (round %d). Still standing: %s. Its numbers are the engine's: never restate hit points or armor class in the narration.",
+		round, strings.Join(standing, ", "))
 }
 
 func dmHiddenObjective(spec map[string]interface{}) string {

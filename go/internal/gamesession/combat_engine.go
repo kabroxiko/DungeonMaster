@@ -564,6 +564,9 @@ func resolveInitiative(declared []declaredInitiative, state map[string]interface
 // number is what the closing line hands back to the table.
 const roundKey = "round"
 
+// awaitingKey is who the record says the table is waiting on: the player whose declaration opens the next round.
+const awaitingKey = "awaiting"
+
 func roundNumberOf(state map[string]interface{}) int {
 	if v, ok := intField(state, roundKey); ok && v > 0 {
 		return v

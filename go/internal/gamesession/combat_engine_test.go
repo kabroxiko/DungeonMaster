@@ -827,8 +827,12 @@ func TestAFinishedRoundHandsTheTableTheNextOne(t *testing.T) {
 	if !strings.Contains(round.Content, "round 1 is complete") {
 		t.Fatalf("a played round should say so: %q", round.Content)
 	}
-	if !strings.Contains(round.Content, "hands the table round 2") {
+	if !strings.Contains(round.Content, "the table's: Thulim declares round 2") {
 		t.Fatalf("the next round belongs to the table: %q", round.Content)
+	}
+	// The engine hands over on its own: the record names the player before the model says anything about it.
+	if !tools.HandedOver() || tools.AwaitingActor() != "Thulim" {
+		t.Fatalf("the record should wait on the player, got handedOver=%v awaiting=%q", tools.HandedOver(), tools.AwaitingActor())
 	}
 	if roundNumberOf(tools.state) != 2 {
 		t.Fatalf("the record should be in round 2, got %d", roundNumberOf(tools.state))
@@ -848,7 +852,7 @@ func TestAFinishedRoundHandsTheTableTheNextOne(t *testing.T) {
 	if !strings.Contains(killed.Content, "the fight is over: no foe is standing") {
 		t.Fatalf("the fight that ends should be reported as over: %q", killed.Content)
 	}
-	if strings.Contains(killed.Content, "hands the table round") {
+	if strings.Contains(killed.Content, "declares round") {
 		t.Fatalf("nothing is handed over when nobody is left: %q", killed.Content)
 	}
 }
@@ -898,5 +902,71 @@ func TestInventedHitPointsAreContradicted(t *testing.T) {
 	}
 	if !strings.Contains(conflict, "7") || !strings.Contains(conflict, "4") {
 		t.Fatalf("the correction should name both totals: %q", conflict)
+	}
+}
+
+// The handover is a tool call with an invariant: a round that is only half played cannot be handed over, and a reply
+// that hands over cannot roll again. That is what makes the table's turn structural instead of a matter of phrasing.
+func TestTheHandoverIsAToolCallWithAnInvariant(t *testing.T) {
+	sheet := map[string]interface{}{"name": "Thulim", "ac": 13, "max_hp": 30}
+	tools := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(61)))
+	tools.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 60, "ac": 13, "attack_bonus": 4, "damage": "1d8+2"},
+		},
+	}})
+
+	// The foe has not acted: handing over now would skip its turn.
+	early := tools.run(llm.ToolCall{ID: "2", Name: "request_action", Arguments: map[string]interface{}{}})
+	if !strings.Contains(early.Content, "the round is not played yet") || !strings.Contains(early.Content, "Guardia") {
+		t.Fatalf("a half-played round cannot be handed over: %q", early.Content)
+	}
+	if tools.HandedOver() {
+		t.Fatal("a refused handover must not count")
+	}
+
+	tools.run(llm.ToolCall{ID: "3", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2"},
+		},
+	}})
+	handover := tools.run(llm.ToolCall{ID: "4", Name: "request_action", Arguments: map[string]interface{}{}})
+	if !strings.Contains(handover.Content, "the table's turn: Thulim") {
+		t.Fatalf("the handover should name the player's character: %q", handover.Content)
+	}
+	if !tools.HandedOver() || tools.AwaitingActor() != "Thulim" {
+		t.Fatalf("the record should wait on the player, got handedOver=%v awaiting=%q", tools.HandedOver(), tools.AwaitingActor())
+	}
+	if str(tools.state[awaitingKey]) != "Thulim" || roundNumberOf(tools.state) != 2 {
+		t.Fatalf("the state should carry the wait and the round, got %v", tools.state)
+	}
+
+	// Nothing rolls after the handover: that round belongs to the players' answer.
+	after := tools.run(llm.ToolCall{ID: "5", Name: "roll", Arguments: map[string]interface{}{
+		"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2",
+	}})
+	if !strings.Contains(after.Content, "already played its round and handed the table its turn") {
+		t.Fatalf("a roll after the handover should be refused: %q", after.Content)
+	}
+
+	// A model that names one of its own creatures still hands the turn to the player.
+	fresh := newCombatTools(nil, sheet, "Thulim", rand.New(rand.NewSource(62)))
+	fresh.run(llm.ToolCall{ID: "1", Name: "open_encounter", Arguments: map[string]interface{}{
+		"participants": []interface{}{
+			map[string]interface{}{"displayName": "Thulim"},
+			map[string]interface{}{"displayName": "Guardia", "hp_max": 60, "ac": 13, "damage": "1d8+2"},
+		},
+	}})
+	fresh.run(llm.ToolCall{ID: "2", Name: "roll", Arguments: map[string]interface{}{
+		"actions": []interface{}{
+			map[string]interface{}{"actor": "Thulim", "target": "Guardia", "kind": "attack", "modifier": 5.0, "damage": "1d4+3"},
+			map[string]interface{}{"actor": "Guardia", "target": "Thulim", "kind": "attack", "modifier": 4.0, "damage": "1d8+2"},
+		},
+	}})
+	wrong := fresh.run(llm.ToolCall{ID: "3", Name: "request_action", Arguments: map[string]interface{}{"actor": "Guardia"}})
+	if !strings.Contains(wrong.Content, "the table's turn: Thulim") {
+		t.Fatalf("the wait belongs to the player, not the DM's creature: %q", wrong.Content)
 	}
 }

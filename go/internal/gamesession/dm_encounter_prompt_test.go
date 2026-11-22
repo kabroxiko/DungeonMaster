@@ -27,27 +27,43 @@ func TestStoredEncounterStateReachesThePrompt(t *testing.T) {
 	}
 
 	prompt := composeDmSystemPrompt("combat", "Spanish", "", gs, uid)
-	for _, want := range []string{"Goblin arquero", `"ac":13`, `"hp_current":7`} {
-		if !strings.Contains(prompt, want) {
-			t.Fatalf("the stored encounter state did not reach the prompt: %q missing", want)
+	// Who is in the fight reaches the prompt; the numbers do not. The tools carry them, and a stat block sitting in the
+	// prompt is a stat block in the narration.
+	if !strings.Contains(prompt, "Goblin arquero") || !strings.Contains(prompt, "A fight is in progress") {
+		t.Fatal("the fight in progress did not reach the prompt by name")
+	}
+	for _, unwanted := range []string{`"ac":13`, `"hp_current":7`, `"hp_max":7`} {
+		if strings.Contains(prompt, unwanted) {
+			t.Fatalf("a combat turn still carries the stat block: %q present", unwanted)
 		}
+	}
+
+	// The fight over, the state comes whole: what a corpse is, and the hit points it fell at, is what keeps it from
+	// standing up in the next scene.
+	gs["encounterState"] = map[string]interface{}{"participants": []interface{}{
+		map[string]interface{}{"displayName": "Bram", "hp_current": 9, "hp_max": 12, "ac": 15},
+		map[string]interface{}{"displayName": "Goblin arquero", "hp_current": 0, "hp_max": 7, "ac": 13},
+	}}
+	after := composeDmSystemPrompt("combat", "Spanish", "", gs, uid)
+	if !strings.Contains(after, `"hp_current":0`) {
+		t.Fatal("the state of a finished fight should reach the prompt whole")
 	}
 	// The sheet and the state are JSON payloads: a mustache render escaped them into &#34; entities, which is not what
 	// the model was promised and reads as noise in a wall of stat data.
-	if strings.Contains(prompt, "&#34;") {
+	if strings.Contains(after, "&#34;") {
 		t.Fatal("a JSON payload reached the prompt HTML-escaped")
 	}
 }
 
 // A game with no fight yet has no encounter state, and the block still has to render with something valid in the slot.
 func TestEmptyEncounterStateRendersAnEmptyObject(t *testing.T) {
-	if got := priorEncounterStateJSON(nil); got != "{}" {
+	if got := priorEncounterStateJSON(nil, ""); got != "{}" {
 		t.Fatalf("no document should give {}, got %q", got)
 	}
-	if got := priorEncounterStateJSON(map[string]interface{}{"encounterState": nil}); got != "{}" {
+	if got := priorEncounterStateJSON(map[string]interface{}{"encounterState": nil}, ""); got != "{}" {
 		t.Fatalf("a null state should give {}, got %q", got)
 	}
-	if got := priorEncounterStateJSON(map[string]interface{}{"encounterState": map[string]interface{}{}}); got != "{}" {
+	if got := priorEncounterStateJSON(map[string]interface{}{"encounterState": map[string]interface{}{}}, ""); got != "{}" {
 		t.Fatalf("an empty state should give {}, got %q", got)
 	}
 }

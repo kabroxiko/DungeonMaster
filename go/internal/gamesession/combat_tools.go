@@ -31,6 +31,11 @@ type combatTools struct {
 	// roundSpent says this reply has already played its round. The table answers between rounds, and that answer is
 	// how a player changes strategy: a reply that rolls again is playing a second round nobody agreed to.
 	roundSpent bool
+	// handedOver says the reply called request_action: the round is over and the table owes the next declaration. It is
+	// a contract rather than a convention - a reply that resolves a turn without it never gives the player their turn.
+	handedOver bool
+	// awaiting is who the table is waiting on, as recorded for the next turn.
+	awaiting string
 }
 
 func newCombatTools(state map[string]interface{}, sheet map[string]interface{}, pcName string, rng *rand.Rand) *combatTools {
@@ -71,7 +76,8 @@ func (t *combatTools) defs() []llm.Tool {
 			Description: "Resolve this round. Pass an `actions` list holding every action of the round - the player's and " +
 				"the answer of each foe still standing - and the engine rolls them in initiative order, applies damage and " +
 				"reports who is up. A single action is also accepted when only one creature acts, but a foe with hit points " +
-				"left always takes its turn, and its attack belongs to this round, not the next one.",
+				"left always takes its turn, and its attack belongs to this round, not the next one. When the round is " +
+				"complete, close it with request_action.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -92,6 +98,18 @@ func (t *combatTools) defs() []llm.Tool {
 			},
 		},
 		{
+			Name: "request_action",
+			Description: "Hand the turn back to the table. Call it as soon as the round is played: it closes the round and " +
+				"records whose declaration opens the next one. Without this call the table is never given their turn, and " +
+				"the reply is read as a scene rather than a fight.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"actor": map[string]interface{}{"type": "string", "description": "displayName of the player character whose declaration is asked for. Omit to let the engine name the character of the player at the table."},
+				},
+			},
+		},
+		{
 			Name:        "encounter",
 			Description: "Read the fight as the server records it: who is in it, hit points, armor class and the turn order.",
 			Parameters:  map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
@@ -108,6 +126,8 @@ func (t *combatTools) run(call llm.ToolCall) llm.ToolResult {
 		return t.openEncounter(call)
 	case "roll":
 		return t.roll(call)
+	case "request_action":
+		return t.requestAction(call)
 	case "encounter":
 		return llm.ToolResult{CallID: call.ID, Content: t.describe()}
 	default:
@@ -150,8 +170,8 @@ func (t *combatTools) openEncounter(call llm.ToolCall) llm.ToolResult {
 // one call is what keeps a counterattack in the turn it belongs to - a model that rolls the player's swing and stops has
 // answered the table with half a round, and the reply is checked for that.
 func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
-	if t.roundSpent {
-		return llm.ToolResult{CallID: call.ID, Content: "error: this reply has already played its round; the table answers before the next one begins. Narrate what happened and stop\n" + t.describe()}
+	if t.handedOver || t.roundSpent {
+		return llm.ToolResult{CallID: call.ID, Content: "error: this reply has already played its round and handed the table its turn; the next round begins with the players' declaration, not here. Narrate what happened and stop\n" + t.describe()}
 	}
 	actions := t.actionsFromCall(call)
 	if len(actions) == 0 {
@@ -187,10 +207,18 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 			}
 		}
 	}
+	delete(t.state, awaitingKey) // the table answered: whoever owed a declaration has now given one
 	if combatants, ok := combatantsOf(t.state); ok && len(combatants) > 0 && len(t.waitingToAct()) == 0 {
 		t.roundSpent = true
 		t.playedRound = roundNumberOf(t.state)
 		t.state[roundKey] = t.playedRound + 1
+		// The round is played, so it is the table's: the record says who declares next without waiting to be told.
+		// request_action is how the reply says the same thing out loud, not how the engine learns it.
+		if t.foesStanding() {
+			t.handedOver = true
+			t.awaiting = t.openingActor()
+			t.state[awaitingKey] = t.awaiting
+		}
 	}
 	body := strings.Builder{}
 	for _, line := range outcome.Lines {
@@ -199,9 +227,82 @@ func (t *combatTools) roll(call llm.ToolCall) llm.ToolResult {
 	for _, unknown := range outcome.Unknown {
 		body.WriteString("not resolved: " + unknown + "\n")
 	}
-	body.WriteString(t.describe())
+	// The order that decided the round, with its scores: the narration has to explain why someone moved first. What it
+	// does not get is the roster of hit points and armor classes, which came back into the prose as a stat block.
+	if order := t.initiativeOrder(); len(order) > 0 {
+		body.WriteString("turn order: " + strings.Join(order, " -> ") + "\n")
+	}
+	if waiting := t.waitingToAct(); len(waiting) > 0 {
+		body.WriteString("still to act in this reply: " + strings.Join(waiting, ", ") + "\n")
+	}
 	body.WriteString(t.roundClosing())
 	return llm.ToolResult{CallID: call.ID, Content: body.String()}
+}
+
+// requestAction is the handover as a contract: the round is over, the table owes the next declaration, and the engine
+// records who it is waiting on. A round that is only half played is refused here, so the handover cannot be used to skip
+// a foe's turn.
+func (t *combatTools) requestAction(call llm.ToolCall) llm.ToolResult {
+	if t.handedOver {
+		return llm.ToolResult{CallID: call.ID, Content: fmt.Sprintf(
+			"the table's turn: %s declares the next round. End the narration by asking them what they do.\n", t.awaiting)}
+	}
+	if owed := t.waitingToAct(); len(owed) > 0 {
+		return llm.ToolResult{CallID: call.ID, Content: fmt.Sprintf(
+			"error: the round is not played yet: %s still to act. Roll their turns with roll, then hand the table the next round\n",
+			strings.Join(owed, ", ")) + t.describe()}
+	}
+	actor := t.resolveName(str(call.Arguments["actor"]))
+	if !t.isPlayerRow(actor) {
+		// The table's turn is the player's, whatever name the model put in the field: asking the DM's own creatures to
+		// declare would leave the real player waiting.
+		actor = t.openingActor()
+	}
+	t.handedOver = true
+	t.awaiting = actor
+	t.used = true
+	t.state[awaitingKey] = actor
+	if t.playedRound > 0 {
+		t.state[roundKey] = t.playedRound + 1
+	}
+	closing := "the table's turn."
+	if actor != "" {
+		closing = fmt.Sprintf("the table's turn: %s declares the next round.", actor)
+	}
+	return llm.ToolResult{CallID: call.ID, Content: closing + " End the narration by asking them what they do, and do not play the next round.\n" + t.describe()}
+}
+
+// isPlayerRow reports whether a name belongs to a player character in the record.
+func (t *combatTools) isPlayerRow(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	combatants, _ := combatantsOf(t.state)
+	if _, combatant := findCombatant(combatants, name); combatant != nil {
+		if strings.EqualFold(str(combatant["kind"]), "pc") {
+			return true
+		}
+	}
+	return strings.EqualFold(name, strings.TrimSpace(t.pc))
+}
+
+// HandedOver reports whether this reply ended by calling request_action, which is the only ending a turn that resolved
+// a round may have while the fight goes on.
+func (t *combatTools) HandedOver() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.handedOver
+}
+
+// AwaitingActor is who the record says the table is waiting on, empty when nobody owes a declaration.
+func (t *combatTools) AwaitingActor() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.awaiting != "" {
+		return t.awaiting
+	}
+	return str(t.state[awaitingKey])
 }
 
 // startFreshFight clears a record whose fight is already over, so the next one does not inherit its bodies or its
@@ -213,6 +314,8 @@ func (t *combatTools) startFreshFight() {
 	t.state = map[string]interface{}{}
 	t.acted = map[string]struct{}{}
 	t.roundSpent = false
+	t.handedOver = false
+	t.awaiting = ""
 }
 
 // unmetDeclarations lists creatures the call brings into the fight without the hit points that make them a creature
@@ -319,8 +422,12 @@ func (t *combatTools) roundClosing() string {
 	if !t.foesStanding() {
 		return "the fight is over: no foe is standing\n"
 	}
-	return fmt.Sprintf("round %d is complete. Nobody acts again in this reply: the reply closes the round and hands the table round %d, whose actors declare in the order above.\n",
-		t.playedRound, t.playedRound+1)
+	actor := t.awaiting
+	if actor == "" {
+		actor = t.openingActor()
+	}
+	return fmt.Sprintf("round %d is complete and the table's: %s declares round %d. End the narration by asking them what they do; do not play the next round.\n",
+		t.playedRound, actor, t.playedRound+1)
 }
 
 // openingActor is who declares first in the next round: the first player character in the initiative order, and failing
@@ -361,6 +468,12 @@ func (t *combatTools) openingActor() string {
 		}
 		if hp, has := intField(combatant, participantHPCurrentKey); !has || hp > 0 {
 			return name
+		}
+	}
+	// No order rolled yet: the player's own row is still whose declaration comes next.
+	for _, combatant := range combatants {
+		if strings.EqualFold(str(combatant["kind"]), "pc") {
+			return fmt.Sprint(combatant[participantNameKey])
 		}
 	}
 	return ""
