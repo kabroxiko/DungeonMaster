@@ -110,56 +110,23 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 	}
 
 	inbound := filterNoSystem(messages)
-	// A fight is read from the record, not from the campaign's history. The whole transcript is what makes a combat
-	// turn unaffordable: past scenes crowd the window until the model has no room left to answer in, and it has been
-	// told the same alley twice already. What the round needs is the scene it is happening in.
-	if mode != "initial" && encounterInProgress(gs, pcDisplayName(gs, requestingUserID)) {
-		if trimmed := trimForCombat(inbound, combatTranscriptMessages); len(trimmed) < len(inbound) {
-			log.Printf("dm generate (gameId=%s): combat turn carries the last %d of %d messages",
-				gameID, len(trimmed), len(inbound))
-			inbound = trimmed
-		}
-	}
 	inboundForModel := withSpeakerAttribution(inbound)
 
-	// The consolidated system prompt leads every request, so its order is the provider's prefix-cache key: blocks
-	// that never change between turns go first, blocks that change every turn go last. Hoisting per-turn state above
-	// the static rules would change the leading bytes on every turn and throw away the cache for the whole request.
-	consolidated := composeDmSystemPrompt(mode, language, sessionSummary, gs, requestingUserID)
-
-	msgs := []interface{}{
-		map[string]interface{}{"role": "system", "content": consolidated},
-	}
-	for _, m := range inboundForModel {
-		msgs = append(msgs, m)
-	}
-
-	_ = saveRawRequest(ctx, d.Coll, gameID, msgs)
 	_ = markLlmStarted(ctx, d.Coll, gameID)
-
-	tok := estimateTokens(msgs)
-	// A reasoning model spends part of this budget on the analysis it never shows, then writes the visible turn. 550
-	// left gpt-oss-20b ending play turns with nothing but thinking, so the budget covers the analysis and the turn.
-	budget := 1200
-	if mode == "initial" {
-		budget = 2200
-	}
-	cap := cfg.ModelContextTok - tok - 80
-	if cap > 0 && cap < budget {
-		budget = cap
-	}
-	if budget < 200 {
-		budget = 200
-	}
 
 	// The opening adventure is authored once and read for the whole campaign; every later turn is a play turn.
 	heavy := mode == "initial"
 
+	// The fight is resolved first, and the prompt is composed afterwards. Composing it before meant the turn that starts
+	// a fight was still composed as exploration: the imported world, its regions and its map guidance went out with a
+	// round of combat that needs none of it, and the record was empty because nothing had opened the fight yet.
+	//
 	// The engine owns the fight. The model is asked two small things with a strict shape - what the player just
 	// declared, and what one creature does on its own turn - and every rule that decides the round stays here: the
 	// order, the pointer, the dice and the record. A model left to run the fight skips a turn, plays a round twice, or
 	// answers for a creature nobody asked it about; none of that is a prompt problem, it is a division of labour.
 	var engineState map[string]interface{}
+	var engineLines []string
 	var waitingOn string
 	if !heavy {
 		var sheet map[string]interface{}
@@ -185,6 +152,7 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			state, played, waitingOn = playCombatTurns(state, humanActors(gs, requestingUserID, pcName), declared.Action, decide, rng, combatTurnsPerReply)
 			lines = append(lines, played...)
 			engineState = state
+			engineLines = lines
 			if waitingOn != "" {
 				state[awaitingKey] = waitingOn
 			}
@@ -194,9 +162,54 @@ func HandleDmGenerate(ctx context.Context, d *Deps, cfg *config.Config, userID s
 			engineState = state
 			log.Printf("dm generate (gameId=%s): the declaration asked the table for %q", gameID, declared.Ask)
 		}
-		if block := combatResultsBlock(lines, engineState, waitingOn); block != "" {
-			msgs = insertSystemBlock(msgs, block)
+	}
+
+	if engineState != nil && gs != nil {
+		// The engine works on a copy; the prompt is composed from the record, so the record has to hold what this turn
+		// just played. Without this the turn that opens a fight was composed from an empty state and went out as an
+		// exploration turn, with the imported world and its map guidance attached to a round of combat.
+		gs["encounterState"] = engineState
+	}
+
+	// A fight is read from the record, not from the campaign's history. The whole transcript is what makes a combat turn
+	// unaffordable: past scenes crowd the window until the model has no room left to answer in. What the round needs is
+	// the scene it is happening in, and the record of the fight.
+	if mode != "initial" && encounterInProgress(gs, pcDisplayName(gs, requestingUserID)) {
+		if trimmed := trimForCombat(inboundForModel, combatTranscriptMessages); len(trimmed) < len(inboundForModel) {
+			log.Printf("dm generate (gameId=%s): combat turn carries the last %d of %d messages",
+				gameID, len(trimmed), len(inboundForModel))
+			inboundForModel = trimmed
 		}
+	}
+
+	// The consolidated system prompt leads every request, so its order is the provider's prefix-cache key: blocks that
+	// never change between turns go first, blocks that change every turn go last.
+	consolidated := composeDmSystemPrompt(mode, language, sessionSummary, gs, requestingUserID)
+	msgs := []interface{}{
+		map[string]interface{}{"role": "system", "content": consolidated},
+	}
+	for _, m := range inboundForModel {
+		msgs = append(msgs, m)
+	}
+	if block := combatResultsBlock(engineLines, engineState, waitingOn); block != "" {
+		msgs = insertSystemBlock(msgs, block)
+	}
+	tok := estimateTokens(msgs)
+	_ = saveRawRequest(ctx, d.Coll, gameID, msgs)
+
+	// A reasoning model spends part of this budget on the analysis it never shows, then writes the visible turn. 550 left
+	// gpt-oss-20b ending play turns with nothing but thinking, so the budget covers the analysis and the turn - and it
+	// shrinks to what the context has left, which is why the prompt size is measured first.
+	budget := 1200
+	if mode == "initial" {
+		budget = 2200
+	}
+	cap := cfg.ModelContextTok - tok - 80
+	if cap > 0 && cap < budget {
+		budget = cap
+	}
+	if budget < 200 {
+		budget = 200
 	}
 
 	ask := func(messages []interface{}) (string, error) {
@@ -479,16 +492,10 @@ func composeDmSystemPrompt(mode, language, sessionSummary string, gs map[string]
 	for _, m := range promptmgr.ComposeSystemMessages(effectiveMode, "", true, language) {
 		parts = append(parts, m["content"])
 	}
-	// The browser does not decide when a fight starts - it sends no mode at all, so every play turn arrived as
-	// exploration and the combat procedure never loaded. A table's first attack was therefore improvised by a model with
-	// no initiative, no encounter bookkeeping and no defender: it invented a bystander with an armor class so it had
-	// something to roll against. Refereeing combat is not a rare mode, it is the job; the block itself decides when
-	// formal combat applies, so it rides along on every play turn and only the opening is left without it.
-	if effectiveMode != "combat" && effectiveMode != "initial" {
-		if skill := promptmgr.LoadPrompt("skills/combat.md"); skill != "" {
-			parts = append(parts, promptmgr.RenderSkillPrompt(skill, language))
-		}
-	}
+	// The combat procedure rides on the turns that are fights, and nowhere else. It used to ride on every play turn because
+	// the browser never says whether a fight is running, and its whole job was to decide when one starts - a job that
+	// belongs to the declaration call now. Reading it on a turn spent bargaining in a market was nine thousand characters
+	// of initiative and hit points in front of a model that had to be told about the alley instead.
 	if mode == "initial" && spec != nil {
 		// The opening has to be written from the campaign the server stored: its concept, conflicts, factions, NPCs
 		// and key locations, with location names reconciled against the players' map.

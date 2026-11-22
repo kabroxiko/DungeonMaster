@@ -68,27 +68,36 @@ func TestEmptyEncounterStateRendersAnEmptyObject(t *testing.T) {
 	}
 }
 
+// The combat procedure rides on a fight, and only on a fight. It used to ride on every play turn because the browser
+// never says whether a fight is running; deciding when one starts belongs to the declaration call now, and nine thousand
+// characters of initiative on a turn spent bargaining is the prompt crowding out the scene.
+func TestCombatProcedureRidesOnFightsOnly(t *testing.T) {
+	const marker = "Starting or resuming formal combat"
+	fighting := map[string]interface{}{
+		"gameSetup": map[string]interface{}{
+			"playerCharacters": map[string]interface{}{"u1": map[string]interface{}{"name": "Varek", "kind": "pc", "ac": 13, "max_hp": 12}},
+		},
+		"encounterState": map[string]interface{}{"participants": []interface{}{
+			map[string]interface{}{"displayName": "Varek", "kind": "pc", "hp_current": 12, "hp_max": 12, "ac": 13},
+			map[string]interface{}{"displayName": "Goblin", "hp_current": 7, "hp_max": 7, "ac": 13},
+		}},
+	}
+	if prompt := composeDmSystemPrompt("exploration", "Spanish", "", fighting, "u1"); !strings.Contains(prompt, marker) {
+		t.Fatal("a turn in the middle of a fight has no combat procedure")
+	}
+	for _, mode := range []string{"exploration", "investigation", "decision"} {
+		prompt := composeDmSystemPrompt(mode, "Spanish", "", nil, "")
+		if strings.Contains(prompt, marker) {
+			t.Fatalf("the %s turn carries a combat procedure it does not need", mode)
+		}
+	}
+}
+
 // The browser never sends a mode, so every play turn arrives as exploration.
 //
 // Without the combat procedure the DM improvised fights with no initiative, no encounter bookkeeping and no defender:
 // it invented a bystander with an armor class so it had something to roll against. The procedure rides on every play
 // turn now, and the block itself decides when formal combat applies.
-func TestCombatProcedureRidesOnEveryPlayTurn(t *testing.T) {
-	const marker = "Starting or resuming formal combat"
-	for _, mode := range []string{"exploration", "investigation", "decision"} {
-		prompt := composeDmSystemPrompt(mode, "Spanish", "", nil, "")
-		if !strings.Contains(prompt, marker) {
-			t.Fatalf("the %s turn has no combat procedure", mode)
-		}
-	}
-	if strings.Count(composeDmSystemPrompt("combat", "Spanish", "", nil, ""), marker) != 1 {
-		t.Fatal("a combat turn should carry the procedure exactly once")
-	}
-	if strings.Contains(composeDmSystemPrompt("initial", "Spanish", "", nil, ""), marker) {
-		t.Fatal("the opening is not a play turn and should not carry the combat procedure")
-	}
-}
-
 // A reply that resolved a round without the record is not retried: it is diagnosed, because the three causes need
 // different fixes and only one of them is the model forgetting.
 func TestMissingRecordIsDiagnosedByCause(t *testing.T) {
